@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 
@@ -125,7 +125,9 @@ def naming(
             exit code attached.
     """
     if path is None:
-        raw_input_path: str = typer.prompt("Enter the absolute path to your discography folder")
+        raw_input_path: str = cast(
+            str, typer.prompt("Enter the absolute path to your discography folder")
+        )
         path = Path(_normalize_path_input(raw_input_path)).expanduser().resolve()
 
     if not path.is_dir():
@@ -187,7 +189,7 @@ def naming(
 
     for album, new_name in plan:
         if album.name != new_name:
-            album.rename(album.with_name(new_name))
+            _ = album.rename(album.with_name(new_name))
 
     typer.secho(f"\nDone. {len(plan)} album(s) renamed.", fg=typer.colors.GREEN, bold=True)
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 
@@ -71,7 +71,9 @@ def renumber(
             exit code attached.
     """
     if path is None:
-        raw_input_path: str = typer.prompt("Enter the absolute path to your discography folder")
+        raw_input_path: str = cast(
+            str, typer.prompt("Enter the absolute path to your discography folder")
+        )
         path = Path(_normalize_path_input(raw_input_path)).expanduser().resolve()
 
     if not path.is_dir():
@@ -114,12 +116,12 @@ def renumber(
     staged: list[tuple[Path, str]] = []
     for album, new_name in plan:
         temp_path: Path = album.with_name(f".__tmp__{album.name}")
-        album.rename(temp_path)
+        _ = album.rename(temp_path)
         staged.append((temp_path, new_name))
 
     for temp_path, new_name in staged:
         final_path: Path = temp_path.parent / new_name
-        temp_path.rename(final_path)
+        _ = temp_path.rename(final_path)
 
     typer.secho(f"\nDone. {len(plan)} album(s) renumbered.", fg=typer.colors.GREEN, bold=True)
 
