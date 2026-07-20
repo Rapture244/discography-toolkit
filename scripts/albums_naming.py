@@ -11,6 +11,12 @@ decides whether " [FLAC]" gets appended.
 
 Final format: "(yyyy) - Album Name" for lossy albums, or
 "(yyyy) - Album Name [FLAC]" for albums with at least one lossless file.
+
+Safe to run at any point in the pipeline, whether before or after
+albums_numbering.py, and on a mix of already-numbered and brand-new
+albums at once: an existing leading index (e.g. "01. ") is detected,
+set aside untouched, and reattached at the end -- this script never
+interprets or renumbers it, only preserves it.
 """
 
 import re
@@ -43,6 +49,17 @@ _YEAR_WRAPPED_RE: re.Pattern[str] = re.compile(rf"\((?:{_YEAR_CORE})\)|\[(?:{_YE
 # (e.g. an 8-digit "19940101" date stamp) and misread it as a year.
 _YEAR_BARE_RE: re.Pattern[str] = re.compile(rf"(?<!\d){_YEAR_CORE}(?!\d)")
 
+# An existing numbering index at the very start of the name -- "01. ",
+# "(01) ", "[01] " -- the exact convention albums_numbering.py itself
+# writes and strips. Detected and set aside before year/FLAC processing
+# so an already-numbered album is never corrupted by naming re-running
+# on it, then reattached unchanged at the very end. Anchored to the
+# start (^) only, unlike the year/FLAC patterns which search anywhere --
+# an index is only ever meaningful as a prefix.
+_EXISTING_INDEX_RE: re.Pattern[str] = re.compile(
+    r"^(?:\(\d{1,3}\)|\[\d{1,3}\]|\d{1,3}(?!\d))[._\s-]*"
+)
+
 # An existing "FLAC" marker wrapped in (parens) or [brackets], anywhere
 # in the name, case-insensitive. Checked first, same reasoning as years.
 _FLAC_WRAPPED_RE: re.Pattern[str] = re.compile(r"\(\s*FLAC\s*\)|\[\s*FLAC\s*\]", re.IGNORECASE)
@@ -57,6 +74,7 @@ _FLAC_BARE_RE: re.Pattern[str] = re.compile(r"\bFLAC\b", re.IGNORECASE)
 _LOSSLESS_EXTENSIONS: frozenset[str] = frozenset(
     {".flac", ".wav", ".ape", ".wv", ".tta", ".aiff", ".aif", ".dsf", ".dff"}
 )
+
 
 # Leftover separator characters (whitespace, hyphen, underscore, dot) at
 # the very start or end of a name, after a token has been cut out.
@@ -120,7 +138,8 @@ def naming(
     plan: list[tuple[Path, str]] = []
     skipped: list[Path] = []
     for album in albums:
-        year, after_year = _extract_year(album.name)
+        index_prefix, content = _split_existing_index(album.name)
+        year, after_year = _extract_year(content)
         if year is None:
             skipped.append(album)
             continue
@@ -129,7 +148,7 @@ def naming(
         is_lossless: bool = _is_lossless_album(album)
         flac_suffix: str = " [FLAC]" if is_lossless else ""
 
-        new_name: str = f"({year}) - {after_flac_strip}{flac_suffix}"
+        new_name: str = f"{index_prefix}({year}) - {after_flac_strip}{flac_suffix}"
         plan.append((album, new_name))
 
     typer.secho(f"\n{len(plan)} album(s) found in {path}\n", bold=True)
@@ -208,6 +227,31 @@ def _discover_albums(root: Path) -> list[Path]:
     ]
     sorted_albums: list[Path] = sorted(albums, key=lambda p: p.name.casefold())
     return sorted_albums
+
+
+def _split_existing_index(name: str) -> tuple[str, str]:
+    """Set aside an existing numbering index, if the name already has one.
+
+    Makes this script agnostic to whether `albums_numbering.py` has
+    already run on a given folder or not -- an already-numbered album
+    keeps its index untouched, while a brand-new, never-numbered album
+    simply has nothing to set aside.
+
+    Args:
+        name: The raw album folder name, possibly still carrying a
+            leading index written by `albums_numbering.py` (e.g.
+            `"01. "`).
+
+    Returns:
+        A tuple of `(index_prefix, remainder)`. `index_prefix` is
+        the exact leading text matched, including its own separator
+        (e.g. `"01. "`), or an empty string if no index is present.
+        `remainder` is the rest of the name, unchanged.
+    """
+    match: re.Match[str] | None = _EXISTING_INDEX_RE.match(name)
+    if match is None:
+        return "", name
+    return match.group(0), name[match.end() :]
 
 
 def _extract_year(name: str) -> tuple[str | None, str]:
