@@ -1,0 +1,13 @@
+repos:
+  # ================================================================================================================== #
+  #                                                       RUFF                                                        #
+  # ================================================================================================================== #
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22   # current as of today — run `prek auto-update` periodically, this pin goes stale
+    hooks:
+      # Linter, with safe autofix
+      - id: ruff-check
+        args: ["--fix"]
+
+      # Formatter (style only, like Black)
+      - id: ruff-format
