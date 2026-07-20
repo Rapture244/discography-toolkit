@@ -27,7 +27,7 @@ src = ["src"]
 
 # -------------------------------------------- PYTHON TARGET / STYLE ------------------------------------------- #
 # Python
-target-version = "py3.13" # e.g. "py312" for Python 3.12
+target-version = "py313" # e.g. "py312" for Python 3.12
 line-length = 100
 indent-width = 4
 
