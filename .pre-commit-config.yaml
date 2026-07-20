@@ -3,7 +3,7 @@ repos:
   #                                                       RUFF                                                        #
   # ================================================================================================================== #
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22   # current as of today — run `prek auto-update` periodically, this pin goes stale
+    rev: v0.15.22   # run `prek auto-update` periodically, this pin goes stale
     hooks:
       # Linter, with safe autofix
       - id: ruff-check
@@ -11,3 +11,14 @@ repos:
 
       # Formatter (style only, like Black)
       - id: ruff-format
+
+  # ================================================================================================================== #
+  #                                                   BASEDPYRIGHT                                                    #
+  # ================================================================================================================== #
+  - repo: https://github.com/DetachHead/basedpyright-prek-mirror
+    rev: 1.39.9    # no 'v' prefix — basedpyright's own version scheme
+    hooks:
+      - id: basedpyright
+        name: basedpyright (type checking)
+        pass_filenames: false                     # analyze the whole project, not just staged files
+        args: ["--project", "pyrightconfig.json"]  # NOT .jsonc — see your own note's warning

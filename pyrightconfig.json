@@ -21,6 +21,7 @@
     // Directories to type-check
     "include": [
         "src",
+        "scripts",
         "tests"
     ],
 
