@@ -1,0 +1,62 @@
+# ==================================================================================================================== #
+#                                              BUILD SYSTEM (PEP 517/518)                                              #
+# ==================================================================================================================== #
+[build-system]
+requires = ["hatchling>=1.30", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+# ==================================================================================================================== #
+#                                              PROJECT METADATA (PEP 621)                                              #
+# ==================================================================================================================== #
+[project]
+name = "discography-toolkit"
+dynamic = ["version"]
+description = "A toolkit for cleaning up, retagging, and reorganizing my large personal music discography"
+readme = "README.md"
+authors = [
+    { name = "ovidiu.pascal", email = "pascal.ovidiuu@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+
+# ==================================================================================================================== #
+#                                               CLI ENTRY POINT                                                        #
+# ==================================================================================================================== #
+[project.scripts]
+#your-command = "your_project.cli:app"
+
+# ==================================================================================================================== #
+#                                             BUILD CONFIG                                                             #
+# ==================================================================================================================== #
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build]
+exclude = [
+    ".venv/**",
+    ".env/**",
+    ".idea/**",
+    ".vscode/**",
+    ".DS_Store",
+    "*.swp",
+    "*.swo",
+    ".mypy_cache/**",
+    ".ruff_cache/**",
+    ".pytest_cache/**",
+    ".coverage",
+    "htmlcov/**",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/your_project"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/your_project/**",
+    "docs/**",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+]

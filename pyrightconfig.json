@@ -1,0 +1,71 @@
+{
+    // ------------------------------------------------------------------------------------------
+    // IMPORTANT:
+    // basedpyright DOES support JSONC (JSON with comments), but ONLY when the file is named
+    // exactly "basedpyrightconfig.json". Rename it to ".jsonc" and it will NOT be read.
+    // ------------------------------------------------------------------------------------------
+
+    // ------------------------------------------------------------------------------------------
+    // NOTE ABOUT JSON / SCHEMALESS DATA FILES:
+    // JSON files (and other dynamic data formats) do not have static structure, so basedpyright
+    // treats loaded JSON as "Any" by default. If your code relies on a stable JSON schema,
+    // define TypedDict models to make the structure explicit and type-safe.
+    //
+    // Alternatively, for heavier or more structured data, load and validate JSON using
+    // dataclasses or a library like Pydantic, then operate on strongly-typed objects instead of
+    // raw dictionaries.
+    //
+    // This prevents basedpyright from losing type information and avoids "unknown" type errors.
+    // ------------------------------------------------------------------------------------------
+
+    // Directories to type-check
+    "include": [
+        "src",
+        "tests"
+    ],
+
+    // Directories to ignore. NOTE: setting "exclude" yourself replaces
+    // basedpyright's built-in defaults (**/node_modules, **/__pycache__, **/.*)
+    // entirely -- it does not add to them. That's why .git, .idea, and .vscode
+    // are listed explicitly below; otherwise nothing would skip them anymore.
+    "exclude": [
+        "**/__pycache__",
+        ".venv",
+        ".ruff_cache",
+        ".pytest_cache",
+        ".git",
+        ".idea",
+        ".vscode",
+        "build",
+        "dist",
+        "docs/_build"
+    ],
+
+    // Virtual environment settings
+    "venvPath": ".",          // Folder containing the venv
+    "venv": ".venv",          // Name of the environment inside venvPath
+
+    // Target Python version for analysis
+    "pythonVersion": "3.13",   // e.g. "3.13"
+
+    // basedpyright's own curated strictness preset, sitting between "standard" and "strict".
+    // Other valid values: "off", "basic", "standard", "strict", "all".
+    "typeCheckingMode": "recommended",
+
+    // ------------------------------------------------------------------------------------------
+    // Diagnostics tuning (balanced strictness — friendly, not annoying)
+    // ------------------------------------------------------------------------------------------
+
+    // Warn when types or stubs are missing in third-party libs
+    "reportMissingTypeStubs": false,
+
+    // Warn when imports can't be resolved (often a venv / tooling issue)
+    "reportMissingImports": "warning",
+
+    // Unused imports/variables (Ruff also helps here, but basedpyright is type-aware)
+    "reportUnusedImport": "warning",
+    "reportUnusedVariable": "warning",
+
+    // Warn when a "# type: ignore" comment isn't needed anymore
+    "reportUnnecessaryTypeIgnoreComment": "warning"
+}
