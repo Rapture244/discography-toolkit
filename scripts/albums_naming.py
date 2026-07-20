@@ -19,8 +19,10 @@ set aside untouched, and reattached at the end -- this script never
 interprets or renumbers it, only preserves it.
 """
 
-import re
+from __future__ import annotations
+
 from pathlib import Path
+import re
 from typing import Annotated
 
 import typer

@@ -7,8 +7,10 @@ order: "01. ", "02. ", ... "xx. ". Safe to re-run at any time -- a folder
 set that mixes numbered and unnumbered albums gets fully normalized.
 """
 
-import re
+from __future__ import annotations
+
 from pathlib import Path
+import re
 from typing import Annotated
 
 import typer
