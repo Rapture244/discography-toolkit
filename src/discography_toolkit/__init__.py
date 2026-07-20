@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from discography-toolkit!"
+"""Discography Toolkit — tools for managing and processing music discographies."""
