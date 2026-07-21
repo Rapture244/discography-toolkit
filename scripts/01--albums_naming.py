@@ -40,6 +40,14 @@ middle, end) while listening, and this script finds it, removes it,
 and re-prefixes it at the very front (ahead of the numbering index, if
 one is present) -- no need to type it in the right spot to begin with.
 It carries no year/quality meaning of its own.
+
+Calin's discography layout keeps lossy albums as direct children of an
+artist folder, alongside one sibling container -- e.g. "FLAC -
+(56 on 65)" -- holding every FLAC album underneath it. That container
+is bookkeeping, not an album: this script never renames it, and looks
+one level inside it instead, treating its children exactly like any
+other top-level album (same year/quality/© handling, same summary and
+per-album reporting). Only one level of container is unwrapped.
 """
 
 from __future__ import annotations
@@ -48,6 +56,8 @@ from pathlib import Path
 import re
 from typing import Annotated, Literal, cast
 
+from mutagen import MutagenError
+from mutagen.mp4 import MP4
 import typer
 
 # ==================================================================================== #
@@ -93,22 +103,38 @@ _EXISTING_INDEX_RE: re.Pattern[str] = re.compile(
 # cosmetic and carries no year/quality meaning of its own.
 _CALINE_MARK_RE: re.Pattern[str] = re.compile(r"©")
 
-# An existing "FLAC" or "OPUS" quality marker wrapped in (parens) or
-# [brackets], anywhere in the name, case-insensitive. Checked first,
-# same reasoning as years. Covers both words since either can go stale
-# once the underlying files change out from under a folder name (e.g.
-# a "[FLAC]" folder gets transcoded to Opus for a playlist).
-_QUALITY_WRAPPED_RE: re.Pattern[str] = re.compile(
-    r"\(\s*(?:FLAC|OPUS)\s*\)|\[\s*(?:FLAC|OPUS)\s*\]", re.IGNORECASE
-)
+# A single "(...)" or "[...]" wrapper anywhere in the name, captured
+# whole so its inner text can be inspected. Some albums were tagged
+# inconsistently before Calin settled on a convention, mixing the
+# quality word into the same bracket as another descriptive tag --
+# e.g. "[FLAC, 40th Anniversary]", "(FLAC, Live)", "[FLAC m4a]". Used
+# to find whichever bracket actually contains the stale quality word,
+# so just that word can be cut out of it while any other tag sharing
+# the bracket is kept.
+_ANY_WRAPPED_RE: re.Pattern[str] = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
 
 # A bare "FLAC" or "OPUS" marker, case-insensitive, bounded on both
 # sides so it can't match as a substring inside an unrelated word.
 _QUALITY_BARE_RE: re.Pattern[str] = re.compile(r"\b(?:FLAC|OPUS)\b", re.IGNORECASE)
 
-# File extensions treated as lossless audio for detection purposes.
-# ".m4a" is deliberately excluded: it can hold either lossy AAC or
-# lossless ALAC, and the extension alone can't tell those apart.
+# Calin's discography layout splits an artist folder into lossy albums
+# directly inside it, plus one sibling container -- e.g.
+# "FLAC - (56 on 65)" -- holding every FLAC album underneath. That
+# container is bookkeeping, not an album: it starts with the word
+# "FLAC" and, after that, contains nothing but digits, whitespace,
+# hyphens, parens/brackets, and the literal word "on" (as in "56 on
+# 65") -- never any other letter. A real album name never matches this
+# (e.g. "Flac Albums" or "01. (1951) - Modern Jazz Trumpets" both fail,
+# since they carry other letters). The container itself is never
+# touched; only its children are discovered as ordinary albums.
+_FLAC_CONTAINER_RE: re.Pattern[str] = re.compile(r"^FLAC(?:[\s\-()\[\]0-9]|on)*$", re.IGNORECASE)
+
+# File extensions unambiguously treated as lossless audio, just from
+# their extension. ".m4a" is deliberately NOT here -- it's an MP4
+# container that can hold either lossy AAC or lossless ALAC, and the
+# extension alone can never tell those apart. It's handled separately,
+# in `_detect_audio_tier`, by inspecting the actual codec inside the
+# file via mutagen.
 _LOSSLESS_EXTENSIONS: frozenset[str] = frozenset(
     {".flac", ".wav", ".ape", ".wv", ".tta", ".aiff", ".aif", ".dsf", ".dff"}
 )
@@ -306,16 +332,37 @@ def _normalize_path_input(raw: str) -> str:
 def _discover_albums(root: Path) -> list[Path]:
     """Find album subdirectories inside a discography folder.
 
+    A direct child that matches `_FLAC_CONTAINER_RE` (e.g. "FLAC -
+    (56 on 65)") is treated as bookkeeping, not an album: it is never
+    included itself, and never renamed. Instead, one level inside it
+    is discovered and its children are added exactly as if they sat
+    directly under `root` -- so lossy albums (found directly under
+    `root`) and FLAC albums (found one level inside the container) end
+    up combined into a single flat list, matching how they're numbered
+    as one continuous sequence in practice. Only one level of container
+    is unwrapped; a container is never expected to hold another one.
+
     Args:
         root: The directory to scan for album subfolders.
 
     Returns:
-        Visible subdirectories of `root` (hidden folders excluded),
-        sorted case-insensitively by their current name.
+        Visible album subdirectories (hidden folders excluded, and the
+        FLAC container itself excluded in favor of its own children),
+        sorted case-insensitively by name.
     """
-    albums: list[Path] = [
-        entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith(".")
-    ]
+    albums: list[Path] = []
+    for entry in root.iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if _FLAC_CONTAINER_RE.match(entry.name):
+            albums.extend(
+                child
+                for child in entry.iterdir()
+                if child.is_dir() and not child.name.startswith(".")
+            )
+            continue
+        albums.append(entry)
+
     sorted_albums: list[Path] = sorted(albums, key=lambda p: p.name.casefold())
     return sorted_albums
 
@@ -408,50 +455,108 @@ def _extract_year(name: str) -> tuple[str | None, str]:
 
 
 def _strip_quality_marker(name: str) -> str:
-    """Find and remove an existing "FLAC" or "OPUS" text marker, if present.
+    """Find and remove an existing "FLAC"/"OPUS" quality word, if present.
 
     This never decides an album's quality tier -- it only cleans up a
-    stale text label so `_detect_audio_tier`'s real-content check is
+    stale quality word so `_detect_audio_tier`'s real-content check is
     the sole source of truth for that. A folder can easily carry a
-    stale marker from before its files last changed (e.g. a "[FLAC]"
-    folder that got transcoded to Opus for a playlist), so either word
-    is stripped regardless of which one is actually present. Searches
-    for a wrapped marker -- "(FLAC)"/"[OPUS]" etc -- first, then falls
-    back to a bare word.
+    stale word from before its files last changed (e.g. transcoded to
+    Opus), so either word is stripped regardless of which is present.
+
+    Some albums were tagged inconsistently before Calin settled on a
+    convention, mixing the quality word into the same bracket as
+    another descriptive tag worth keeping -- e.g. "[FLAC, 40th
+    Anniversary]", "(FLAC, Live)", "[FLAC m4a]". In that case, only the
+    quality word itself is removed; the other tag is kept, re-wrapped
+    in a bracket of the same style, in the same position. A bracket
+    containing *only* the quality word (a clean "[FLAC]"/"(OPUS)") is
+    removed entirely, same as before. Falls back to a bare, unwrapped
+    word if no bracket contains one at all.
 
     Args:
         name: An album name, already past year extraction.
 
     Returns:
-        The name with any existing quality marker removed and the
-        surrounding text tidied up. Returned unchanged if no marker
-        is present.
+        The name with any stale quality word removed -- any other tag
+        sharing its bracket preserved -- and surrounding text tidied
+        up. Returned unchanged if no quality word is present anywhere.
     """
-    match: re.Match[str] | None = _QUALITY_WRAPPED_RE.search(name)
-    if match is None:
-        match = _QUALITY_BARE_RE.search(name)
-    if match is None:
+    for wrapped_match in _ANY_WRAPPED_RE.finditer(name):
+        paren_content, bracket_content = wrapped_match.group(1), wrapped_match.group(2)
+        is_paren: bool = paren_content is not None
+        content: str = paren_content if is_paren else bracket_content
+        opening, closing = ("(", ")") if is_paren else ("[", "]")
+
+        quality_match: re.Match[str] | None = _QUALITY_BARE_RE.search(content)
+        if quality_match is None:
+            continue
+
+        remaining_content: str = content[: quality_match.start()] + content[quality_match.end() :]
+        remaining_content = remaining_content.strip(" ,")
+        remaining_content = _MULTI_SPACE_RE.sub(" ", remaining_content).strip()
+
+        replacement: str = f"{opening}{remaining_content}{closing}" if remaining_content else ""
+        remaining_name: str = (
+            name[: wrapped_match.start()] + replacement + name[wrapped_match.end() :]
+        )
+        return _cleanup_name(remaining_name)
+
+    bare_match: re.Match[str] | None = _QUALITY_BARE_RE.search(name)
+    if bare_match is None:
         return name
 
-    remaining: str = name[: match.start()] + name[match.end() :]
+    remaining: str = name[: bare_match.start()] + name[bare_match.end() :]
     return _cleanup_name(remaining)
+
+
+def _is_lossless_m4a(path: Path) -> bool:
+    """Determine whether a ".m4a" file is ALAC (lossless) or AAC (lossy).
+
+    The ".m4a" extension is inherently ambiguous -- it's just an MP4
+    container that can hold either codec -- so the extension alone can
+    never answer this. This looks at the actual codec fourcc stored
+    inside the file instead: mutagen reports `"alac"` for Apple
+    Lossless, or an `"mp4a"`-prefixed value for AAC.
+
+    Args:
+        path: Path to a `.m4a` file.
+
+    Returns:
+        `True` if the file's codec is ALAC. `False` for AAC, or if the
+        file can't be read/parsed at all -- treated as "not confirmed
+        lossless" rather than raising, since one unreadable file
+        shouldn't crash a whole discography scan.
+    """
+    try:
+        info: object = MP4(path).info
+    except (MutagenError, OSError):
+        return False
+
+    codec: object = getattr(info, "codec", None)
+    if not isinstance(codec, str):
+        return False
+    return codec.lower().startswith("alac")
 
 
 def _detect_audio_tier(album: Path) -> _AudioTier:
     """Determine an album's audio quality tier from its actual files.
 
     Never trusts any existing text marker in the folder name -- only
-    real file extensions found anywhere under `album` decide the tier.
-    Scans recursively, so multi-disc albums split across "CD1"/"CD2"
-    style subfolders are still detected correctly.
+    real file content decides the tier. Scans recursively, so
+    multi-disc albums split across "CD1"/"CD2" style subfolders are
+    still detected correctly. Most extensions are unambiguous and
+    decided from `_LOSSLESS_EXTENSIONS` alone; ".m4a" is the one
+    exception, resolved per-file via `_is_lossless_m4a` since the
+    extension by itself doesn't say whether it's ALAC or AAC.
 
     Args:
         album: Path to the album folder to scan.
 
     Returns:
         `"lossless"` if any file has an extension in
-        `_LOSSLESS_EXTENSIONS`; otherwise `"opus"` if any file has a
-        `.opus` extension; otherwise `"lossy"`.
+        `_LOSSLESS_EXTENSIONS`, or is a `.m4a` file confirmed to be
+        ALAC; otherwise `"opus"` if any file has a `.opus` extension;
+        otherwise `"lossy"`.
     """
     has_opus: bool = False
     for entry in album.rglob("*"):
@@ -459,6 +564,8 @@ def _detect_audio_tier(album: Path) -> _AudioTier:
             continue
         suffix: str = entry.suffix.lower()
         if suffix in _LOSSLESS_EXTENSIONS:
+            return "lossless"
+        if suffix == ".m4a" and _is_lossless_m4a(entry):
             return "lossless"
         if suffix in _OPUS_EXTENSIONS:
             has_opus = True
