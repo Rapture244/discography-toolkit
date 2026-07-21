@@ -5,6 +5,25 @@ Strips any existing numeric prefix from album folder names (e.g. "01. ",
 "3 - ", "007_"), then re-numbers every album sequentially in alphabetical
 order: "01. ", "02. ", ... "xx. ". Safe to re-run at any time -- a folder
 set that mixes numbered and unnumbered albums gets fully normalized.
+
+An optional leading "©" favorite marker is set aside before sorting and
+before the old prefix is stripped, so it plays no role in ordering --
+albums are ordered purely by whatever's left (in practice, the year
+`01--albums_naming.py` prefixes each name with). It's then glued back
+onto the very front of the freshly numbered name, ahead of the index.
+Unlike `01`, this only looks for "©" anchored at the very front, not
+anywhere in the name -- by the time this script runs, `01` is expected
+to have already relocated it there; re-validating its placement isn't
+this script's job.
+
+Calin's discography layout keeps lossy albums as direct children of an
+artist folder, alongside one sibling container -- e.g. "FLAC -
+(56 on 65)" -- holding every FLAC album underneath it. That container
+is bookkeeping, not an album: it is never numbered or renamed itself.
+Its children are pulled into the very same pool as the direct lossy
+albums and numbered as one continuous sequence -- each album is then
+renumbered in place, inside whichever folder (artist root or
+container) it already lives in.
 """
 
 from __future__ import annotations
@@ -31,6 +50,25 @@ app = typer.Typer(add_completion=False, help=__doc__)
 # lookahead) so a 4+ digit run -- e.g. a "1999 - Album" year -- can never
 # be partially matched as if the first 3 digits were a numbering prefix.
 _PREFIX_RE: re.Pattern[str] = re.compile(r"^(?:\(\d{1,3}\)|\[\d{1,3}\]|\d{1,3}(?!\d))[._\s-]*")
+
+# Calin's personal "pin to the top" favorite marker, anchored to the
+# very front only -- unlike 01--albums_naming.py, which searches the
+# whole name for a stray "©" and relocates it. By the time this script
+# runs, 01 is expected to have already put it there; re-validating its
+# placement isn't this script's job. Set aside before sorting/prefix
+# stripping so it never affects ordering, then reattached ahead of the
+# freshly assigned index.
+_CALINE_MARK_RE: re.Pattern[str] = re.compile(r"^©")
+
+# Calin's discography layout splits an artist folder into lossy albums
+# directly inside it, plus one sibling container -- e.g.
+# "FLAC - (56 on 65)" -- holding every FLAC album underneath. That
+# container is bookkeeping, not an album: it starts with the word
+# "FLAC" and, after that, contains nothing but digits, whitespace,
+# hyphens, parens/brackets, and the literal word "on" (as in "56 on
+# 65") -- never any other letter. The container itself is never
+# touched; only its children are discovered as ordinary albums.
+_FLAC_CONTAINER_RE: re.Pattern[str] = re.compile(r"^FLAC(?:[\s\-()\[\]0-9]|on)*$", re.IGNORECASE)
 
 
 # ==================================================================================== #
@@ -86,15 +124,61 @@ def renumber(
         raise typer.Exit(code=0)
 
     width: int = max(2, len(str(len(albums))))
-    plan: list[tuple[Path, str]] = [
-        (album, f"{index:0{width}d}. {_strip_prefix(album.name)}")
-        for index, album in enumerate(albums, start=1)
-    ]
+    plan: list[tuple[Path, str]] = []
+    for index, album in enumerate(albums, start=1):
+        mark, after_mark = _split_caline_mark(album.name)
+        stripped_name: str = _strip_prefix(after_mark)
+        new_name: str = f"{mark}{index:0{width}d}. {stripped_name}"
+        plan.append((album, new_name))
 
     typer.secho(f"\n{len(plan)} album(s) found in {path}\n", bold=True)
+
+    total: int = len(plan)
+    if total:
+        renumbered_count: int = sum(1 for album, new_name in plan if album.name != new_name)
+        clean_count: int = total - renumbered_count
+        renumbered_pct: float = renumbered_count / total * 100
+        clean_pct: float = clean_count / total * 100
+        count_width: int = len(str(total))
+
+        # (indent, bold word, rest of line, color) -- the label word itself
+        # is bold, the marker/colon/count/percentage stay regular weight,
+        # both segments sharing the same color so the row still reads as one.
+        summary_rows: list[tuple[str, str, str, str]] = [
+            ("", "Total", f"{'':<13}: {total}", typer.colors.BRIGHT_MAGENTA),
+            (
+                "  ",
+                "Renumbered",
+                f" (->) : {renumbered_count:>{count_width}}  ({renumbered_pct:.2f}%)",
+                typer.colors.GREEN,
+            ),
+            (
+                "  ",
+                "Clean     ",
+                f" (==) : {clean_count:>{count_width}}  ({clean_pct:.2f}%)",
+                typer.colors.BLUE,
+            ),
+        ]
+        box_width: int = max(len(indent + word + rest) for indent, word, rest, _ in summary_rows)
+
+        typer.echo("┌" + "─" * (box_width + 2) + "┐")
+        for indent, word, rest, color in summary_rows:
+            pad: str = " " * (box_width - len(indent + word + rest))
+            styled: str = (
+                indent + typer.style(word, fg=color, bold=True) + typer.style(rest, fg=color) + pad
+            )
+            typer.echo("│ " + styled + " │")
+        typer.echo("└" + "─" * (box_width + 2) + "┘")
+        typer.echo()
+
     name_width: int = max((len(repr(album.name)) for album, _ in plan), default=0)
     for album, new_name in plan:
-        marker: str = "=" if album.name == new_name else "->"
+        changed: bool = album.name != new_name
+        marker: str = (
+            typer.style("->", fg=typer.colors.GREEN)
+            if changed
+            else typer.style("==", fg=typer.colors.BLUE)
+        )
         typer.echo(f"  {album.name!r:{name_width}} {marker} {new_name!r}")
 
     if dry_run:
@@ -148,6 +232,27 @@ def _normalize_path_input(raw: str) -> str:
     return cleaned
 
 
+def _split_caline_mark(name: str) -> tuple[str, str]:
+    """Set aside a leading "©" marker, if present at the very front.
+
+    Anchored to the front only -- by the time this script runs, `01`
+    is expected to have already relocated any "©" there; this doesn't
+    search the rest of the name the way `01` does.
+
+    Args:
+        name: The raw album folder name, possibly starting with "©".
+
+    Returns:
+        A tuple of `(mark, remainder)`. `mark` is `"©"` if the name
+        starts with it, or an empty string otherwise. `remainder` is
+        the rest of the name, unchanged.
+    """
+    match: re.Match[str] | None = _CALINE_MARK_RE.match(name)
+    if match is None:
+        return "", name
+    return match.group(0), name[match.end() :]
+
+
 def _strip_prefix(name: str) -> str:
     """Remove an existing numeric prefix from an album folder name, if present.
 
@@ -163,21 +268,59 @@ def _strip_prefix(name: str) -> str:
     return stripped_name
 
 
+def _sort_key(name: str) -> str:
+    """Build the case-insensitive sort key used to order albums.
+
+    Strips both an optional leading "©" and any existing numeric
+    prefix first, so neither affects ordering at all -- albums are
+    ordered purely by whatever's left (in practice, the year
+    `01--albums_naming.py` already prefixed each name with).
+
+    Args:
+        name: The raw album folder name.
+
+    Returns:
+        The casefolded remainder, with "©" and any numeric prefix
+        removed.
+    """
+    _, after_mark = _split_caline_mark(name)
+    return _strip_prefix(after_mark).casefold()
+
+
 def _discover_albums(root: Path) -> list[Path]:
     """Find album subdirectories inside a discography folder.
+
+    A direct child that matches `_FLAC_CONTAINER_RE` (e.g. "FLAC -
+    (56 on 65)") is treated as bookkeeping, not an album: it is never
+    included itself, and never renamed. Instead, one level inside it
+    is discovered and its children are added exactly as if they sat
+    directly under `root` -- so lossy albums (found directly under
+    `root`) and FLAC albums (found one level inside the container) end
+    up combined into a single flat list, numbered as one continuous
+    sequence. Only one level of container is unwrapped.
 
     Args:
         root: The directory to scan for album subfolders.
 
     Returns:
-        Visible subdirectories of `root` (hidden folders excluded),
-        sorted case-insensitively by their name with any existing
-        numeric prefix stripped.
+        Visible album subdirectories (hidden folders excluded, and the
+        FLAC container itself excluded in favor of its own children),
+        sorted case-insensitively by `_sort_key`.
     """
-    albums: list[Path] = [
-        entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith(".")
-    ]
-    sorted_albums: list[Path] = sorted(albums, key=lambda p: _strip_prefix(p.name).casefold())
+    albums: list[Path] = []
+    for entry in root.iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if _FLAC_CONTAINER_RE.match(entry.name):
+            albums.extend(
+                child
+                for child in entry.iterdir()
+                if child.is_dir() and not child.name.startswith(".")
+            )
+            continue
+        albums.append(entry)
+
+    sorted_albums: list[Path] = sorted(albums, key=lambda p: _sort_key(p.name))
     return sorted_albums
 
 
