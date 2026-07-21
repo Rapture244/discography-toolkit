@@ -53,6 +53,23 @@
     // Other valid values: "off", "basic", "standard", "strict", "all".
     "typeCheckingMode": "recommended",
 
+    // mutagen has no type stubs — don't flag Unknown types coming from it
+    "allowedUntypedLibraries": ["mutagen"],
+
+    // scripts/ = thin glue over mutagen + Any-returning typer helpers.
+    // Relax Unknown-propagation rules there only; src/ and tests/ stay strict.
+    "executionEnvironments": [
+        {
+            "root": "scripts",
+            "reportUnknownArgumentType": "none",
+            "reportUnknownMemberType": "none",
+            "reportUnknownVariableType": "none",
+            "reportUnknownParameterType": "none",
+            "reportMissingParameterType": "none",
+            "reportAny": "none"
+        },
+        { "root": "." }
+    ],
     // ------------------------------------------------------------------------------------------
     // Diagnostics tuning (balanced strictness — friendly, not annoying)
     // ------------------------------------------------------------------------------------------
