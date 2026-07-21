@@ -20,5 +20,5 @@ repos:
     hooks:
       - id: basedpyright
         name: basedpyright (type checking)
-        pass_filenames: false                     # analyze the whole project, not just staged files
-        args: ["--project", "pyrightconfig.json"]  # NOT .jsonc — see your own note's warning
+        pass_filenames: true                       # analyze only staged files
+        args: ["--project", "pyrightconfig.json"]
