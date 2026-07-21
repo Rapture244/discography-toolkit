@@ -1,29 +1,52 @@
 #!/usr/bin/env -S uv run
-"""Extract the release year and lossless status from album folder names.
+"""Extract the release year and audio quality tier from album folder names.
 
 Finds a year token -- "1994", "(1994)", "[1994]", or an approximate form
 like "199x" / "19xx" -- anywhere in an album folder's name, removes it,
-and prefixes it cleanly. Any existing "FLAC" / "(FLAC)" / "[FLAC]" text
-is stripped as well -- it is never trusted on its own. Instead, the
-album folder is scanned for actual lossless audio files (.flac, .wav,
-.ape, .wv, .tta, .aiff/.aif, .dsf/.dff); only that real-content check
-decides whether " [FLAC]" gets appended.
+and prefixes it cleanly. Any existing "FLAC" / "OPUS" text marker --
+wrapped in (parens), [brackets], or bare -- is stripped as well; it is
+never trusted on its own. Instead, the album folder is scanned for
+actual audio files, and the real-content check alone decides which of
+three quality tiers gets suffixed:
 
-Final format: "(yyyy) - Album Name" for lossy albums, or
-"(yyyy) - Album Name [FLAC]" for albums with at least one lossless file.
+- Lossless (.flac, .wav, .ape, .wv, .tta, .aiff/.aif, .dsf/.dff present)
+  -> " [FLAC]". This is Calin's master library format.
+- Opus (.opus present, no lossless files) -> " [OPUS]". Calin transcodes
+  FLAC masters down to Opus for day-to-day playlists -- much smaller,
+  no perceptible loss on headphones/speakers, but not the byte-perfect
+  master, hence its own tier rather than being folded into "lossless".
+- Neither -> no suffix at all. The plain lossy (mp3) default.
+
+If a folder somehow contains both lossless and Opus files at once (e.g.
+a transcode caught mid-run), lossless wins -- it's the higher tier and
+the more trustworthy signal.
+
+Final format: "(yyyy) - Album Name" for plain lossy albums,
+"(yyyy) - Album Name [FLAC]" for lossless albums, or
+"(yyyy) - Album Name [OPUS]" for Opus-transcoded albums.
 
 Safe to run at any point in the pipeline, whether before or after
 albums_numbering.py, and on a mix of already-numbered and brand-new
 albums at once: an existing leading index (e.g. "01. ") is detected,
 set aside untouched, and reattached at the end -- this script never
 interprets or renumbers it, only preserves it.
+
+An optional "©" is also recognized and relocated to the front. It's a
+personal marker (nothing to do with copyright) meaning "I've decided
+this one's a favorite" -- used purely to pin an album above everything
+else in a file browser's default sort. Unlike the numbering index, it
+isn't anchored to any position: type it anywhere in the name (front,
+middle, end) while listening, and this script finds it, removes it,
+and re-prefixes it at the very front (ahead of the numbering index, if
+one is present) -- no need to type it in the right spot to begin with.
+It carries no year/quality meaning of its own.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 import typer
 
@@ -62,13 +85,26 @@ _EXISTING_INDEX_RE: re.Pattern[str] = re.compile(
     r"^(?:\(\d{1,3}\)|\[\d{1,3}\]|\d{1,3}(?!\d))[._\s-]*"
 )
 
-# An existing "FLAC" marker wrapped in (parens) or [brackets], anywhere
-# in the name, case-insensitive. Checked first, same reasoning as years.
-_FLAC_WRAPPED_RE: re.Pattern[str] = re.compile(r"\(\s*FLAC\s*\)|\[\s*FLAC\s*\]", re.IGNORECASE)
+# Calin's personal "pin to the top" marker: a bare "©" anywhere in the
+# name -- not anchored to the front like the numbering index, since it
+# gets typed wherever he happens to be while listening, not necessarily
+# at the start. Found and relocated to the very front regardless of
+# where it originally sat. Nothing to do with copyright; purely
+# cosmetic and carries no year/quality meaning of its own.
+_CALINE_MARK_RE: re.Pattern[str] = re.compile(r"©")
 
-# A bare "FLAC" marker, case-insensitive, bounded on both sides so it
-# can't match as a substring inside an unrelated word (e.g. "SuperFLAC").
-_FLAC_BARE_RE: re.Pattern[str] = re.compile(r"\bFLAC\b", re.IGNORECASE)
+# An existing "FLAC" or "OPUS" quality marker wrapped in (parens) or
+# [brackets], anywhere in the name, case-insensitive. Checked first,
+# same reasoning as years. Covers both words since either can go stale
+# once the underlying files change out from under a folder name (e.g.
+# a "[FLAC]" folder gets transcoded to Opus for a playlist).
+_QUALITY_WRAPPED_RE: re.Pattern[str] = re.compile(
+    r"\(\s*(?:FLAC|OPUS)\s*\)|\[\s*(?:FLAC|OPUS)\s*\]", re.IGNORECASE
+)
+
+# A bare "FLAC" or "OPUS" marker, case-insensitive, bounded on both
+# sides so it can't match as a substring inside an unrelated word.
+_QUALITY_BARE_RE: re.Pattern[str] = re.compile(r"\b(?:FLAC|OPUS)\b", re.IGNORECASE)
 
 # File extensions treated as lossless audio for detection purposes.
 # ".m4a" is deliberately excluded: it can hold either lossy AAC or
@@ -76,6 +112,17 @@ _FLAC_BARE_RE: re.Pattern[str] = re.compile(r"\bFLAC\b", re.IGNORECASE)
 _LOSSLESS_EXTENSIONS: frozenset[str] = frozenset(
     {".flac", ".wav", ".ape", ".wv", ".tta", ".aiff", ".aif", ".dsf", ".dff"}
 )
+
+# Opus is a lossy codec, NOT lossless -- Calin transcodes his FLAC
+# masters down to Opus for day-to-day playlists (much smaller, no
+# perceptible quality loss on headphones/speakers, just not
+# byte-for-byte the master). Tracked as its own middle tier, distinct
+# from both true lossless and the plain-mp3 default.
+_OPUS_EXTENSIONS: frozenset[str] = frozenset({".opus"})
+
+# The three recognized audio quality tiers, in priority order when
+# deciding a suffix: lossless beats opus beats the plain lossy default.
+_AudioTier = Literal["lossless", "opus", "lossy"]
 
 
 # Leftover separator characters (whitespace, hyphen, underscore, dot) at
@@ -109,7 +156,7 @@ def naming(
         typer.Option("--dry-run", help="Show planned renames without touching anything."),
     ] = False,
 ) -> None:
-    """Extract each album's year and lossless status, then rename it.
+    """Extract each album's year and audio quality tier, then rename it.
 
     Args:
         path: Absolute path to the folder containing album subfolders.
@@ -142,20 +189,60 @@ def naming(
     plan: list[tuple[Path, str]] = []
     skipped: list[Path] = []
     for album in albums:
-        index_prefix, content = _split_existing_index(album.name)
+        mark, after_mark = _split_caline_mark(album.name)
+        index_prefix, content = _split_existing_index(after_mark)
         year, after_year = _extract_year(content)
         if year is None:
             skipped.append(album)
             continue
 
-        after_flac_strip: str = _strip_flac_marker(after_year)
-        is_lossless: bool = _is_lossless_album(album)
-        flac_suffix: str = " [FLAC]" if is_lossless else ""
+        after_quality_strip: str = _strip_quality_marker(after_year)
+        tier: _AudioTier = _detect_audio_tier(album)
+        quality_suffix: str = {"lossless": " [FLAC]", "opus": " [OPUS]", "lossy": ""}[tier]
 
-        new_name: str = f"{index_prefix}({year}) - {after_flac_strip}{flac_suffix}"
+        new_name: str = f"{mark}{index_prefix}({year}) - {after_quality_strip}{quality_suffix}"
         plan.append((album, new_name))
 
     typer.secho(f"\n{len(plan)} album(s) found in {path}\n", bold=True)
+
+    total: int = len(plan)
+    if total:
+        renamed_count: int = sum(1 for album, new_name in plan if album.name != new_name)
+        clean_count: int = total - renamed_count
+        renamed_pct: float = renamed_count / total * 100
+        clean_pct: float = clean_count / total * 100
+        count_width: int = len(str(total))
+
+        # (indent, bold word, rest of line, color) -- the label word itself
+        # is bold, the marker/colon/count/percentage stay regular weight,
+        # both segments sharing the same color so the row still reads as one.
+        summary_rows: list[tuple[str, str, str, str]] = [
+            ("", "Total", f"{'':<10}: {total}", typer.colors.BRIGHT_MAGENTA),
+            (
+                "  ",
+                "Renamed",
+                f" (->) : {renamed_count:>{count_width}}  ({renamed_pct:.2f}%)",
+                typer.colors.GREEN,
+            ),
+            (
+                "  ",
+                "Clean",
+                f"   (==) : {clean_count:>{count_width}}  ({clean_pct:.2f}%)",
+                typer.colors.BLUE,
+            ),
+        ]
+        box_width: int = max(len(indent + word + rest) for indent, word, rest, _ in summary_rows)
+
+        typer.echo("┌" + "─" * (box_width + 2) + "┐")
+        for indent, word, rest, color in summary_rows:
+            pad: str = " " * (box_width - len(indent + word + rest))
+            styled: str = (
+                indent + typer.style(word, fg=color, bold=True) + typer.style(rest, fg=color) + pad
+            )
+            typer.echo("│ " + styled + " │")
+        typer.echo("└" + "─" * (box_width + 2) + "┘")
+        typer.echo()
+
     name_width: int = max((len(repr(album.name)) for album, _ in plan), default=0)
     for album, new_name in plan:
         changed: bool = album.name != new_name
@@ -233,6 +320,39 @@ def _discover_albums(root: Path) -> list[Path]:
     return sorted_albums
 
 
+def _split_caline_mark(name: str) -> tuple[str, str]:
+    """Find and remove a "©" marker, if present anywhere in the name.
+
+    Calin's own convention for pinning a hand-picked album to the top
+    of a file browser's default sort -- nothing to do with copyright.
+    Unlike the numbering index, it isn't anchored to any position: it
+    can be typed anywhere (front, middle, end) while listening, and
+    this function finds it wherever it is, removes it, and tidies up
+    whatever separator was left behind. It's the caller's job to
+    re-prefix the returned mark at the very front of the final name.
+
+    Only the first "©" found is handled -- the convention assumes at
+    most one per name.
+
+    Args:
+        name: The raw album folder name, possibly containing a "©"
+            anywhere within it.
+
+    Returns:
+        A tuple of `(mark, remainder)`. `mark` is `"©"` if found
+        anywhere in `name`, or an empty string if absent entirely.
+        `remainder` is the name with that single "©" removed and the
+        surrounding whitespace/punctuation tidied up.
+    """
+    match: re.Match[str] | None = _CALINE_MARK_RE.search(name)
+    if match is None:
+        return "", name
+
+    remaining: str = name[: match.start()] + name[match.end() :]
+    cleaned: str = _cleanup_name(remaining)
+    return match.group(0), cleaned
+
+
 def _split_existing_index(name: str) -> tuple[str, str]:
     """Set aside an existing numbering index, if the name already has one.
 
@@ -287,25 +407,29 @@ def _extract_year(name: str) -> tuple[str | None, str]:
     return year, cleaned_name
 
 
-def _strip_flac_marker(name: str) -> str:
-    """Find and remove an existing "FLAC" text marker, if present.
+def _strip_quality_marker(name: str) -> str:
+    """Find and remove an existing "FLAC" or "OPUS" text marker, if present.
 
-    This never decides whether an album *is* lossless -- it only cleans
-    up a stale text label so `_is_lossless_album`'s real-content check
-    is the sole source of truth for that. Searches for a wrapped marker
-    -- "(FLAC)" or "[FLAC]" -- first, then falls back to a bare "FLAC".
+    This never decides an album's quality tier -- it only cleans up a
+    stale text label so `_detect_audio_tier`'s real-content check is
+    the sole source of truth for that. A folder can easily carry a
+    stale marker from before its files last changed (e.g. a "[FLAC]"
+    folder that got transcoded to Opus for a playlist), so either word
+    is stripped regardless of which one is actually present. Searches
+    for a wrapped marker -- "(FLAC)"/"[OPUS]" etc -- first, then falls
+    back to a bare word.
 
     Args:
         name: An album name, already past year extraction.
 
     Returns:
-        The name with any existing FLAC marker removed and the
+        The name with any existing quality marker removed and the
         surrounding text tidied up. Returned unchanged if no marker
         is present.
     """
-    match: re.Match[str] | None = _FLAC_WRAPPED_RE.search(name)
+    match: re.Match[str] | None = _QUALITY_WRAPPED_RE.search(name)
     if match is None:
-        match = _FLAC_BARE_RE.search(name)
+        match = _QUALITY_BARE_RE.search(name)
     if match is None:
         return name
 
@@ -313,25 +437,32 @@ def _strip_flac_marker(name: str) -> str:
     return _cleanup_name(remaining)
 
 
-def _is_lossless_album(album: Path) -> bool:
-    """Check whether an album folder contains at least one lossless file.
+def _detect_audio_tier(album: Path) -> _AudioTier:
+    """Determine an album's audio quality tier from its actual files.
 
+    Never trusts any existing text marker in the folder name -- only
+    real file extensions found anywhere under `album` decide the tier.
     Scans recursively, so multi-disc albums split across "CD1"/"CD2"
-    style subfolders are still detected correctly. Stops at the first
-    match found rather than walking the entire tree every time.
+    style subfolders are still detected correctly.
 
     Args:
         album: Path to the album folder to scan.
 
     Returns:
-        `True` if any file anywhere under `album` has an extension
-        in `_LOSSLESS_EXTENSIONS`, `False` otherwise.
+        `"lossless"` if any file has an extension in
+        `_LOSSLESS_EXTENSIONS`; otherwise `"opus"` if any file has a
+        `.opus` extension; otherwise `"lossy"`.
     """
-    has_lossless_file: bool = any(
-        entry.is_file() and entry.suffix.lower() in _LOSSLESS_EXTENSIONS
-        for entry in album.rglob("*")
-    )
-    return has_lossless_file
+    has_opus: bool = False
+    for entry in album.rglob("*"):
+        if not entry.is_file():
+            continue
+        suffix: str = entry.suffix.lower()
+        if suffix in _LOSSLESS_EXTENSIONS:
+            return "lossless"
+        if suffix in _OPUS_EXTENSIONS:
+            has_opus = True
+    return "opus" if has_opus else "lossy"
 
 
 def _cleanup_name(name: str) -> str:
