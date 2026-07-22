@@ -60,6 +60,26 @@ _PREFIX_RE: re.Pattern[str] = re.compile(r"^(?:\(\d{1,3}\)|\[\d{1,3}\]|\d{1,3}(?
 # freshly assigned index.
 _CALINE_MARK_RE: re.Pattern[str] = re.compile(r"^©")
 
+# The "missing"/"conflict" markers that 01--albums_naming.py writes
+# between the year and the title -- "(1997) - M - Title", or "⚠" in
+# place of the "M" when the name claims missing but the folder holds
+# audio. Set aside before sorting for the same reason "©" is: the
+# marker describes the album's availability, not its title, so an
+# album must not change position when its availability changes.
+#
+# Left uncaught, the two scatter in opposite directions -- "M" sorts
+# mid-alphabet while "⚠" (U+26A0) sorts above every ASCII letter, so
+# resolving a conflict would move an album from the end of its year to
+# wherever its title actually belongs, renumbering everything after it.
+#
+# Matches only the canonical shape, since 01 always runs first in the
+# pipeline and is what puts the marker in that shape to begin with.
+#
+# This duplicates a convention owned by 01. The scripts are standalone
+# by design, with no shared module to import from, so the glyph is
+# deliberately hardcoded in both places.
+_MISSING_MARKER_RE: re.Pattern[str] = re.compile(r"^(\([^)]*\)\s*-\s*)(?:⚠|M)\s*-\s*")
+
 # Calin's discography layout splits an artist folder into lossy albums
 # directly inside it, plus one sibling container -- e.g.
 # "FLAC - (56 on 65)" -- holding every FLAC album underneath. That
@@ -271,20 +291,27 @@ def _strip_prefix(name: str) -> str:
 def _sort_key(name: str) -> str:
     """Build the case-insensitive sort key used to order albums.
 
-    Strips both an optional leading "©" and any existing numeric
-    prefix first, so neither affects ordering at all -- albums are
-    ordered purely by whatever's left (in practice, the year
-    `01--albums_naming.py` already prefixed each name with).
+    Strips a leading "©", any existing numeric prefix, and the
+    "M"/"⚠" availability marker first, so none of them affect ordering
+    at all -- albums are ordered purely by year and title (in
+    practice, the year `01--albums_naming.py` already prefixed each
+    name with, then the title itself).
+
+    Dropping the marker is what keeps numbering stable: an album that
+    gains or loses audio keeps its place in the sequence instead of
+    jumping to wherever its marker happens to sort.
 
     Args:
         name: The raw album folder name.
 
     Returns:
-        The casefolded remainder, with "©" and any numeric prefix
-        removed.
+        The casefolded remainder, with "©", any numeric prefix, and
+        any availability marker removed.
     """
     _, after_mark = _split_caline_mark(name)
-    return _strip_prefix(after_mark).casefold()
+    without_prefix: str = _strip_prefix(after_mark)
+    without_marker: str = _MISSING_MARKER_RE.sub(r"\1", without_prefix, count=1)
+    return without_marker.casefold()
 
 
 def _discover_albums(root: Path) -> list[Path]:
