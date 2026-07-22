@@ -58,6 +58,7 @@ from typing import Annotated, Literal, cast
 
 from mutagen import MutagenError
 from mutagen.mp4 import MP4
+from titlecase import titlecase
 import typer
 
 # ==================================================================================== #
@@ -115,7 +116,56 @@ _ANY_WRAPPED_RE: re.Pattern[str] = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
 
 # A bare "FLAC" or "OPUS" marker, case-insensitive, bounded on both
 # sides so it can't match as a substring inside an unrelated word.
+# Only ever applied to text *inside* a bracket, where a quality word is
+# unambiguous -- see _QUALITY_TRAILING_RE for the unbracketed case.
 _QUALITY_BARE_RE: re.Pattern[str] = re.compile(r"\b(?:FLAC|OPUS)\b", re.IGNORECASE)
+
+# An unbracketed quality word left over from before the convention
+# settled, e.g. "Some Album FLAC". Matching this loosely is dangerous:
+# "Opus" is an ordinary word in album titles ("Opus de Jazz", "Opus
+# One", "Magnum Opus"), and a case-insensitive search anywhere in the
+# name silently deletes it from the title. Two guards make that
+# impossible:
+#
+# - anchored to the end of the name, since a trailing position is the
+#   only place a stale quality marker actually sits, while a title word
+#   is almost always followed by more title, and
+# - case-sensitive, since the convention writes the codec in caps
+#   ("FLAC"/"OPUS") whereas a title writes the word normally ("Opus").
+#
+# The trade is deliberate: a marker written as lowercase "flac" is left
+# alone, which shows up harmlessly in the dry run and is fixed by hand.
+# The opposite error destroys a word of the title and can't be undone.
+_QUALITY_TRAILING_RE: re.Pattern[str] = re.compile(r"\s*\b(?:FLAC|OPUS)\s*$")
+
+# Calin's "missing album" convention: an album known to exist but not
+# held keeps an empty placeholder folder, marked between the year and
+# the title. A plain "M" is the settled state -- the album is declared
+# missing and the folder is indeed empty. "⚠" is a conflict: the name
+# declares the album missing while the folder holds audio.
+#
+# The conflict goes into the folder name rather than only into a
+# report because the folder name is where Calin actually reads the
+# collection; a terminal report scrolls away.
+#
+# Neither resolution is a decision the tool can make for him: the
+# conflict clears either by deleting stray files (back to "M") or by
+# dropping the marker by hand (the album is held, and picks up its
+# quality tag on the next run). So the marker states the problem and
+# stops there.
+_MISSING_MARKER: str = "M"
+_MISSING_CONFLICT_MARKER: str = "⚠"
+
+# Reads either marker where it lands after year extraction. The older
+# "(1967) M - Title" and the current "(1967) - M - Title" both arrive
+# here as "M - Title", since _cleanup_name has already trimmed the
+# leading separator, so one pattern covers both and the rebuild emits
+# only the current spelling.
+#
+# Anchored, and requires the hyphen: a title that merely starts with M
+# ("Mirror", "Miles Smiles") can't match, and an album actually titled
+# "M" has no hyphen after it, so it stays a title.
+_MISSING_MARKER_RE: re.Pattern[str] = re.compile(r"^(?:⚠|M)\s*-\s*")
 
 # Calin's discography layout splits an artist folder into lossy albums
 # directly inside it, plus one sibling container -- e.g.
@@ -146,9 +196,21 @@ _LOSSLESS_EXTENSIONS: frozenset[str] = frozenset(
 # from both true lossless and the plain-mp3 default.
 _OPUS_EXTENSIONS: frozenset[str] = frozenset({".opus"})
 
+# Every remaining extension that still counts as audio. These never
+# affect the quality tag -- a lossy album carries no marker at all --
+# but they matter for deciding whether a folder holds *any* audio,
+# which `_detect_audio_tier` can't answer: it reports "lossy" both for
+# an album of MP3s and for a folder with nothing in it whatsoever.
+_LOSSY_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".m4a", ".ogg", ".wma"})
+
 # The three recognized audio quality tiers, in priority order when
 # deciding a suffix: lossless beats opus beats the plain lossy default.
-_AudioTier = Literal["lossless", "opus", "lossy"]
+_AudioTier = Literal["lossless", "opus", "lossy", "none"]
+
+# One rendered line of the summary box: indent, bold label, marker,
+# count, color. `None` stands for a horizontal rule between the two
+# partitions rather than a row of figures.
+_SummaryRow = tuple[str, str, str, int, str] | None
 
 
 # Leftover separator characters (whitespace, hyphen, underscore, dot) at
@@ -158,6 +220,37 @@ _EDGE_SEPARATORS_RE: re.Pattern[str] = re.compile(r"^[\s._-]+|[\s._-]+$")
 # Two or more consecutive whitespace characters, left behind when a token
 # is removed from the *middle* of a name rather than an edge.
 _MULTI_SPACE_RE: re.Pattern[str] = re.compile(r"\s{2,}")
+
+
+# Terminal columns occupied by the conflict glyph when drawn. U+26A0 is
+# classified East Asian Ambiguous, which means the Unicode standard
+# declines to fix its width -- terminals are free to draw it one column
+# or two, and len() in Python always reports one character regardless.
+# The summary box pads every row to a common width, so a mismatch here
+# puts the conflict row's right border out of line by the difference.
+#
+# Set to 1, confirmed against Windows Terminal by comparing "|\u26a0|"
+# with "|X|": the bars line up, so the glyph is drawn narrow. A terminal
+# that gives it emoji presentation draws it two columns wide and wants
+# 2 here -- worth re-checking if this ever runs from a Linux console.
+_CONFLICT_GLYPH_COLUMNS: int = 1
+
+
+def _display_width(text: str) -> int:
+    """Measure how many terminal columns a string occupies when drawn.
+
+    Differs from `len` only for the conflict glyph, which counts as one
+    character but is usually drawn two columns wide. Everything else in
+    the summary box is ASCII, where the two agree.
+
+    Args:
+        text: The string to measure.
+
+    Returns:
+        The number of terminal columns the string is expected to fill.
+    """
+    extra: int = text.count(_MISSING_CONFLICT_MARKER) * (_CONFLICT_GLYPH_COLUMNS - 1)
+    return len(text) + extra
 
 
 # ==================================================================================== #
@@ -214,6 +307,9 @@ def naming(
 
     plan: list[tuple[Path, str]] = []
     skipped: list[Path] = []
+    marker_conflicts: list[Path] = []
+    newly_marked_missing: list[Path] = []
+    missing_albums: list[Path] = []
     for album in albums:
         mark, after_mark = _split_caline_mark(album.name)
         index_prefix, content = _split_existing_index(after_mark)
@@ -222,48 +318,124 @@ def naming(
             skipped.append(album)
             continue
 
-        after_quality_strip: str = _strip_quality_marker(after_year)
-        tier: _AudioTier = _detect_audio_tier(album)
-        quality_suffix: str = {"lossless": " [FLAC]", "opus": " [OPUS]", "lossy": ""}[tier]
+        is_missing, after_marker = _split_missing_marker(after_year)
 
-        new_name: str = f"{mark}{index_prefix}({year}) - {after_quality_strip}{quality_suffix}"
+        after_quality_strip: str = _strip_quality_marker(after_marker)
+        title: str = _title_case(after_quality_strip)
+
+        # "M" is a claim that the album isn't held, so the files decide
+        # it, not the name. An empty folder is missing whatever the name
+        # says; a folder with audio isn't. The only case the tool won't
+        # settle by itself is a name claiming missing over a folder that
+        # holds audio -- that could mean the album was acquired and
+        # never renamed, or that stray files landed somewhere they
+        # shouldn't, and those resolve in opposite directions. It gets
+        # the conflict marker and a human gets the decision.
+        #
+        # A marked album carries no quality tag either way: on an empty
+        # folder there's no file to describe, and on a conflicted one
+        # the name's claim is exactly what's in doubt.
+        tier: _AudioTier = _detect_audio_tier(album)
+
+        if tier == "none":
+            name_marker: str = _MISSING_MARKER
+            quality_suffix: str = ""
+            missing_albums.append(album)
+            if not is_missing:
+                newly_marked_missing.append(album)
+        elif is_missing:
+            name_marker = _MISSING_CONFLICT_MARKER
+            quality_suffix = ""
+            marker_conflicts.append(album)
+        else:
+            name_marker = ""
+            quality_suffix = {"lossless": " [FLAC]", "opus": " [OPUS]", "lossy": ""}[tier]
+
+        marker_prefix: str = f"{name_marker} - " if name_marker else ""
+        new_name: str = f"{mark}{index_prefix}({year}) - {marker_prefix}{title}{quality_suffix}"
         plan.append((album, new_name))
 
-    typer.secho(f"\n{len(plan)} album(s) found in {path}\n", bold=True)
+    typer.secho(f"\n{len(plan)} album(s) to process\n", bold=True)
 
     total: int = len(plan)
     if total:
         renamed_count: int = sum(1 for album, new_name in plan if album.name != new_name)
         clean_count: int = total - renamed_count
-        renamed_pct: float = renamed_count / total * 100
-        clean_pct: float = clean_count / total * 100
+        missing_count: int = len(missing_albums)
+        conflict_count: int = len(marker_conflicts)
+        held_count: int = total - missing_count - conflict_count
         count_width: int = len(str(total))
 
-        # (indent, bold word, rest of line, color) -- the label word itself
-        # is bold, the marker/colon/count/percentage stay regular weight,
-        # both segments sharing the same color so the row still reads as one.
-        summary_rows: list[tuple[str, str, str, str]] = [
-            ("", "Total", f"{'':<10}: {total}", typer.colors.BRIGHT_MAGENTA),
-            (
-                "  ",
-                "Renamed",
-                f" (->) : {renamed_count:>{count_width}}  ({renamed_pct:.2f}%)",
-                typer.colors.GREEN,
-            ),
-            (
-                "  ",
-                "Clean",
-                f"   (==) : {clean_count:>{count_width}}  ({clean_pct:.2f}%)",
-                typer.colors.BLUE,
-            ),
+        # Two independent partitions over the same albums, separated by
+        # a rule: what this run *did* (renamed/clean), then what the
+        # collection *is* (held/missing/conflicted). Each block sums to
+        # Total on its own, which is the whole reason for the divider --
+        # listed as five flat siblings they'd read as one tally adding
+        # up to well over 100%.
+        #
+        # Conflict is shown even at zero, green rather than magenta. A
+        # row that only appears on failure is one that's never been
+        # seen, and so gets misread in exactly the moment it matters; a
+        # row always in the same place makes a clean run say so.
+        #
+        # The marker column shows the glyph as it actually appears in
+        # the folder name. Padding it goes through _display_width rather
+        # than len(), since the conflict glyph occupies more columns than
+        # it has characters.
+        conflict_color: str = (
+            typer.colors.GREEN if conflict_count == 0 else typer.colors.BRIGHT_MAGENTA
+        )
+
+        # (indent, bold label, marker, count, color) -- the label is bold
+        # while the marker/count/percentage stay regular weight, all in
+        # one color so each row still reads as a single line. A `None`
+        # entry is a horizontal rule.
+        summary_rows: list[_SummaryRow] = [
+            ("", "Total", "", total, typer.colors.BRIGHT_MAGENTA),
+            None,
+            ("  ", "Renamed", "(->)", renamed_count, typer.colors.GREEN),
+            ("  ", "Clean", "(==)", clean_count, typer.colors.BLUE),
+            None,
+            ("  ", "Held", "", held_count, typer.colors.GREEN),
+            ("  ", "Missing", "(M)", missing_count, typer.colors.BLUE),
+            ("  ", "Conflict", f"({_MISSING_CONFLICT_MARKER})", conflict_count, conflict_color),
         ]
-        box_width: int = max(len(indent + word + rest) for indent, word, rest, _ in summary_rows)
+
+        entries: list[tuple[str, str, str, int, str]] = [
+            row for row in summary_rows if row is not None
+        ]
+        label_width: int = max(_display_width(indent + label) for indent, label, _, _, _ in entries)
+        marker_width: int = max(_display_width(marker) for _, _, marker, _, _ in entries)
+
+        def _rest(indent: str, label: str, marker: str, count: int) -> str:
+            """Build the non-bold remainder of a summary row."""
+            pad: str = " " * (label_width - _display_width(indent + label))
+            marker_cell: str = marker + " " * (marker_width - _display_width(marker))
+            body: str = f"{pad} {marker_cell} : {count:>{count_width}}"
+            if label == "Total":
+                return body
+            return f"{body}  ({count / total * 100:>6.2f}%)"
+
+        rendered: list[tuple[str, str, str, str] | None] = [
+            None if row is None else (row[0], row[1], _rest(row[0], row[1], row[2], row[3]), row[4])
+            for row in summary_rows
+        ]
+        box_width: int = max(
+            _display_width(indent + label + rest)
+            for row in rendered
+            if row is not None
+            for indent, label, rest, _ in [row]
+        )
 
         typer.echo("┌" + "─" * (box_width + 2) + "┐")
-        for indent, word, rest, color in summary_rows:
-            pad: str = " " * (box_width - len(indent + word + rest))
+        for row in rendered:
+            if row is None:
+                typer.echo("├" + "─" * (box_width + 2) + "┤")
+                continue
+            indent, label, rest, color = row
+            pad = " " * (box_width - _display_width(indent + label + rest))
             styled: str = (
-                indent + typer.style(word, fg=color, bold=True) + typer.style(rest, fg=color) + pad
+                indent + typer.style(label, fg=color, bold=True) + typer.style(rest, fg=color) + pad
             )
             typer.echo("│ " + styled + " │")
         typer.echo("└" + "─" * (box_width + 2) + "┘")
@@ -285,6 +457,26 @@ def naming(
             fg=typer.colors.YELLOW,
         )
         for album in skipped:
+            typer.echo(f"  {album.name!r}")
+
+    if newly_marked_missing:
+        typer.secho(
+            f"\n{len(newly_marked_missing)} empty album(s) newly marked missing:",
+            fg=typer.colors.BLUE,
+        )
+        for album in newly_marked_missing:
+            typer.secho(f"  {album.name!r}", fg=typer.colors.BLUE)
+
+    if marker_conflicts:
+        conflict_note: str = (
+            "marked missing but holding audio (flagged with the warning sign -- resolve by hand)"
+        )
+        typer.secho(
+            f"\n{len(marker_conflicts)} album(s) {conflict_note}:",
+            fg=typer.colors.BRIGHT_MAGENTA,
+            bold=True,
+        )
+        for album in marker_conflicts:
             typer.echo(f"  {album.name!r}")
 
     if dry_run:
@@ -365,6 +557,95 @@ def _discover_albums(root: Path) -> list[Path]:
 
     sorted_albums: list[Path] = sorted(albums, key=lambda p: p.name.casefold())
     return sorted_albums
+
+
+def _preserve_acronym(word: str, **_kwargs: object) -> str | None:
+    """Keep an all-caps word as written, for `titlecase`'s callback hook.
+
+    The library lowercases runs of capitals -- "OST" becomes "Ost",
+    "NASA" becomes "Nasa" -- which is wrong for the tags Calin's names
+    actually carry ("[FLAC, OST]", "[LIVE]") and for any acronym in a
+    title. A word already written in full caps is treated as
+    deliberate and left exactly as it is.
+
+    The guard is `len > 1` so a lone capital still goes through the
+    library's own logic, which is what correctly keeps "Vol. I" and
+    "Vol. II" as roman numerals rather than folding them to "Vol. Ii".
+
+    Args:
+        word: A single word being considered by `titlecase`.
+        **_kwargs: Positional context passed by the library (`all_caps`
+            and so on), unused here.
+
+    Returns:
+        The word unchanged if it's an all-caps run of more than one
+        character, otherwise `None` to defer to the library's default
+        handling.
+    """
+    if len(word) > 1 and word.isupper():
+        return word
+    return None
+
+
+def _title_case(name: str) -> str:
+    """Apply classic English title case to an album title.
+
+    Delegates to the `titlecase` library, which implements John
+    Gruber's algorithm: minor words ("of", "the", "a") stay lowercase
+    unless they lead the title, while apostrophes and embedded
+    punctuation survive intact -- `str.title()` would produce "It'S"
+    and "Vol. Ii" here.
+
+    The convention is English, and applying it to a German or French
+    title produces something merely capitalized rather than correct
+    ("Warum bist du traurig" becomes "Warum Bist Du Traurig"). No
+    library can settle that without knowing the language, so the dry
+    run is the place to catch it. Scripts without letter case at all,
+    such as Japanese and Chinese, pass through untouched.
+
+    The acronym guard applies only when the title contains some
+    lowercase. A name written entirely in capitals is far likelier to
+    be shouted than to be one long acronym, so "THE MAN WITH THE HORN"
+    normalizes, while the "OST" in "Miles Ahead [FLAC, OST]" is read as
+    an acronym precisely because the words around it are not capitals.
+
+    Args:
+        name: The album title, with year, markers and quality tag
+            already split off.
+
+    Returns:
+        The title in title case, acronyms preserved.
+    """
+    is_shouted: bool = name == name.upper() and name != name.lower()
+    if is_shouted:
+        return titlecase(name)
+
+    return titlecase(name, callback=_preserve_acronym)
+
+
+def _split_missing_marker(name: str) -> tuple[bool, str]:
+    """Split a leading "missing" marker off an album name.
+
+    Accepts the marker in either spelling -- the older "M - Title" and
+    the current "- M - Title" both arrive here as "M - Title", since
+    year extraction has already trimmed the leading separator -- and
+    reports it as a flag so the rebuild can re-emit it in one canonical
+    position.
+
+    Args:
+        name: An album name with the year already removed, e.g.
+            `"M - Folk Soul"` or `"Mirror"`.
+
+    Returns:
+        A `(is_missing, remainder)` pair. `remainder` is the name with
+        the marker and its separator removed; it is the name unchanged
+        when no marker is present.
+    """
+    match: re.Match[str] | None = _MISSING_MARKER_RE.match(name)
+    if match is None:
+        return False, name
+
+    return True, name[match.end() :]
 
 
 def _split_caline_mark(name: str) -> tuple[str, str]:
@@ -501,7 +782,7 @@ def _strip_quality_marker(name: str) -> str:
         )
         return _cleanup_name(remaining_name)
 
-    bare_match: re.Match[str] | None = _QUALITY_BARE_RE.search(name)
+    bare_match: re.Match[str] | None = _QUALITY_TRAILING_RE.search(name)
     if bare_match is None:
         return name
 
@@ -556,9 +837,15 @@ def _detect_audio_tier(album: Path) -> _AudioTier:
         `"lossless"` if any file has an extension in
         `_LOSSLESS_EXTENSIONS`, or is a `.m4a` file confirmed to be
         ALAC; otherwise `"opus"` if any file has a `.opus` extension;
-        otherwise `"lossy"`.
+        otherwise `"lossy"` if any other recognized audio file is
+        present; otherwise `"none"`, meaning the folder holds no audio
+        at all. That last case is kept distinct from `"lossy"` because
+        the two are opposite facts about the collection -- an album
+        held in a lossy format, versus an album not held -- even though
+        neither earns a quality tag in the name.
     """
     has_opus: bool = False
+    has_lossy: bool = False
     for entry in album.rglob("*"):
         if not entry.is_file():
             continue
@@ -569,7 +856,12 @@ def _detect_audio_tier(album: Path) -> _AudioTier:
             return "lossless"
         if suffix in _OPUS_EXTENSIONS:
             has_opus = True
-    return "opus" if has_opus else "lossy"
+        elif suffix in _LOSSY_EXTENSIONS:
+            has_lossy = True
+
+    if has_opus:
+        return "opus"
+    return "lossy" if has_lossy else "none"
 
 
 def _cleanup_name(name: str) -> str:
