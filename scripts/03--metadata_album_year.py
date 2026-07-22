@@ -25,8 +25,8 @@ represent that as honestly as it's able to:
   perpetually trying to write a value that can never actually persist.
 
 Calin's discography layout keeps lossy albums as direct children of an
-artist folder, alongside one sibling container -- e.g. "FLAC -
-(56 on 65)" -- holding every FLAC album underneath it. That container is
+artist folder, alongside one sibling container named "FLAC" holding
+every lossless album underneath it. That container is
 bookkeeping, not an album: it is never tagged or treated as one itself.
 Its children are pulled into the very same pool as the direct lossy
 albums and tagged exactly like any other album, in place.
@@ -90,7 +90,9 @@ _AUDIO_EXTENSIONS: frozenset[str] = _LOSSLESS_EXTENSIONS | _LOSSY_EXTENSIONS
 
 # Calin's discography layout splits an artist folder into lossy albums
 # directly inside it, plus one sibling container -- e.g.
-# "FLAC - (56 on 65)" -- holding every FLAC album underneath. That
+# "FLAC" -- holding every lossless album underneath. Older names
+# carried a count ("FLAC - (56 on 65)") and are still recognized, so
+# this works whether or not 02.1 has normalized the folder yet. That
 # container is bookkeeping, not an album: it starts with the word
 # "FLAC" and, after that, contains nothing but digits, whitespace,
 # hyphens, parens/brackets, and the literal word "on" (as in "56 on
@@ -110,15 +112,6 @@ _ID3_BASED_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".wav", ".aiff", ".ai
 # placeholder would migrate into the "has files but no audio" bucket
 # for reasons that have nothing to do with the collection.
 _JUNK_FILENAMES: frozenset[str] = frozenset({"desktop.ini", "thumbs.db", ".ds_store"})
-
-# Calin's "missing album" convention: an album that is known to exist
-# but isn't owned keeps an empty placeholder folder, marked with a bare
-# "M" sitting between the year token and the " - " title separator --
-# e.g. "01. (1950) M - Charlie Mariano With His Jazz Group [FLAC]".
-# The marker is a claim about the collection; the filesystem is the
-# ground truth. Both are read so the two can be checked against each
-# other (see _classify_album).
-_MISSING_MARKER_RE: re.Pattern[str] = re.compile(r"[)\]]\s*M\s*(?=-)")
 
 
 @dataclass
@@ -303,8 +296,6 @@ def metadata(
     skipped_no_year: list[Path] = []
     missing_albums: list[Path] = []
     skipped_no_audio: list[tuple[Path, list[str]]] = []
-    drift_marked_but_held: list[Path] = []
-    drift_empty_but_unmarked: list[Path] = []
 
     for album in albums:
         year: str | None = _extract_year(album.name)
@@ -313,25 +304,22 @@ def metadata(
             continue
 
         audio_files: list[Path] = _find_audio_files(album)
-        marked_missing: bool = _is_marked_missing(album.name)
-
         if not audio_files:
             # No audio is two different situations wearing the same
             # face: a deliberate placeholder for an album that isn't
             # owned, or a folder that holds something unusable. Only
             # the second is a problem worth a warning.
+            #
+            # Neither is compared against the "M"/"⚠" marker in the
+            # folder name. That reconciliation belongs to 01, which
+            # derives the marker from the same files and rewrites the
+            # name to match; re-deriving it here only creates a second
+            # answer that can disagree with the first.
             if _is_effectively_empty(album):
                 missing_albums.append(album)
-                if not marked_missing:
-                    drift_empty_but_unmarked.append(album)
             else:
                 skipped_no_audio.append((album, _foreign_extensions(album)))
             continue
-
-        # The folder holds audio, so the album is owned whatever the
-        # name claims -- tag it either way, but flag the stale marker.
-        if marked_missing:
-            drift_marked_but_held.append(album)
 
         date_value: str = "" if _is_approximate_year(year) else year
         plan.append((album, date_value, audio_files))
@@ -340,7 +328,7 @@ def metadata(
         typer.secho("Nothing to tag.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    typer.secho(f"\n{len(plan)} album(s) to process\n", bold=True)
+    typer.echo()
 
     progress_columns = (
         TextColumn("[bold]{task.description}"),
@@ -448,12 +436,17 @@ def metadata(
             typer.echo()
 
     if missing_albums:
+        # Yellow heading like the two anomaly sections below, but a
+        # dimmed body where those keep theirs plain. An empty
+        # placeholder is an expected, correct state -- the heading
+        # earns attention because the count is worth knowing, while the
+        # thirty names under it are reference, not a to-do list.
         typer.secho(
             f"\n{len(missing_albums)} album(s) not in the collection (empty placeholder):",
-            fg=typer.colors.BLUE,
+            fg=typer.colors.YELLOW,
         )
         for album in missing_albums:
-            typer.secho(f"  {album.name!r}", fg=typer.colors.BLUE)
+            typer.secho(f"  {album.name!r}", fg=typer.colors.BRIGHT_BLACK)
 
     if skipped_no_audio:
         typer.secho(
@@ -462,26 +455,6 @@ def metadata(
         )
         for album, extensions in skipped_no_audio:
             typer.echo(f"  {album.name!r} - found: {', '.join(extensions)}")
-
-    if drift_marked_but_held:
-        stale_note: str = "marked missing but holding audio (marker is stale -- tagged anyway)"
-        typer.secho(
-            f"\n{len(drift_marked_but_held)} album(s) {stale_note}:",
-            fg=typer.colors.BRIGHT_MAGENTA,
-            bold=True,
-        )
-        for album in drift_marked_but_held:
-            typer.echo(f"  {album.name!r}")
-
-    if drift_empty_but_unmarked:
-        unmarked_note: str = "empty album(s) not marked missing (no 'M' in the name)"
-        typer.secho(
-            f"\n{len(drift_empty_but_unmarked)} {unmarked_note}:",
-            fg=typer.colors.BRIGHT_MAGENTA,
-            bold=True,
-        )
-        for album in drift_empty_but_unmarked:
-            typer.echo(f"  {album.name!r}")
 
     if skipped_no_year:
         typer.secho(
@@ -508,22 +481,33 @@ def metadata(
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    written = 0
-    failed = 0
-    for album, date_value, audio_files, outcomes in results:
-        for audio_file, outcome in zip(audio_files, outcomes, strict=True):
-            if outcome.status != "updated":
-                continue
-            result = _apply_tags(audio_file, album.name, date_value, dry_run=False)
-            if result.status == "error":
-                failed += 1
-                typer.secho(f"  Failed: {str(audio_file)!r} - {result.detail}", fg=typer.colors.RED)
-            else:
-                written += 1
+    # Same bar as the probe pass, over the files actually being written
+    # rather than every file examined -- so it counts down the number
+    # the prompt just quoted. Failures are collected instead of printed
+    # as they happen: writing to the terminal inside a live progress
+    # region tears the bar apart, and the reader wants them grouped at
+    # the end anyway.
+    written: int = 0
+    failures: list[tuple[Path, str]] = []
+    with Progress(*progress_columns) as progress:
+        write_task = progress.add_task(run_label, total=total_to_update)
+        for album, date_value, audio_files, outcomes in results:
+            for audio_file, outcome in zip(audio_files, outcomes, strict=True):
+                if outcome.status != "updated":
+                    continue
+                result = _apply_tags(audio_file, album.name, date_value, dry_run=False)
+                if result.status == "error":
+                    failures.append((audio_file, result.detail))
+                else:
+                    written += 1
+                progress.update(write_task, advance=1)
+
+    for audio_file, detail in failures:
+        typer.secho(f"  Failed: {str(audio_file)!r} - {detail}", fg=typer.colors.RED)
 
     typer.secho(f"\nDone. {written} file(s) tagged.", fg=typer.colors.GREEN, bold=True)
-    if failed:
-        typer.secho(f"{failed} file(s) failed during writing.", fg=typer.colors.RED)
+    if failures:
+        typer.secho(f"{len(failures)} file(s) failed during writing.", fg=typer.colors.RED)
 
 
 # ==================================================================================== #
@@ -546,20 +530,6 @@ def _normalize_path_input(raw: str) -> str:
     """
     cleaned: str = raw.strip().strip("'\"")
     return cleaned
-
-
-def _is_marked_missing(name: str) -> bool:
-    """Report whether an album folder name carries the "missing" marker.
-
-    Args:
-        name: The album folder's name, e.g.
-            `"01. (1950) M - Charlie Mariano With His Jazz Group"`.
-
-    Returns:
-        `True` if a bare `M` sits between the year token and the title
-        separator, marking the album as known-but-not-owned.
-    """
-    return _MISSING_MARKER_RE.search(name) is not None
 
 
 def _is_effectively_empty(album: Path) -> bool:
@@ -608,8 +578,8 @@ def _foreign_extensions(album: Path) -> list[str]:
 def _discover_albums(root: Path) -> list[Path]:
     """Find album subdirectories inside a discography folder.
 
-    A direct child that matches `_FLAC_CONTAINER_RE` (e.g. "FLAC -
-    (56 on 65)") is treated as bookkeeping, not an album: it is never
+    A direct child that matches `_FLAC_CONTAINER_RE` -- "FLAC", or an
+    older "FLAC - (56 on 65)" -- is bookkeeping, not an album: it is never
     included itself, and never tagged. Instead, one level inside it is
     discovered and its children are added exactly as if they sat
     directly under `root`, tagged in place just like any other album.
