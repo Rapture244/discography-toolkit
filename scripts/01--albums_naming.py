@@ -58,6 +58,9 @@ from typing import Annotated, Literal, cast
 
 from mutagen import MutagenError
 from mutagen.mp4 import MP4
+from rich.console import Console
+from rich.rule import Rule
+from rich.text import Text
 from titlecase import titlecase
 import typer
 
@@ -300,6 +303,8 @@ def naming(
         typer.secho(f"Not a directory: {path}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
+    _echo_banner("Album Naming", path.name)
+
     albums: list[Path] = _discover_albums(path)
     if not albums:
         typer.secho(f"No album folders found in {path}", fg=typer.colors.YELLOW)
@@ -355,7 +360,7 @@ def naming(
         new_name: str = f"{mark}{index_prefix}({year}) - {marker_prefix}{title}{quality_suffix}"
         plan.append((album, new_name))
 
-    typer.secho(f"\n{len(plan)} album(s) to process\n", bold=True)
+    typer.echo()
 
     total: int = len(plan)
     if total:
@@ -502,6 +507,64 @@ def naming(
 # ==================================================================================== #
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
+# Colour of the banner rule. Deliberately a colour used nowhere else in
+# the output: green, blue, yellow, red, cyan, bright magenta and bright
+# black all carry meaning here (changed, unchanged, warning, error, dry
+# run, total, dimmed), so reusing any of them would read as a status
+# rather than as a heading.
+#
+# Orange is only reachable through Rich. Typer styles with the 16-colour
+# ANSI set, which has no orange in it at all; this is 256-colour index
+# 208. Nearby alternatives are "orange1" (214, more amber), "orange3"
+# (172, muted) and "orange_red1" (202, redder).
+_BANNER_COLOR: str = "dark_orange"
+
+# One console for the banner. Rich is used here only for its Rule, which
+# fits itself to the terminal width -- a hand-rolled rule has to guess.
+_console: Console = Console()
+
+
+def _echo_banner(title: str, target: str) -> None:
+    """Announce which step of the pipeline is running, and on what.
+
+    Printed first, so a terminal holding the output of several scripts
+    in sequence can be read back and each block attributed to the step
+    that produced it.
+
+    The title sits flush left rather than centred, so it lands at the
+    same column as every other line of output and can be found by
+    running an eye straight down the left margin. It carries no padding
+    spaces: Rich inserts its own separator before the rule, and a
+    centred title's padding would show as an indent here.
+
+    The target is written with `typer.echo` rather than through the
+    console on purpose. Rich parses square brackets as markup, so an
+    artist folder named "Charlie Mariano - [90 • 60F • 0L • 30M]" comes
+    out with the brackets restyled and the number syntax-highlighted.
+    Only the rule, which is plain text under this script's control, goes
+    through Rich.
+
+    Deliberately carries no step number. The scripts are numbered by
+    filename and that numbering is still settling, so a banner
+    repeating it would be one more thing to keep in sync.
+
+    Args:
+        title: The step's name, e.g. `"Album Naming"`.
+        target: The folder being worked on, printed on its own line
+            beneath the rule.
+    """
+    _console.print()
+    _console.print(
+        Rule(
+            Text(title, style=f"bold {_BANNER_COLOR}"),
+            style=_BANNER_COLOR,
+            characters="─",
+            align="left",
+        )
+    )
+    typer.echo(target)
+
+
 def _normalize_path_input(raw: str) -> str:
     """Clean up a path typed at an interactive prompt.
 
