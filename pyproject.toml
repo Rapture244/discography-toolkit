@@ -23,6 +23,7 @@ dependencies = [
     "pre-commit>=4.6.0",
     "prek>=0.4.10",
     "rich>=15.0.0",
+    "titlecase>=2.4.1",
     "typer>=0.27.0",
 ]
 
