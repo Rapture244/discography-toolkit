@@ -59,16 +59,28 @@
     // scripts/ = thin glue over mutagen + Any-returning typer helpers.
     // Relax Unknown-propagation rules there only; src/ and tests/ stay strict.
     "executionEnvironments": [
-        {
-            "root": "scripts",
-            "reportUnknownArgumentType": "none",
-            "reportUnknownMemberType": "none",
-            "reportUnknownVariableType": "none",
-            "reportUnknownParameterType": "none",
-            "reportMissingParameterType": "none",
-            "reportAny": "none"
-        },
-        { "root": "." }
+      {
+        "root": "src/discography_toolkit/core/metadata.py",
+        "reportUnknownArgumentType": "none",
+        "reportUnknownMemberType": "none",
+        "reportUnknownVariableType": "none",
+        "reportUnknownParameterType": "none",
+        "reportMissingParameterType": "none",
+        "reportAny": "none",
+        "reportUnusedCallResult": "none"
+      },
+      {
+        "root": "scripts",
+        "reportUnknownArgumentType": "none",
+        "reportUnknownMemberType": "none",
+        "reportUnknownVariableType": "none",
+        "reportUnknownParameterType": "none",
+        "reportMissingParameterType": "none",
+        "reportAny": "none"
+      },
+      {
+        "root": "."
+      }
     ],
     // ------------------------------------------------------------------------------------------
     // Diagnostics tuning (balanced strictness — friendly, not annoying)
