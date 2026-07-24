@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+import shutil
+import subprocess
 
 from discography_toolkit.core.layout import (
     AUDIO_EXTENSIONS,
     LOSSLESS_EXTENSIONS,
     LOSSY_EXTENSIONS,
     OPUS_EXTENSIONS,
+    AudioTier,
+    detect_tier,
     discover_albums,
     find_albums,
     find_artist_folders,
@@ -523,3 +527,147 @@ def test_is_effectively_empty_looks_below_subfolders(artist: Path) -> None:
     (placeholder / "CD 1").mkdir()
 
     assert is_effectively_empty(placeholder)
+
+
+# ==================================================================================== #
+#                                     AUDIO TIER                                       #
+# ==================================================================================== #
+def _album_with(tmp_path: Path, *files: str) -> Path:
+    """Build an album folder holding empty files of the given names.
+
+    Extension classification reads only the suffix, so the files need no
+    real content -- the one exception, `.m4a`, is exercised on its own.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+        files: Filenames to place, e.g. "01.flac".
+
+    Returns:
+        The album folder.
+    """
+    album: Path = tmp_path / "album"
+    album.mkdir(exist_ok=True)
+    for name in files:
+        (album / name).touch()
+    return album
+
+
+def test_one_lossless_file_settles_the_tier(tmp_path: Path) -> None:
+    """A single lossless file is enough, whatever else sits beside it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = _album_with(tmp_path, "01.mp3", "02.flac", "03.opus")
+
+    assert detect_tier(album) is AudioTier.LOSSLESS
+
+
+def test_opus_beats_lossy(tmp_path: Path) -> None:
+    """Opus is a middle tier, above plain lossy.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = _album_with(tmp_path, "01.mp3", "02.opus")
+
+    assert detect_tier(album) is AudioTier.OPUS
+
+
+def test_a_lossy_only_album_reads_as_lossy(tmp_path: Path) -> None:
+    """MP3s alone are lossy, which is held -- not missing.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = _album_with(tmp_path, "01.mp3", "02.mp3")
+
+    assert detect_tier(album) is AudioTier.LOSSY
+
+
+def test_a_folder_with_no_audio_is_none(tmp_path: Path) -> None:
+    """No audio is a distinct fact from lossy: the album is not held.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = _album_with(tmp_path, "cover.jpg", "notes.txt")
+
+    assert detect_tier(album) is AudioTier.NONE
+
+
+def test_the_tier_is_read_across_disc_subfolders(tmp_path: Path) -> None:
+    """A multi-disc album keeps its tier when the lossless file is deeper.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = tmp_path / "album"
+    (album / "CD 1").mkdir(parents=True)
+    (album / "CD 2").mkdir(parents=True)
+    (album / "CD 1" / "01.mp3").touch()
+    (album / "CD 2" / "01.flac").touch()
+
+    assert detect_tier(album) is AudioTier.LOSSLESS
+
+
+def test_an_alac_m4a_counts_as_lossless(tmp_path: Path) -> None:
+    """The one extension the suffix cannot decide is probed and believed.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    ffmpeg: str | None = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg not available")
+    album: Path = tmp_path / "album"
+    album.mkdir()
+    _ = subprocess.run(  # noqa: S603 - fully static command, no user input
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=0.2",
+            "-c:a",
+            "alac",
+            str(album / "01.m4a"),
+            "-loglevel",
+            "error",
+        ],
+        check=True,
+    )
+
+    assert detect_tier(album) is AudioTier.LOSSLESS
+
+
+def test_an_aac_m4a_is_only_lossy(tmp_path: Path) -> None:
+    """The same container holding AAC does not lift the album to lossless.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    ffmpeg: str | None = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg not available")
+    album: Path = tmp_path / "album"
+    album.mkdir()
+    _ = subprocess.run(  # noqa: S603 - fully static command, no user input
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=0.2",
+            "-c:a",
+            "aac",
+            str(album / "01.m4a"),
+            "-loglevel",
+            "error",
+        ],
+        check=True,
+    )
+
+    assert detect_tier(album) is AudioTier.LOSSY

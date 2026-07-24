@@ -26,6 +26,7 @@ import base64
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+from mutagen import MutagenError
 from mutagen.aiff import AIFF
 from mutagen.asf import ASF
 from mutagen.dsdiff import DSDIFF
@@ -212,6 +213,33 @@ def write(path: Path, values: Mapping[Tag, str]) -> None:
     for tag, value in values.items():
         _write_one(audio, family, tag, value)
     audio.save()
+
+
+# ==================================================================================== #
+#                                        CODEC                                         #
+# ==================================================================================== #
+def is_lossless_m4a(path: Path) -> bool:
+    """Report whether a `.m4a` file holds ALAC rather than AAC.
+
+    The extension cannot say: an MP4 container carries either the lossy
+    AAC or the lossless ALAC, and only the codec inside tells them apart.
+    mutagen reports `"alac"` for Apple Lossless and an `"mp4a"`-prefixed
+    value for AAC.
+
+    Args:
+        path: A `.m4a` file.
+
+    Returns:
+        `True` when the codec is ALAC. `False` for AAC, or when the file
+        cannot be read -- an unreadable file is not confirmed lossless,
+        and one bad file must not stop a scan.
+    """
+    try:
+        info = MP4(path).info
+    except (MutagenError, OSError):
+        return False
+    codec = getattr(info, "codec", None)
+    return isinstance(codec, str) and codec.lower().startswith("alac")
 
 
 # ==================================================================================== #

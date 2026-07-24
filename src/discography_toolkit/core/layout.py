@@ -8,9 +8,11 @@ convention, so everything above it asks questions instead of walking.
 
 from __future__ import annotations
 
+from enum import StrEnum
 import re
 from typing import TYPE_CHECKING, Final
 
+from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 from discography_toolkit.core.names import ALBUM_INDEX_RE, ARTIST_LABEL_RE
 
@@ -55,9 +57,61 @@ FLAC_CONTAINER_RE: Final[re.Pattern[str]] = re.compile(
 CONTAINER_NAME: Final[str] = "FLAC"
 
 
+class AudioTier(StrEnum):
+    """What quality an album is held in, decided from its files.
+
+    `NONE` is kept apart from `LOSSY`: they are opposite facts -- an
+    album held in a lossy format, versus an album not held at all -- even
+    though neither earns a quality tag in a folder name.
+    """
+
+    LOSSLESS = "lossless"
+    OPUS = "opus"
+    LOSSY = "lossy"
+    NONE = "none"
+
+
 # ==================================================================================== #
 #                                    IDENTIFICATION                                    #
 # ==================================================================================== #
+def detect_tier(album: Path) -> AudioTier:
+    """Decide an album's audio tier from the files it actually holds.
+
+    Never trusts a text marker in the folder name -- only content decides
+    it. Walks recursively, so a multi-disc album split across subfolders
+    is still read whole. One lossless file settles it outright: the
+    tiers rank lossless over opus over lossy, and the best present wins.
+
+    Most extensions are unambiguous. `.m4a` is the exception -- an MP4
+    container holds either AAC or ALAC -- so it is probed per file, and
+    counts toward lossless only when confirmed ALAC.
+
+    Args:
+        album: The album folder to scan.
+
+    Returns:
+        The best tier any file reaches, or `AudioTier.NONE` when the
+        folder holds no audio at all.
+    """
+    has_opus: bool = False
+    has_lossy: bool = False
+
+    for entry in album.rglob("*"):
+        if not entry.is_file():
+            continue
+        suffix: str = entry.suffix.lower()
+        if suffix in LOSSLESS_EXTENSIONS or (suffix == ".m4a" and metadata.is_lossless_m4a(entry)):
+            return AudioTier.LOSSLESS
+        if suffix in OPUS_EXTENSIONS:
+            has_opus = True
+        elif suffix in LOSSY_EXTENSIONS:
+            has_lossy = True
+
+    if has_opus:
+        return AudioTier.OPUS
+    return AudioTier.LOSSY if has_lossy else AudioTier.NONE
+
+
 def is_flac_container(folder: Path) -> bool:
     """Report whether a folder is the lossless container, not an album.
 

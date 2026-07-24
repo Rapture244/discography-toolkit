@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 import io
+import shutil
+import subprocess
 from typing import TYPE_CHECKING, cast
 
 from mutagen.aiff import AIFF
@@ -33,6 +35,7 @@ from discography_toolkit.core.metadata import (
     Tag,
     UnsupportedFormatError,
     family_of,
+    is_lossless_m4a,
     read,
     read_cover,
     supports_cover,
@@ -695,3 +698,104 @@ def test_reading_an_unsupported_format_raises(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedFormatError):
         _ = read(cover, [Tag.ALBUM])
+
+
+# ==================================================================================== #
+#                                        CODEC                                         #
+# ==================================================================================== #
+def _encode_m4a(path: Path, codec: str) -> bool:
+    """Write a short `.m4a` in the given codec, if ffmpeg can.
+
+    Args:
+        path: Where to write the file.
+        codec: The ffmpeg codec name, `"alac"` or `"aac"`.
+
+    Returns:
+        `True` when the file was written, `False` when ffmpeg is absent.
+    """
+    ffmpeg: str | None = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return False
+    _ = subprocess.run(  # noqa: S603 - fully static command, no user input
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=0.2",
+            "-c:a",
+            codec,
+            str(path),
+            "-loglevel",
+            "error",
+        ],
+        check=True,
+    )
+    return True
+
+
+def test_alac_reads_as_lossless(tmp_path: Path) -> None:
+    """Apple Lossless is the whole reason this probe exists.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    track: Path = tmp_path / "alac.m4a"
+    if not _encode_m4a(track, "alac"):
+        pytest.skip("ffmpeg not available")
+
+    assert is_lossless_m4a(track) is True
+
+
+def test_aac_does_not_read_as_lossless(tmp_path: Path) -> None:
+    """The same container holding AAC is lossy, and must not pass.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    track: Path = tmp_path / "aac.m4a"
+    if not _encode_m4a(track, "aac"):
+        pytest.skip("ffmpeg not available")
+
+    assert is_lossless_m4a(track) is False
+
+
+def test_an_m4a_whose_codec_is_unreadable_is_not_lossless(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A container that parses but reports no codec string is not trusted.
+
+    mutagen can hand back an info object without a usable `codec`; the
+    guard treats that as unconfirmed rather than letting `None.lower()`
+    raise mid-scan.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+        monkeypatch: Pytest's attribute patcher.
+    """
+
+    class _NoCodec:
+        info: object = object()  # an info with no `codec` attribute at all
+
+    def _no_codec(_path: Path) -> _NoCodec:
+        return _NoCodec()
+
+    monkeypatch.setattr("discography_toolkit.core.metadata.MP4", _no_codec)
+
+    assert is_lossless_m4a(tmp_path / "whatever.m4a") is False
+
+
+def test_an_unreadable_m4a_is_not_lossless(tmp_path: Path) -> None:
+    """A file that will not parse is not confirmed lossless, and is not raised.
+
+    One corrupt file must not stop a scan, so the answer is a plain
+    `False`.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    track: Path = tmp_path / "broken.m4a"
+    _ = track.write_bytes(b"not really an mp4 container")
+
+    assert is_lossless_m4a(track) is False
