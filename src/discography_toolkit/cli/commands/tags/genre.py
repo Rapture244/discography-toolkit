@@ -28,6 +28,7 @@ import typer
 
 from discography_toolkit.cli.console import (
     SummaryRow,
+    artist_names,
     echo_banner,
     echo_summary,
     make_advancer,
@@ -80,7 +81,12 @@ def genre(
             a user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to tag beneath")
-    echo_banner("Metadata: Genre", target.name, children=_artist_names(target))
+    # Reporting only. Every audio file beneath the target is tagged
+    # whether or not it sits under a recognized artist -- the path is a
+    # scope, and filtering here would mean pointing at one album and
+    # tagging nothing.
+    artists: list[Path] = [] if is_artist_folder(target) else find_artist_folders(target)
+    echo_banner("Metadata: Genre", target.name, children=artist_names(target, artists))
 
     if value is None:
         value = cast("str", typer.prompt('\nEnter the genre (e.g. "Jazz" or "Jazz;Jazz Fusion")'))
@@ -97,8 +103,6 @@ def genre(
 
     label: str = typer.style("Genre ->", fg=typer.colors.GREEN, bold=True)
     typer.echo(f"\n{label} {value!r}")
-
-    artists: list[Path] = [] if is_artist_folder(target) else find_artist_folders(target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
@@ -151,27 +155,6 @@ def _wants(value: str) -> tagging.Desired:
         return {Tag.GENRE: value}
 
     return desired
-
-
-def _artist_names(target: Path) -> list[str]:
-    """List the artist folders inside a target, for the banner.
-
-    Empty when the target is itself an artist: its children are albums,
-    and listing them would say nothing about scope.
-
-    Reporting only. Every audio file beneath the target is tagged whether
-    or not it sits under a recognized artist -- the path is a scope, and
-    filtering here would mean pointing at one album tagged nothing.
-
-    Args:
-        target: The folder the run is scoped to.
-
-    Returns:
-        Names of the artist folders found beneath it.
-    """
-    if is_artist_folder(target):
-        return []
-    return [folder.name for folder in find_artist_folders(target)]
 
 
 def _echo_plan(plan: tagging.TagPlan) -> None:

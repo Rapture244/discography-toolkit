@@ -23,6 +23,7 @@ import typer
 
 from discography_toolkit.cli.console import (
     SummaryRow,
+    artist_names,
     echo_banner,
     echo_summary,
     make_advancer,
@@ -70,14 +71,13 @@ def title(
             a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    echo_banner("Metadata: Title", target.name, children=_artist_names(target))
+    artists: list[Path] = [] if is_artist_folder(target) else find_artist_folders(target)
+    echo_banner("Metadata: Title", target.name, children=artist_names(target, artists))
 
     tracks: list[Path] = find_audio_files(target)
     if not tracks:
         typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
-
-    artists: list[Path] = [] if is_artist_folder(target) else find_artist_folders(target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
@@ -153,23 +153,6 @@ def _untitled(plan: tagging.TagPlan) -> list[tagging.TrackOutcome]:
         for outcome in plan.outcomes
         if outcome.status == "already_correct" and not outcome.current.get(Tag.TITLE)
     ]
-
-
-def _artist_names(target: Path) -> list[str]:
-    """List the artist folders inside a target, for the banner.
-
-    Empty when the target is itself an artist: its children are albums,
-    and listing them would say nothing about scope.
-
-    Args:
-        target: The folder the run is scoped to.
-
-    Returns:
-        Names of the artist folders found beneath it.
-    """
-    if is_artist_folder(target):
-        return []
-    return [folder.name for folder in find_artist_folders(target)]
 
 
 def _echo_plan(plan: tagging.TagPlan) -> None:

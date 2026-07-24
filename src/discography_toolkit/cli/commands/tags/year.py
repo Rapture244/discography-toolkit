@@ -28,6 +28,7 @@ import typer
 
 from discography_toolkit.cli.console import (
     SummaryRow,
+    artist_names,
     echo_banner,
     echo_summary,
     make_advancer,
@@ -38,7 +39,6 @@ from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
     find_audio_files,
-    is_artist_folder,
     owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
@@ -81,7 +81,8 @@ def year(
             user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    echo_banner("Metadata: Year", target.name, children=_artist_names(target))
+    artists: list[Path] = find_artist_folders(target)
+    echo_banner("Metadata: Year", target.name, children=artist_names(target, artists))
 
     albums: list[Path] = find_albums(target)
     if not albums:
@@ -101,8 +102,6 @@ def year(
     if not tracks:
         typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
-
-    artists: list[Path] = find_artist_folders(target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
@@ -186,21 +185,6 @@ def _year_of(track: Path, albums: Sequence[Path]) -> str | None:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _artist_names(target: Path) -> list[str]:
-    """List the artist folders inside a target, for the banner.
-
-    Args:
-        target: The folder the run is scoped to.
-
-    Returns:
-        Names of the artist folders found beneath it, empty when the
-        target is itself an artist.
-    """
-    if is_artist_folder(target):
-        return []
-    return [folder.name for folder in find_artist_folders(target)]
-
-
 def _undated(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.TrackOutcome]:
     """Find tracks whose album offers no year.
 

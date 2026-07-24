@@ -19,7 +19,7 @@ from rich.rule import Rule
 from rich.text import Text
 import typer
 
-from discography_toolkit.core.layout import owning_folder
+from discography_toolkit.core.layout import is_artist_folder, owning_folder
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -212,6 +212,29 @@ def make_advancer(
 # ==================================================================================== #
 #                                       BANNER                                         #
 # ==================================================================================== #
+def artist_names(target: Path, artists: Sequence[Path]) -> list[str]:
+    """Name the artist folders beneath a target, for the banner.
+
+    A target that is itself an artist gets no list: the banner names it
+    on the line above, and its children are albums, which say nothing
+    about scope.
+
+    The artists are passed in rather than found here. Every command
+    already walks for them to size its bars, and walking a shelf twice
+    to print one line is a poor trade.
+
+    Args:
+        target: The folder the run is scoped to.
+        artists: The artist folders found beneath it.
+
+    Returns:
+        Their names, empty when the target is itself an artist.
+    """
+    if is_artist_folder(target):
+        return []
+    return [artist.name for artist in artists]
+
+
 def echo_banner(title: str, target: str, children: Sequence[str] = ()) -> None:
     """Announce which step is running, and on what.
 

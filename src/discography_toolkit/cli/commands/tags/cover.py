@@ -33,13 +33,14 @@ import typer
 
 from discography_toolkit.cli.console import (
     SummaryRow,
+    artist_names,
     echo_banner,
     echo_summary,
     make_advancer,
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.core.layout import find_albums, find_artist_folders, is_artist_folder
+from discography_toolkit.core.layout import find_albums, find_artist_folders
 from discography_toolkit.operations import covers
 
 if TYPE_CHECKING:
@@ -78,7 +79,8 @@ def cover(
             user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    echo_banner("Metadata: Album Cover", target.name, children=_artist_names(target))
+    artists: list[Path] = find_artist_folders(target)
+    echo_banner("Metadata: Album Cover", target.name, children=artist_names(target, artists))
 
     albums: list[Path] = find_albums(target)
     if not albums:
@@ -93,8 +95,6 @@ def cover(
             err=True,
         )
         raise typer.Exit(code=1)
-
-    artists: list[Path] = find_artist_folders(target)
 
     with make_progress(noun="albums") as progress:
         advance = make_advancer(progress, target.name, albums, artists)
@@ -178,21 +178,6 @@ def _outcome(report: covers.CoverReport) -> str:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _artist_names(target: Path) -> list[str]:
-    """List the artist folders inside a target, for the banner.
-
-    Args:
-        target: The folder the run is scoped to.
-
-    Returns:
-        Names of the artist folders found beneath it, empty when the
-        target is itself an artist.
-    """
-    if is_artist_folder(target):
-        return []
-    return [folder.name for folder in find_artist_folders(target)]
-
-
 def _echo_plan(plan: covers.CoverPlan) -> None:
     """Render a plan as a summary box, the work, and what is missing.
 

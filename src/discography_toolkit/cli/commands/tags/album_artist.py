@@ -27,6 +27,7 @@ import typer
 
 from discography_toolkit.cli.console import (
     SummaryRow,
+    artist_names,
     echo_banner,
     echo_summary,
     make_advancer,
@@ -36,7 +37,6 @@ from discography_toolkit.cli.parameters import resolve_path
 from discography_toolkit.core.layout import (
     find_artist_folders,
     find_audio_files,
-    is_artist_folder,
     owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
@@ -80,11 +80,7 @@ def album_artist(
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
     artists: list[Path] = find_artist_folders(target)
-    echo_banner(
-        "Metadata: Album Artist",
-        target.name,
-        children=[] if is_artist_folder(target) else [folder.name for folder in artists],
-    )
+    echo_banner("Metadata: Album Artist", target.name, children=artist_names(target, artists))
 
     if not artists:
         typer.secho(

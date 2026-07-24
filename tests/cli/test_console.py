@@ -15,6 +15,7 @@ from discography_toolkit.cli.console import (
     DashBarColumn,
     FileCountColumn,
     SummaryRow,
+    artist_names,
     echo_summary,
     make_advancer,
     make_progress,
@@ -130,6 +131,53 @@ def test_file_count_keeps_a_constant_width(completed: int) -> None:
     rendered = FileCountColumn().render(FakeTask(completed, 1103))  # pyright: ignore[reportArgumentType]
 
     assert len(rendered.plain) == len("(1103/1103 files)")
+
+
+def test_file_count_names_what_it_counts() -> None:
+    """One step walks albums, and a bar calling them files is simply wrong."""
+    rendered = FileCountColumn(noun="albums").render(FakeTask(4, 4))  # pyright: ignore[reportArgumentType]
+
+    assert rendered.plain == "(4/4 albums)"
+
+
+def test_the_noun_reaches_the_counter() -> None:
+    """Choosing it on the display is the only way a command can set it."""
+    progress = make_progress(noun="operations")
+
+    columns = [column for column in progress.columns if isinstance(column, FileCountColumn)]
+    assert [column.noun for column in columns] == ["operations"]
+
+
+# ==================================================================================== #
+#                                     BANNER SCOPE                                     #
+# ==================================================================================== #
+def test_artist_names_lists_the_artists_beneath_a_shelf(tmp_path: Path) -> None:
+    """A shelf's banner says which artists the run covers.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "Jazz"
+    artists: list[Path] = [shelf / "Miles Davis - [1 on 1]", shelf / "Sun Ra - [2 on 2]"]
+    for artist in artists:
+        artist.mkdir(parents=True)
+
+    assert artist_names(shelf, artists) == ["Miles Davis - [1 on 1]", "Sun Ra - [2 on 2]"]
+
+
+def test_artist_names_says_nothing_under_an_artist(tmp_path: Path) -> None:
+    """The banner already names it; repeating it underneath says nothing.
+
+    Passed itself, as `find_artist_folders` returns for an artist target,
+    so the list has to be judged against the target rather than trusted.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis - [65 • 65F • 0L • 0M]"
+    artist.mkdir()
+
+    assert artist_names(artist, [artist]) == []
 
 
 # ==================================================================================== #
