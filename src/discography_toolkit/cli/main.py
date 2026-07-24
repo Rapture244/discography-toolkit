@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import genre
+from discography_toolkit.cli.commands import genre, title
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -50,6 +50,9 @@ def main() -> None:
 # point, since the command is registered as a side effect.
 _ = app.command(name="genre", help="Set the Genre tag on every audio file beneath a path.")(
     genre.genre
+)
+_ = app.command(name="title", help="Title-case the Title tag of every audio file beneath a path.")(
+    title.title
 )
 
 
