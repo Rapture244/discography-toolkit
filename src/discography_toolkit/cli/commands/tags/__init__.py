@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands.tags import genre, title
+from discography_toolkit.cli.commands.tags import album_artist, genre, title
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -29,9 +29,13 @@ def main() -> None:
 # ==================================================================================== #
 #                                  COMMAND REGISTRY                                    #
 # ==================================================================================== #
-_ = app.command(name="genre", help="Set the Genre tag on every audio file beneath a path.")(
+_ = app.command(
+    name="album-artist",
+    help="Write each track's 'Album Artist' from the artist folder above it.",
+)(album_artist.album_artist)
+_ = app.command(name="genre", help="Set the 'Genre' tag on every audio file beneath a path.")(
     genre.genre
 )
-_ = app.command(name="title", help="Title-case the Title tag of every audio file beneath a path.")(
-    title.title
-)
+_ = app.command(
+    name="title", help="Title-case the 'Title' tag of every audio file beneath a path."
+)(title.title)
