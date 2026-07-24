@@ -11,20 +11,33 @@ APEv2 and ASF share the same dispatch but are untested here.
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
+import io
 from typing import TYPE_CHECKING, cast
 
-from mutagen.id3 import ID3, TPE1
+from mutagen.aiff import AIFF
+from mutagen.flac import FLAC, Picture
+from mutagen.id3 import APIC, ID3, TPE1
+from mutagen.mp3 import MP3
+from mutagen.oggopus import OggOpus
+from mutagen.oggvorbis import OggVorbis
+from mutagen.wave import WAVE
 import numpy as np
+from PIL import Image, ImageDraw
 import soundfile as sf
 
+from discography_toolkit.core import artwork
 from discography_toolkit.core.metadata import (
     Family,
     Tag,
     UnsupportedFormatError,
     family_of,
     read,
+    read_cover,
+    supports_cover,
     write,
+    write_cover,
 )
 
 import pytest
@@ -361,6 +374,314 @@ def test_writing_nothing_is_a_no_op(make_track: Callable[[str], Path], extension
     write(track, {})
 
     assert track.read_bytes() == before
+
+
+# ==================================================================================== #
+#                                        COVERS                                        #
+# ==================================================================================== #
+COVERABLE: list[str] = [".flac", ".ogg", ".opus", ".mp3", ".wav", ".aiff"]
+
+
+def artwork_bytes(size: int = 64, seed: int = 0) -> bytes:
+    """Build a small JPEG to embed.
+
+    Args:
+        size: Width and height in pixels.
+        seed: Varies the image, so two calls differ.
+
+    Returns:
+        The encoded bytes.
+    """
+    image = Image.new("RGB", (size, size))
+    draw = ImageDraw.Draw(image)
+    for row in range(size):
+        draw.line([(0, row), (size, row)], fill=((seed * 60 + row) % 256, row % 256, 200))
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=90)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_a_cover_round_trips(make_track: Callable[[str], Path], extension: str) -> None:
+    """What goes in comes back, byte for byte.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    track: Path = make_track(extension)
+    cover = artwork.read(artwork_bytes())
+    assert cover is not None
+
+    write_cover(track, cover)
+
+    stored = read_cover(track)
+    assert stored is not None
+    assert stored.data == cover.data
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_a_file_without_a_cover_reads_as_none(
+    make_track: Callable[[str], Path], extension: str
+) -> None:
+    """No artwork is not an error.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    assert read_cover(make_track(extension)) is None
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_replacing_a_cover_leaves_one(make_track: Callable[[str], Path], extension: str) -> None:
+    """A second write replaces the front cover rather than adding to it.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    track: Path = make_track(extension)
+    first = artwork.read(artwork_bytes(seed=1))
+    second = artwork.read(artwork_bytes(seed=2))
+    assert first is not None
+    assert second is not None
+
+    write_cover(track, first)
+    write_cover(track, second)
+
+    stored = read_cover(track)
+    assert stored is not None
+    assert stored.data == second.data
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_writing_a_cover_leaves_the_tags(make_track: Callable[[str], Path], extension: str) -> None:
+    """Artwork and text are stored side by side, not instead of each other.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    track: Path = make_track(extension)
+    write(track, {Tag.ALBUM: "Nefertiti"})
+    cover = artwork.read(artwork_bytes())
+    assert cover is not None
+
+    write_cover(track, cover)
+
+    assert read(track, [Tag.ALBUM])[Tag.ALBUM] == "Nefertiti"
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_writing_tags_leaves_the_cover(make_track: Callable[[str], Path], extension: str) -> None:
+    """And the other way round.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    track: Path = make_track(extension)
+    cover = artwork.read(artwork_bytes())
+    assert cover is not None
+    write_cover(track, cover)
+
+    write(track, {Tag.ALBUM: "Nefertiti"})
+
+    stored = read_cover(track)
+    assert stored is not None
+    assert stored.data == cover.data
+
+
+BACK_COVER: int = 4
+FRONT_COVER: int = 3
+
+
+def _open_id3_container(track: Path) -> MP3 | WAVE | AIFF:
+    """Open an ID3-carrying file with its own class.
+
+    `mutagen.File` returns a union of every format it knows, which cannot
+    be narrowed to something with an ID3 `.tags`.
+
+    Args:
+        track: The audio file.
+
+    Returns:
+        The file, opened as its own type.
+    """
+    suffix: str = track.suffix.lower()
+    if suffix == ".mp3":
+        return MP3(track)
+    if suffix == ".wav":
+        return WAVE(track)
+    return AIFF(track)
+
+
+def _back_picture(data: bytes) -> Picture:
+    """Build a back-cover picture block.
+
+    Args:
+        data: The image bytes.
+
+    Returns:
+        A `Picture` marked as the back cover.
+    """
+    picture = Picture()
+    picture.data = data
+    picture.type = BACK_COVER
+    picture.mime = "image/jpeg"
+    return picture
+
+
+def seed_back_cover(track: Path, data: bytes) -> None:
+    """Attach a back cover, which a front-cover write must not disturb.
+
+    Files carry several pictures -- a back cover, an artist photo -- and
+    only one of them is this module's business.
+
+    Args:
+        track: The audio file to seed.
+        data: The image bytes.
+    """
+    suffix: str = track.suffix.lower()
+
+    if suffix == ".flac":
+        flac = FLAC(track)
+        flac.add_picture(_back_picture(data))
+        flac.save()
+    elif suffix in {".ogg", ".opus"}:
+        vorbis = OggOpus(track) if suffix == ".opus" else OggVorbis(track)
+        encoded: list[str] = list(vorbis.get("metadata_block_picture") or [])
+        encoded.append(base64.b64encode(_back_picture(data).write()).decode("ascii"))
+        vorbis["metadata_block_picture"] = encoded
+        vorbis.save()
+    else:
+        audio = _open_id3_container(track)
+        if audio.tags is None:
+            audio.add_tags()
+        frames = audio.tags
+        assert frames is not None
+        frames.add(APIC(encoding=3, mime="image/jpeg", type=BACK_COVER, desc="Back", data=data))
+        audio.save()
+
+
+def picture_types(track: Path) -> set[int]:
+    """Collect the picture types a file carries.
+
+    Asserted on rather than raw bytes: ID3 may escape a byte sequence on
+    write, so a JPEG that survived intact is not findable verbatim.
+
+    Args:
+        track: The audio file to inspect.
+
+    Returns:
+        Every picture type present.
+    """
+    suffix: str = track.suffix.lower()
+
+    if suffix == ".flac":
+        return {int(picture.type) for picture in FLAC(track).pictures}
+
+    if suffix in {".ogg", ".opus"}:
+        vorbis = OggOpus(track) if suffix == ".opus" else OggVorbis(track)
+        return {
+            int(Picture(base64.b64decode(encoded)).type)
+            for encoded in list(vorbis.get("metadata_block_picture") or [])
+        }
+
+    audio = _open_id3_container(track)
+    frames = audio.tags
+    assert frames is not None
+    return {int(frame.type) for frame in frames.getall("APIC")}
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_a_back_cover_is_not_read_as_the_front(
+    make_track: Callable[[str], Path], extension: str
+) -> None:
+    """Only the front cover is this module's business.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    track: Path = make_track(extension)
+    # Seeded first, so a read that took any picture would find this one.
+    seed_back_cover(track, artwork_bytes(seed=2))
+    front = artwork.read(artwork_bytes(seed=1))
+    assert front is not None
+    write_cover(track, front)
+
+    stored = read_cover(track)
+
+    assert stored is not None
+    assert stored.data == front.data
+
+
+@pytest.mark.parametrize("extension", COVERABLE)
+def test_writing_a_cover_keeps_a_back_cover(
+    make_track: Callable[[str], Path], extension: str
+) -> None:
+    """A front-cover write replaces its own kind and nothing else.
+
+    Args:
+        make_track: Factory building an audio file.
+        extension: The format under test.
+    """
+    track: Path = make_track(extension)
+    seed_back_cover(track, artwork_bytes(seed=2))
+    front = artwork.read(artwork_bytes(seed=1))
+    assert front is not None
+
+    write_cover(track, front)
+
+    assert picture_types(track) == {FRONT_COVER, BACK_COVER}
+
+
+@pytest.mark.parametrize(
+    ("extension", "expected"),
+    [
+        (".flac", True),
+        (".mp3", True),
+        (".m4a", True),
+        # Loosely specified picture storage: reported rather than written
+        # badly.
+        (".ape", False),
+        (".wv", False),
+        (".wma", False),
+    ],
+)
+def test_supports_cover(tmp_path: Path, extension: str, *, expected: bool) -> None:
+    """Not every format carries artwork this module will write.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+        extension: The format under test.
+        expected: Whether it should be writable.
+    """
+    assert supports_cover(tmp_path / f"track{extension}") is expected
+
+
+def test_reading_a_cover_from_an_unsupported_format_is_none(tmp_path: Path) -> None:
+    """A format with no picture mechanism has no cover to report.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    assert read_cover(tmp_path / "track.wma") is None
+
+
+def test_writing_a_cover_to_an_unsupported_format_raises(tmp_path: Path) -> None:
+    """Silently skipping would leave the caller thinking it worked.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    cover = artwork.read(artwork_bytes())
+    assert cover is not None
+
+    with pytest.raises(UnsupportedFormatError):
+        write_cover(tmp_path / "track.wma", cover)
 
 
 def test_reading_an_unsupported_format_raises(tmp_path: Path) -> None:

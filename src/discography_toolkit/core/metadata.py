@@ -10,6 +10,11 @@ Twelve extensions fall into five families, each with its own key for the
 same tag. `_KEYS` is that table; `read` and `write` are the single
 dispatch over it.
 
+Cover art rides along in the same boundary, though not every family
+carries it: APEv2 and ASF store pictures in ways too loosely specified to
+write blind, so they report as unsupported rather than being written
+badly.
+
 Formats are exercised by the tests where a file can be generated: FLAC,
 OGG, Opus, MP3, WAV and AIFF. MP4, APEv2 and ASF are written from their
 specifications and mutagen's API but are not covered by tests.
@@ -17,6 +22,7 @@ specifications and mutagen's API but are not covered by tests.
 
 from __future__ import annotations
 
+import base64
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
@@ -24,20 +30,25 @@ from mutagen.aiff import AIFF
 from mutagen.asf import ASF
 from mutagen.dsdiff import DSDIFF
 from mutagen.dsf import DSF
-from mutagen.flac import FLAC
-from mutagen.id3 import Frames
+from mutagen.flac import FLAC, Picture
+from mutagen.id3 import APIC, Frames
 from mutagen.monkeysaudio import MonkeysAudio
 from mutagen.mp3 import MP3
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 from mutagen.trueaudio import TrueAudio
 from mutagen.wave import WAVE
 from mutagen.wavpack import WavPack
 
+from discography_toolkit.core import artwork
+from discography_toolkit.core.artwork import PNG
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
+
+    from discography_toolkit.core.artwork import Cover
 
 
 # ==================================================================================== #
@@ -119,6 +130,15 @@ _KEYS: Final[dict[Tag, dict[Family, str]]] = {
 }
 
 
+# Families whose picture storage is well enough specified to write.
+# APEv2 and ASF are deliberately absent.
+COVER_FAMILIES: Final[frozenset[Family]] = frozenset({Family.VORBIS, Family.ID3, Family.MP4})
+
+# ID3 picture type 3 is "cover (front)". Only that one is read or
+# replaced: a back cover or an artist photo beside it is left alone.
+_FRONT_COVER: Final[int] = 3
+
+
 class UnsupportedFormatError(ValueError):
     """Raised for a file this module has no tagging mechanism for."""
 
@@ -192,6 +212,77 @@ def write(path: Path, values: Mapping[Tag, str]) -> None:
     for tag, value in values.items():
         _write_one(audio, family, tag, value)
     audio.save()
+
+
+# ==================================================================================== #
+#                                        COVERS                                        #
+# ==================================================================================== #
+def supports_cover(path: Path) -> bool:
+    """Report whether a file's format can carry cover art here.
+
+    Args:
+        path: The audio file.
+
+    Returns:
+        `True` when its family has a picture mechanism this writes.
+
+    Raises:
+        UnsupportedFormatError: If the extension is not supported at all.
+    """
+    return family_of(path) in COVER_FAMILIES
+
+
+def read_cover(path: Path) -> Cover | None:
+    """Read a file's front cover.
+
+    Args:
+        path: The audio file to read.
+
+    Returns:
+        The front cover, or `None` when the file carries none or its
+        format has no picture mechanism here.
+
+    Raises:
+        UnsupportedFormatError: If the extension is not supported at all.
+    """
+    family: Family = family_of(path)
+    if family not in COVER_FAMILIES:
+        return None
+
+    for picture in _pictures(path, family):
+        if picture.type == _FRONT_COVER:
+            return artwork.read(bytes(picture.data))
+    return None
+
+
+def write_cover(path: Path, cover: Cover) -> None:
+    """Write a file's front cover and save it.
+
+    Any other picture the file carries -- a back cover, an artist photo
+    -- is kept. MP4 is the exception: it has no picture-type concept, so
+    its cover list is replaced outright.
+
+    Args:
+        path: The audio file to write.
+        cover: The image to embed.
+
+    Raises:
+        UnsupportedFormatError: If the format has no picture mechanism
+            here, or is not supported at all.
+    """
+    family: Family = family_of(path)
+    if family not in COVER_FAMILIES:
+        msg = f"Cover art is not supported for {path.suffix}"
+        raise UnsupportedFormatError(msg)
+
+    if family is Family.MP4:
+        _write_mp4_cover(path, cover)
+    elif family is Family.ID3:
+        _write_id3_cover(path, cover)
+    elif path.suffix.lower() == ".flac":
+        _write_flac_cover(path, cover)
+    else:
+        _write_ogg_cover(path, cover)
 
 
 # ==================================================================================== #
@@ -317,3 +408,158 @@ def _write_one(audio, family: Family, tag: Tag, value: str) -> None:
                 audio[key] = [value]
             elif key in audio:
                 del audio[key]
+
+
+def _pictures(path: Path, family: Family) -> list[Picture]:
+    """Collect every picture a file carries, whatever the mechanism.
+
+    Opened per family rather than through `_open`: that returns a union,
+    and FLAC's picture API is not on it.
+
+    Args:
+        path: The audio file to read.
+        family: Its tagging mechanism.
+
+    Returns:
+        Each picture as a FLAC-style block, so callers compare one shape.
+    """
+    suffix: str = path.suffix.lower()
+
+    if family is Family.MP4:
+        mp4 = MP4(path)
+        covers = mp4.tags.get("covr") if mp4.tags is not None else None
+        return [_as_picture(bytes(covers[0]))] if covers else []
+
+    if family is Family.ID3:
+        id3 = _open_id3(path, suffix)
+        if id3.tags is None:
+            return []
+        return [_as_picture(bytes(frame.data), frame.type) for frame in id3.tags.getall("APIC")]
+
+    if suffix == ".flac":
+        return list(FLAC(path).pictures)
+
+    return [Picture(base64.b64decode(encoded)) for encoded in _ogg_encoded(path)]
+
+
+def _as_picture(data: bytes, kind: int = _FRONT_COVER) -> Picture:
+    """Wrap raw picture bytes in a FLAC-style block.
+
+    MP4 has no picture-type concept, so its single cover is taken as the
+    front one.
+
+    Args:
+        data: The image bytes.
+        kind: The picture type, front cover by default.
+
+    Returns:
+        A `Picture` carrying the bytes and type.
+    """
+    picture = Picture()
+    picture.data = data
+    picture.type = kind
+    return picture
+
+
+def _ogg_encoded(path: Path) -> list[str]:
+    """Return an Ogg file's base64 picture comments.
+
+    Args:
+        path: The Ogg Vorbis or Opus file.
+
+    Returns:
+        The raw comment values, empty when absent.
+    """
+    audio = OggOpus(path) if path.suffix.lower() == ".opus" else OggVorbis(path)
+    return list(audio.get("metadata_block_picture") or [])
+
+
+def _write_flac_cover(path: Path, cover: Cover) -> None:
+    """Replace a FLAC's front cover, keeping any other picture.
+
+    Args:
+        path: The FLAC file.
+        cover: The image to embed.
+    """
+    audio = FLAC(path)
+    kept = [picture for picture in audio.pictures if picture.type != _FRONT_COVER]
+    audio.clear_pictures()
+    for picture in [*kept, _build_picture(cover)]:
+        audio.add_picture(picture)
+    audio.save()
+
+
+def _write_ogg_cover(path: Path, cover: Cover) -> None:
+    """Replace an Ogg file's front cover, keeping any other picture.
+
+    Args:
+        path: The Ogg Vorbis or Opus file.
+        cover: The image to embed.
+    """
+    audio = OggOpus(path) if path.suffix.lower() == ".opus" else OggVorbis(path)
+    kept: list[str] = [
+        encoded
+        for encoded in list(audio.get("metadata_block_picture") or [])
+        if Picture(base64.b64decode(encoded)).type != _FRONT_COVER
+    ]
+    kept.append(base64.b64encode(_build_picture(cover).write()).decode("ascii"))
+    audio["metadata_block_picture"] = kept
+    audio.save()
+
+
+def _write_id3_cover(path: Path, cover: Cover) -> None:
+    """Replace an ID3 front-cover frame, keeping any other picture.
+
+    Args:
+        path: The audio file.
+        cover: The image to embed.
+    """
+    audio = _open_id3(path, path.suffix.lower())
+    if audio.tags is None:
+        audio.add_tags()
+    frames = audio.tags
+    if frames is None:
+        return
+    kept = [frame for frame in frames.getall("APIC") if frame.type != _FRONT_COVER]
+    kept.append(APIC(encoding=3, mime=cover.mime, type=_FRONT_COVER, desc="Cover", data=cover.data))
+    frames.setall("APIC", kept)
+    audio.save()
+
+
+def _write_mp4_cover(path: Path, cover: Cover) -> None:
+    """Set an MP4 file's cover atom.
+
+    MP4 has no picture-type concept, so the cover list is replaced
+    outright rather than merged.
+
+    Args:
+        path: The MP4 file.
+        cover: The image to embed.
+    """
+    audio = MP4(path)
+    if audio.tags is None:
+        audio.add_tags()
+    if audio.tags is None:
+        return
+    image_format = MP4Cover.FORMAT_PNG if cover.mime == PNG else MP4Cover.FORMAT_JPEG
+    audio.tags["covr"] = [MP4Cover(cover.data, imageformat=image_format)]
+    audio.save()
+
+
+def _build_picture(cover: Cover) -> Picture:
+    """Build a FLAC-style picture block.
+
+    Used directly by FLAC and, base64-encoded, by Ogg Vorbis and Opus.
+
+    Args:
+        cover: The image to wrap.
+
+    Returns:
+        A `Picture` marked as the front cover.
+    """
+    picture = Picture()
+    picture.data = cover.data
+    picture.type = _FRONT_COVER
+    picture.mime = cover.mime
+    picture.desc = "Cover"
+    return picture

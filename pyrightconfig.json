@@ -79,6 +79,16 @@
         "reportAny": "none"
       },
       {
+        "root": "tests/core/test_metadata.py",
+        "reportUnknownArgumentType": "none",
+        "reportUnknownMemberType": "none",
+        "reportUnknownVariableType": "none",
+        "reportUnknownParameterType": "none",
+        "reportMissingParameterType": "none",
+        "reportAny": "none",
+        "reportUnusedCallResult": "none"
+      },
+      {
         "root": "."
       }
     ],
