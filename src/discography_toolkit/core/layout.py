@@ -15,6 +15,7 @@ from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 from discography_toolkit.core.names import ALBUM_INDEX_RE, ARTIST_LABEL_RE
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 # ==================================================================================== #
@@ -170,6 +171,21 @@ def discover_albums(artist: Path) -> list[Path]:
         albums.append(entry)
 
     return sorted(albums, key=lambda path: path.name)
+
+
+def owning_artist(track: Path, artists: Sequence[Path]) -> Path | None:
+    """Find which artist folder a file sits under, if any.
+
+    Args:
+        track: The file to place.
+        artists: Candidate artist folders.
+
+    Returns:
+        The artist folder containing `track`, or `None` for a file
+        outside every one of them.
+    """
+    parents = set(track.parents)
+    return next((artist for artist in artists if artist in parents), None)
 
 
 def find_artist_folders(root: Path) -> list[Path]:

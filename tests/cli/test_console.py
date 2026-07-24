@@ -18,7 +18,6 @@ from discography_toolkit.cli.console import (
     echo_summary,
     make_advancer,
     make_progress,
-    owning_artist,
 )
 
 import pytest
@@ -136,29 +135,6 @@ def test_file_count_keeps_a_constant_width(completed: int) -> None:
 # ==================================================================================== #
 #                                    ARTIST TRACKING                                   #
 # ==================================================================================== #
-def test_owning_artist_finds_the_containing_folder(tmp_path: Path) -> None:
-    """A track belongs to the artist folder above it, however deep.
-
-    Args:
-        tmp_path: Pytest's per-test temporary directory.
-    """
-    miles: Path = tmp_path / "Miles Davis - [1 on 1]"
-    track: Path = miles / "FLAC" / "01. (1959) - Kind of Blue [FLAC]" / "CD 1" / "01.flac"
-
-    assert owning_artist(track, [miles]) == miles
-
-
-def test_owning_artist_returns_none_for_a_loose_track(tmp_path: Path) -> None:
-    """A track outside every artist folder belongs to none of them.
-
-    Args:
-        tmp_path: Pytest's per-test temporary directory.
-    """
-    miles: Path = tmp_path / "Miles Davis - [1 on 1]"
-
-    assert owning_artist(tmp_path / "loose.flac", [miles]) is None
-
-
 def test_advancer_removes_an_artist_bar_when_it_completes(tmp_path: Path) -> None:
     """Each artist's bar disappears as its last file is handled.
 

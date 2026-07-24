@@ -21,6 +21,7 @@ from discography_toolkit.core.layout import (
     is_artist_folder,
     is_effectively_empty,
     is_flac_container,
+    owning_artist,
 )
 from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 
@@ -341,6 +342,29 @@ def test_find_audio_files_scoped_to_one_album(artist: Path) -> None:
     found: list[str] = [track.name for track in find_audio_files(album)]
 
     assert found == ["01 - Pharaoh's Dance.flac", "01 - Spanish Key.flac"]
+
+
+def test_owning_artist_finds_the_containing_folder(tmp_path: Path) -> None:
+    """A track belongs to the artist folder above it, however deep.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    miles: Path = tmp_path / "Miles Davis - [1 on 1]"
+    track: Path = miles / "FLAC" / "01. (1959) - Kind of Blue [FLAC]" / "CD 1" / "01.flac"
+
+    assert owning_artist(track, [miles]) == miles
+
+
+def test_owning_artist_returns_none_for_a_loose_track(tmp_path: Path) -> None:
+    """A track outside every artist folder belongs to none of them.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    miles: Path = tmp_path / "Miles Davis - [1 on 1]"
+
+    assert owning_artist(tmp_path / "loose.flac", [miles]) is None
 
 
 # ==================================================================================== #

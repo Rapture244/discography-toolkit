@@ -19,6 +19,8 @@ from rich.rule import Rule
 from rich.text import Text
 import typer
 
+from discography_toolkit.core.layout import owning_artist
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
@@ -153,21 +155,6 @@ def make_progress() -> Progress:
         TaskProgressColumn(),
         FileCountColumn(),
     )
-
-
-def owning_artist(track: Path, artists: Sequence[Path]) -> Path | None:
-    """Find which artist folder a file sits under, if any.
-
-    Args:
-        track: The file to place.
-        artists: Candidate artist folders.
-
-    Returns:
-        The artist folder containing `track`, or `None` for a file
-        outside every one of them.
-    """
-    parents = set(track.parents)
-    return next((artist for artist in artists if artist in parents), None)
 
 
 def make_advancer(
