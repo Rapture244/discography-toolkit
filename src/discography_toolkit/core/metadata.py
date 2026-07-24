@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Final
 
 from mutagen.aiff import AIFF
 from mutagen.asf import ASF
+from mutagen.dsdiff import DSDIFF
 from mutagen.dsf import DSF
 from mutagen.flac import FLAC
 from mutagen.id3 import Frames
@@ -64,7 +65,7 @@ class Family(StrEnum):
 
 _FAMILIES: Final[dict[Family, frozenset[str]]] = {
     Family.VORBIS: frozenset({".flac", ".ogg", ".opus"}),
-    Family.ID3: frozenset({".mp3", ".wav", ".aiff", ".aif", ".dsf", ".tta"}),
+    Family.ID3: frozenset({".mp3", ".wav", ".aiff", ".aif", ".dsf", ".dff", ".tta"}),
     Family.MP4: frozenset({".m4a"}),
     Family.APEV2: frozenset({".ape", ".wv"}),
     Family.ASF: frozenset({".wma"}),
@@ -254,6 +255,8 @@ def _open_id3(path: Path, suffix: str):
             return AIFF(path)
         case ".tta":
             return TrueAudio(path)
+        case ".dff":
+            return DSDIFF(path)
         case _:
             return DSF(path)
 

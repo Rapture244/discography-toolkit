@@ -11,6 +11,9 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Final
 
+from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
+from discography_toolkit.core.names import ALBUM_INDEX_RE, ARTIST_LABEL_RE
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -18,6 +21,7 @@ if TYPE_CHECKING:
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
 # ".m4a" is absent: an MP4 container holds either AAC or ALAC, and only the codec inside says which.
+# The quality tiers partition AUDIO_EXTENSIONS; a test asserts it.
 LOSSLESS_EXTENSIONS: Final[frozenset[str]] = frozenset(
     {".flac", ".wav", ".ape", ".wv", ".tta", ".aiff", ".aif", ".dsf", ".dff"}
 )
@@ -27,7 +31,10 @@ OPUS_EXTENSIONS: Final[frozenset[str]] = frozenset({".opus"})
 # Not lossless, but still proof an album is held rather than missing.
 LOSSY_EXTENSIONS: Final[frozenset[str]] = frozenset({".mp3", ".m4a", ".ogg", ".wma"})
 
-AUDIO_EXTENSIONS: Final[frozenset[str]] = LOSSLESS_EXTENSIONS | OPUS_EXTENSIONS | LOSSY_EXTENSIONS
+# Derived, not listed: an extension counts as audio exactly when metadata
+# knows how to tag it. Two hand-kept lists drift, and did -- ".dff" was
+# found here and rejected there.
+AUDIO_EXTENSIONS: Final[frozenset[str]] = SUPPORTED_EXTENSIONS
 
 # Windows writes desktop.ini unasked, so a placeholder holding only these is still empty.
 JUNK_FILENAMES: Final[frozenset[str]] = frozenset({"desktop.ini", "thumbs.db", ".ds_store"})
@@ -38,13 +45,6 @@ FLAC_CONTAINER_RE: Final[re.Pattern[str]] = re.compile(
 )
 
 CONTAINER_NAME: Final[str] = "FLAC"
-
-# The count label an artist folder carries: "[90 • 60F • 0L • 30M]", or an older "[M31 on 90]".
-ARTIST_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"\s*(?:-\s*)?\[\s*M?\d[^\[\]]*\]\s*$")
-
-# Guards ARTIST_LABEL_RE: "90. (2013) - In India [1973]" matches the label by accident,
-# and only the index tells the two apart.
-ALBUM_INDEX_RE: Final[re.Pattern[str]] = re.compile(r"^©?\d+\.")
 
 
 # ==================================================================================== #

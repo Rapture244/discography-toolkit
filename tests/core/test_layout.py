@@ -11,6 +11,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from discography_toolkit.core.layout import (
+    AUDIO_EXTENSIONS,
+    LOSSLESS_EXTENSIONS,
+    LOSSY_EXTENSIONS,
+    OPUS_EXTENSIONS,
     discover_albums,
     find_artist_folders,
     find_audio_files,
@@ -18,6 +22,7 @@ from discography_toolkit.core.layout import (
     is_effectively_empty,
     is_flac_container,
 )
+from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 
 import pytest
 
@@ -55,6 +60,33 @@ def artist(tmp_path: Path) -> Path:
     (root / "04. (1980) - M - Missing").mkdir(parents=True)
 
     return root
+
+
+# ==================================================================================== #
+#                                      EXTENSIONS                                      #
+# ==================================================================================== #
+def test_audio_is_exactly_what_can_be_tagged() -> None:
+    """Finding a file nothing downstream can tag helps no one.
+
+    Two hand-kept lists drift: ".dff" was once found here and rejected by
+    metadata, so every run over a DSDIFF file reported an error for
+    nothing.
+    """
+    assert AUDIO_EXTENSIONS == SUPPORTED_EXTENSIONS
+
+
+def test_the_quality_tiers_partition_the_audio_set() -> None:
+    """Every audio file has exactly one tier, and no tier invents one.
+
+    The placement operation sorts by tier, so an extension missing from
+    all three would be found and then never placed.
+    """
+    tiers: frozenset[str] = LOSSLESS_EXTENSIONS | OPUS_EXTENSIONS | LOSSY_EXTENSIONS
+
+    assert tiers == AUDIO_EXTENSIONS
+    assert not LOSSLESS_EXTENSIONS & LOSSY_EXTENSIONS
+    assert not LOSSLESS_EXTENSIONS & OPUS_EXTENSIONS
+    assert not LOSSY_EXTENSIONS & OPUS_EXTENSIONS
 
 
 # ==================================================================================== #
