@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import typer
 
+from discography_toolkit.cli.commands import genre
+
 # ==================================================================================== #
 #                                      TYPER APP                                       #
 # ==================================================================================== #
@@ -39,6 +41,16 @@ def main() -> None:
     shape now, before the first command arrives, instead of letting the
     interface change under the user the moment a second one lands.
     """
+
+
+# ==================================================================================== #
+#                                  COMMAND REGISTRY                                    #
+# ==================================================================================== #
+# The decorator returns the function it wrapped; discarding it is the
+# point, since the command is registered as a side effect.
+_ = app.command(name="genre", help="Set the Genre tag on every audio file beneath a path.")(
+    genre.genre
+)
 
 
 if __name__ == "__main__":
