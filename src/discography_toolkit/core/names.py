@@ -26,6 +26,24 @@ ARTIST_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"\s*(?:-\s*)?\[\s*M?\d[^\[
 # by accident, and only the index tells the two apart.
 ALBUM_INDEX_RE: Final[re.Pattern[str]] = re.compile(r"^©?\d+\.")
 
+# The "pin to top" mark: a bare "©" typed anywhere in a name to float a
+# favourite above the default sort. Nothing to do with copyright, and
+# carries no year or quality meaning -- it is relocated to the very front
+# on rebuild. Found anywhere, since it is typed wherever the eye lands,
+# not anchored like the index.
+PIN_MARK: Final[str] = "©"
+_PIN_MARK_RE: Final[re.Pattern[str]] = re.compile(re.escape(PIN_MARK))
+
+# A leading numbering index to preserve across a rename: "01. ", "(01) ",
+# "[27] ", "5. ", trailing separators included. Broader than
+# ALBUM_INDEX_RE, which only answers whether a folder looks numbered at
+# all; this captures the exact prefix so a rebuild can keep it verbatim.
+# "^" only -- an index is meaningful solely as a prefix -- and
+# `\d{1,3}(?!\d)` so a four-digit title like "1999" is not read as one.
+_INDEX_PREFIX_RE: Final[re.Pattern[str]] = re.compile(
+    r"^(?:\(\d{1,3}\)|\[\d{1,3}\]|\d{1,3}(?!\d))[._\s-]*"
+)
+
 # A year, with "x" standing in for a digit nobody knows: "1994", "199x",
 # "19xx". Searched wrapped-first so a title carrying a bare number --
 # "17.01.2002", "Helen 12 Trees" -- cannot outrank the real year in
@@ -106,6 +124,56 @@ def strip_artist_label(folder_name: str) -> str | None:
     if stripped == folder_name.strip() or not stripped:
         return None
     return stripped
+
+
+# ==================================================================================== #
+#                                     PIN MARK & INDEX                                 #
+# ==================================================================================== #
+def split_pin_mark(name: str) -> tuple[str, str]:
+    """Lift a "pin to top" mark off a name, wherever it was typed.
+
+    The mark floats a favourite above the default sort. It is not
+    anchored -- it lands wherever the eye was at the time -- so it is
+    found anywhere, removed, and the gap it leaves tidied. Re-prefixing
+    it at the very front is the caller's job, which is what gives it one
+    canonical place. Only the first is handled; the convention assumes at
+    most one per name.
+
+    Args:
+        name: The raw album folder name.
+
+    Returns:
+        A `(mark, remainder)` pair. `mark` is `PIN_MARK` when found, else
+        an empty string; `remainder` has that one mark removed and its
+        surroundings tidied.
+    """
+    match: re.Match[str] | None = _PIN_MARK_RE.search(name)
+    if match is None:
+        return "", name
+    return match.group(0), clean_name(name[: match.start()] + name[match.end() :])
+
+
+def split_index(name: str) -> tuple[str, str]:
+    """Set aside a leading numbering index, keeping it verbatim.
+
+    Makes the caller agnostic to whether numbering has run: an
+    already-numbered album keeps its index untouched, a never-numbered
+    one simply has nothing to set aside. The separator that follows the
+    index is part of what is captured, so a rebuild can splice the rest
+    of the name back on without guessing at spacing.
+
+    Args:
+        name: The raw album folder name, possibly index-prefixed.
+
+    Returns:
+        An `(index, remainder)` pair. `index` is the exact leading text
+        matched, its trailing separator included, or an empty string when
+        there is none; `remainder` is the rest, unchanged.
+    """
+    match: re.Match[str] | None = _INDEX_PREFIX_RE.match(name)
+    if match is None:
+        return "", name
+    return match.group(0), name[match.end() :]
 
 
 # ==================================================================================== #

@@ -12,7 +12,9 @@ from discography_toolkit.core.names import (
     clean_name,
     extract_year,
     is_approximate_year,
+    split_index,
     split_missing_marker,
+    split_pin_mark,
     strip_artist_label,
     strip_quality_tag,
     title_case,
@@ -70,6 +72,94 @@ def test_strip_artist_label_returns_none_without_one(folder_name: str) -> None:
         folder_name: The artist folder's name.
     """
     assert strip_artist_label(folder_name) is None
+
+
+# ==================================================================================== #
+#                                     PIN MARK & INDEX                                 #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "remainder"),
+    [
+        ("\u00a9 Kind of Blue", "Kind of Blue"),
+        # Not anchored: found wherever it was typed, front, middle or end.
+        ("01. \u00a9 Kind of Blue", "01. Kind of Blue"),
+        ("Kind of Blue \u00a9", "Kind of Blue"),
+        ("01. Kind \u00a9 of Blue", "01. Kind of Blue"),
+    ],
+)
+def test_split_pin_mark_lifts_the_mark(name: str, remainder: str) -> None:
+    """The mark comes off wherever it sat, and the gap is tidied.
+
+    Args:
+        name: A name carrying the pin mark.
+        remainder: What should be left, cleaned.
+    """
+    mark, rest = split_pin_mark(name)
+
+    assert mark == "\u00a9"
+    assert rest == remainder
+
+
+@pytest.mark.parametrize("name", ["Kind of Blue", "01. So What", ""])
+def test_split_pin_mark_leaves_an_unmarked_name(name: str) -> None:
+    """No mark means the name comes back untouched.
+
+    Args:
+        name: A name with no pin mark.
+    """
+    mark, rest = split_pin_mark(name)
+
+    assert mark == ""
+    assert rest == name
+
+
+@pytest.mark.parametrize(
+    ("name", "index", "remainder"),
+    [
+        ("01. Kind of Blue", "01. ", "Kind of Blue"),
+        ("(01) Kind of Blue", "(01) ", "Kind of Blue"),
+        ("[27] October", "[27] ", "October"),
+        ("5. So What", "5. ", "So What"),
+        ("127. Album", "127. ", "Album"),
+        # The trailing separator is captured, whatever it is.
+        ("3 - Live", "3 - ", "Live"),
+        ("01.Kind", "01.", "Kind"),
+    ],
+)
+def test_split_index_sets_aside_the_prefix(name: str, index: str, remainder: str) -> None:
+    """An existing index is captured verbatim, its separator included.
+
+    Args:
+        name: A name carrying a leading index.
+        index: The exact prefix that should be set aside.
+        remainder: The rest of the name.
+    """
+    prefix, rest = split_index(name)
+
+    assert prefix == index
+    assert rest == remainder
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Kind of Blue",
+        # A four-digit title is not a three-digit index: Prince's "1999"
+        # keeps its name.
+        "1999 (1982)",
+        "",
+    ],
+)
+def test_split_index_leaves_an_unnumbered_name(name: str) -> None:
+    """Nothing to set aside means the name comes back whole.
+
+    Args:
+        name: A name with no leading index.
+    """
+    prefix, rest = split_index(name)
+
+    assert prefix == ""
+    assert rest == name
 
 
 # ==================================================================================== #
