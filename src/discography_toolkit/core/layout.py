@@ -37,6 +37,13 @@ LOSSY_EXTENSIONS: Final[frozenset[str]] = frozenset({".mp3", ".m4a", ".ogg", ".w
 # found here and rejected there.
 AUDIO_EXTENSIONS: Final[frozenset[str]] = SUPPORTED_EXTENSIONS
 
+# Names a loose cover image is found under, canonical first. Everything else in
+# an album folder is a booklet scan, a back cover, or a log -- none of which a
+# player looks for.
+COVER_STEMS: Final[tuple[str, ...]] = ("cover", "folder", "front", "albumart", "album")
+
+IMAGE_EXTENSIONS: Final[frozenset[str]] = frozenset({".jpg", ".jpeg", ".png"})
+
 # Windows writes desktop.ini unasked, so a placeholder holding only these is still empty.
 JUNK_FILENAMES: Final[frozenset[str]] = frozenset({"desktop.ini", "thumbs.db", ".ds_store"})
 
@@ -189,6 +196,33 @@ def owning_folder(path: Path, candidates: Sequence[Path]) -> Path | None:
     """
     parents = set(path.parents)
     return next((folder for folder in candidates if folder in parents), None)
+
+
+def find_cover_images(album: Path) -> list[Path]:
+    """Find the loose cover images sitting in an album folder.
+
+    Direct children only, and only the conventional names: a booklet
+    scan deeper in the tree is not the album's cover, and neither is a
+    photo that happens to be there.
+
+    Args:
+        album: The album folder to search.
+
+    Returns:
+        Matching images, canonical name first, so a caller settling on
+        one filename knows which it should be.
+    """
+    try:
+        entries = [entry for entry in album.iterdir() if entry.is_file()]
+    except OSError:
+        return []
+
+    return [
+        entry
+        for stem in COVER_STEMS
+        for entry in entries
+        if entry.stem.lower() == stem and entry.suffix.lower() in IMAGE_EXTENSIONS
+    ]
 
 
 def find_albums(root: Path) -> list[Path]:

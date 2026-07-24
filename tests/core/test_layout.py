@@ -19,6 +19,7 @@ from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
     find_audio_files,
+    find_cover_images,
     is_artist_folder,
     is_effectively_empty,
     is_flac_container,
@@ -413,6 +414,66 @@ def test_find_albums_on_one_artist(tmp_path: Path) -> None:
     found: list[str] = [album.name for album in find_albums(artist)]
 
     assert found == ["01. (1959) - Kind of Blue"]
+
+
+def test_find_cover_images_returns_the_canonical_name_first(tmp_path: Path) -> None:
+    """A caller settling on one filename needs to know which it should be.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    for name in ("folder.jpg", "cover.jpg", "front.png"):
+        (tmp_path / name).touch()
+
+    found: list[str] = [image.name for image in find_cover_images(tmp_path)]
+
+    assert found == ["cover.jpg", "folder.jpg", "front.png"]
+
+
+def test_find_cover_images_is_case_insensitive(tmp_path: Path) -> None:
+    """A file written as "Folder.JPG" is still the album's cover.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    (tmp_path / "Folder.JPG").touch()
+
+    assert [image.name for image in find_cover_images(tmp_path)] == ["Folder.JPG"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "back.jpg",  # a real cover, but not the front
+        "booklet.png",
+        "scan01.jpg",
+        "cover.gif",  # a conventional name, but not a format we store
+        "cover.txt",
+        "01. (1959) - Kind of Blue.flac",
+    ],
+)
+def test_find_cover_images_ignores_everything_else(tmp_path: Path, name: str) -> None:
+    """An album folder holds plenty that is not its cover.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+        name: The file to place.
+    """
+    (tmp_path / name).touch()
+
+    assert find_cover_images(tmp_path) == []
+
+
+def test_find_cover_images_looks_no_deeper(tmp_path: Path) -> None:
+    """A scan inside a subfolder is not the album's cover.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    (tmp_path / "Scans").mkdir()
+    (tmp_path / "Scans" / "cover.jpg").touch()
+
+    assert find_cover_images(tmp_path) == []
 
 
 # ==================================================================================== #
