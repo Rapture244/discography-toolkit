@@ -26,6 +26,14 @@ ARTIST_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"\s*(?:-\s*)?\[\s*M?\d[^\[
 # by accident, and only the index tells the two apart.
 ALBUM_INDEX_RE: Final[re.Pattern[str]] = re.compile(r"^©?\d+\.")
 
+# A year, with "x" standing in for a digit nobody knows: "1994", "199x",
+# "19xx". Searched wrapped-first so a title carrying a bare number --
+# "17.01.2002", "Helen 12 Trees" -- cannot outrank the real year in
+# brackets beside it.
+_YEAR_CORE: Final[str] = r"\d{2}[\dx]{2}"
+_YEAR_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(rf"\((?:{_YEAR_CORE})\)|\[(?:{_YEAR_CORE})\]")
+_YEAR_BARE_RE: Final[re.Pattern[str]] = re.compile(rf"(?<!\d){_YEAR_CORE}(?!\d)")
+
 
 # ==================================================================================== #
 #                                     ARTIST NAMES                                     #
@@ -50,6 +58,44 @@ def strip_artist_label(folder_name: str) -> str | None:
     if stripped == folder_name.strip() or not stripped:
         return None
     return stripped
+
+
+# ==================================================================================== #
+#                                        YEARS                                         #
+# ==================================================================================== #
+def extract_year(name: str) -> str | None:
+    """Find the year token in an album folder name, leaving the name alone.
+
+    A wrapped year wins over a bare one wherever it sits, so an album
+    titled "17.01.2002" or "In India [1973]" resolves to the year in its
+    own brackets rather than the number in its title. Among equals the
+    leftmost wins, which is where the convention puts it.
+
+    Args:
+        name: The album folder's name.
+
+    Returns:
+        The four-character token -- "1994", "199x" -- or `None` when the
+        name carries no year at all.
+    """
+    match: re.Match[str] | None = _YEAR_WRAPPED_RE.search(name)
+    if match is None:
+        match = _YEAR_BARE_RE.search(name)
+    if match is None:
+        return None
+    return match.group(0).strip("()[]")
+
+
+def is_approximate_year(year: str) -> bool:
+    """Report whether a year token stands for one nobody knows exactly.
+
+    Args:
+        year: A token as returned by `extract_year`.
+
+    Returns:
+        `True` if it carries an "x" placeholder.
+    """
+    return "x" in year
 
 
 # ==================================================================================== #
