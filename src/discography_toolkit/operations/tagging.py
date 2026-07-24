@@ -1,8 +1,8 @@
 # src/discography_toolkit/operations/tagging.py
 """Planning and applying a metadata change across a set of tracks.
 
-Four of the metadata steps -- album, album artist, genre, title -- do the
-same thing and differ only in what value they want. That difference is a
+Four of the metadata operations -- album, album artist, genre, title -- do
+the same thing and differ only in what value they want. That difference is a
 function here rather than four near-identical modules:
 
     genre         lambda track, current: {Tag.GENRE: "Jazz"}
@@ -58,12 +58,16 @@ class TrackOutcome:
         status: Whether it needs writing, is already right, or could not
             be read.
         values: The tags to write, empty unless `status` is `"updated"`.
+        current: The tags as found, so a caller can show what changed and
+            tell a track already correct from one that had no value at
+            all. Empty when the file could not be read.
         detail: Why it failed, populated only for `"error"`.
     """
 
     path: Path
     status: TrackStatus
     values: Mapping[Tag, str] = _NO_VALUES
+    current: Mapping[Tag, str] = _NO_VALUES
     detail: str = ""
 
 
@@ -202,6 +206,6 @@ def _examine(track: Path, tags: Sequence[Tag], desired: Desired) -> TrackOutcome
         tag: value for tag, value in wanted.items() if current.get(tag, "") != value
     }
     if not changes:
-        return TrackOutcome(path=track, status="already_correct")
+        return TrackOutcome(path=track, status="already_correct", current=current)
 
-    return TrackOutcome(path=track, status="updated", values=changes)
+    return TrackOutcome(path=track, status="updated", values=changes, current=current)

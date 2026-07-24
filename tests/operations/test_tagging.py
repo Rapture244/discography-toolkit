@@ -118,6 +118,36 @@ def test_plan_queues_only_the_tags_that_differ(make_track: Callable[..., Path]) 
     assert result.pending[0].values == {Tag.GENRE: "Jazz"}
 
 
+def test_plan_reports_the_values_it_found(make_track: Callable[..., Path]) -> None:
+    """The outcome carries what was there, not only what should be.
+
+    A caller showing "old -> new", or telling a track already correct
+    from one with no value at all, needs both.
+
+    Args:
+        make_track: Factory building an audio file.
+    """
+    track: Path = make_track("a", genre="Rock")
+
+    result = tagging.plan([track], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
+
+    assert result.pending[0].current == {Tag.GENRE: "Rock"}
+    assert result.pending[0].values == {Tag.GENRE: "Jazz"}
+
+
+def test_plan_reports_an_absent_value_as_empty(make_track: Callable[..., Path]) -> None:
+    """A track with no value at all is distinguishable from a wrong one.
+
+    Args:
+        make_track: Factory building an audio file.
+    """
+    track: Path = make_track("a")
+
+    result = tagging.plan([track], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
+
+    assert result.pending[0].current == {Tag.GENRE: ""}
+
+
 def test_plan_records_an_unreadable_file(tmp_path: Path) -> None:
     """A file that is not audio is reported, not raised.
 
