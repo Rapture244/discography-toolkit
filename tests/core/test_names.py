@@ -8,7 +8,12 @@ untouched.
 
 from __future__ import annotations
 
-from discography_toolkit.core.names import strip_artist_label, title_case
+from discography_toolkit.core.names import (
+    extract_year,
+    is_approximate_year,
+    strip_artist_label,
+    title_case,
+)
 
 import pytest
 
@@ -62,6 +67,94 @@ def test_strip_artist_label_returns_none_without_one(folder_name: str) -> None:
         folder_name: The artist folder's name.
     """
     assert strip_artist_label(folder_name) is None
+
+
+# ==================================================================================== #
+#                                        YEARS                                         #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("01. (1959) - Kind of Blue [FLAC]", "1959"),
+        ("©27. (1977) - October [FLAC]", "1977"),
+        # A wrapped year outranks a bare number wherever it sits: the
+        # title carries a date, and the real year is in its own brackets.
+        ("64. (2002) - 17.01.2002 [FLAC]", "2002"),
+        ("26. (1976) - Helen 12 Trees [FLAC]", "1976"),
+        # Two wrapped years: the leftmost is the release, the other is
+        # what the album is a reissue of.
+        ("90. (2013) - In India [1973] [FLAC]", "2013"),
+        ("09. (1978) - Loveland [Re. 2016, FLAC]", "1978"),
+        # Square brackets count as wrapping too.
+        ("Live at Birdland [1963]", "1963"),
+        # A title that is itself a number, wherever it sits: Prince
+        # released "1999" in 1982, so the wrapped year has to win even
+        # though the bare one comes first.
+        ("1999 (1982)", "1982"),
+        ("Woodstock 1969 (1994)", "1994"),
+        # Bare, when nothing is wrapped.
+        ("Sketches of Spain 1960", "1960"),
+    ],
+)
+def test_extract_year(name: str, expected: str) -> None:
+    """The year is the one in brackets, or the only one there is.
+
+    Args:
+        name: The album folder's name.
+        expected: The token that should be found.
+    """
+    assert extract_year(name) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("13. (199x) - Unknown Decade", "199x"),
+        ("01. (19xx) - Untranslated Album Title", "19xx"),
+    ],
+)
+def test_extract_year_accepts_an_approximation(name: str, expected: str) -> None:
+    """An "x" stands for a digit nobody knows, and is still a year token.
+
+    Args:
+        name: The album folder's name.
+        expected: The token that should be found.
+    """
+    assert extract_year(name) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Kind of Blue",
+        "01. - No Year At All [FLAC]",
+        # Five digits is not a year, and the guards stop it matching four
+        # of them.
+        "Catalogue 123456",
+        "",
+    ],
+)
+def test_extract_year_returns_none_without_one(name: str) -> None:
+    """No year is not the same as an unknown one.
+
+    Args:
+        name: The album folder's name.
+    """
+    assert extract_year(name) is None
+
+
+@pytest.mark.parametrize(
+    ("year", "expected"),
+    [("1959", False), ("199x", True), ("19xx", True), ("2013", False)],
+)
+def test_is_approximate_year(year: str, *, expected: bool) -> None:
+    """A token carrying an "x" is an approximation.
+
+    Args:
+        year: A token as returned by `extract_year`.
+        expected: Whether it should read as approximate.
+    """
+    assert is_approximate_year(year) is expected
 
 
 # ==================================================================================== #
