@@ -114,15 +114,19 @@ class FileCountColumn(ProgressColumn):
     Attributes:
         style: Rich style for the counter, dim so the percentage stays
             the more prominent figure.
+        noun: What is being counted. Most steps walk files; one walks
+            albums, and a bar that says otherwise is simply wrong.
     """
 
-    def __init__(self, style: str = "bright_black") -> None:
+    def __init__(self, style: str = "bright_black", noun: str = "files") -> None:
         """Initialize the column.
 
         Args:
             style: Rich style applied to the whole counter.
+            noun: Plural name for what is being counted.
         """
         self.style: str = style
+        self.noun: str = noun
         super().__init__()
 
     @override
@@ -139,21 +143,24 @@ class FileCountColumn(ProgressColumn):
         completed: int = int(task.completed)
         width: int = len(str(total))
 
-        return Text(f"({completed:>{width}}/{total} files)", style=self.style)
+        return Text(f"({completed:>{width}}/{total} {self.noun})", style=self.style)
 
 
-def make_progress() -> Progress:
+def make_progress(noun: str = "files") -> Progress:
     """Build a progress display in the toolkit's house style.
+
+    Args:
+        noun: Plural name for what the bar counts.
 
     Returns:
         A `Progress` with a bold description, dashed bar, percentage and
-        file counter.
+        counter.
     """
     return Progress(
         TextColumn("[bold]{task.description}"),
         DashBarColumn(),
         TaskProgressColumn(),
-        FileCountColumn(),
+        FileCountColumn(noun=noun),
     )
 
 

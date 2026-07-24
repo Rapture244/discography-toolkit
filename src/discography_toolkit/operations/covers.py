@@ -166,6 +166,30 @@ class CoverPlan:
         return sum(len(album.settlement.embed) for album in self.albums if album.settlement)
 
     @property
+    def touched(self) -> tuple[Path, ...]:
+        """Every path applying the plan reports, in the order it will.
+
+        A caller sizing a progress display needs the paths themselves
+        rather than a count: bars are grouped by the artist a path sits
+        under. Re-deriving this outside would mean a second copy of
+        `apply`'s order, free to drift from the first.
+        """
+        paths: list[Path] = []
+
+        for album in self.albums:
+            settlement: Settlement | None = album.settlement
+            if settlement is None:
+                continue
+            if settlement.rename_from is not None:
+                paths.append(settlement.rename_from)
+            if settlement.write:
+                paths.append(settlement.target)
+            paths.extend(settlement.delete)
+            paths.extend(settlement.embed)
+
+        return tuple(paths)
+
+    @property
     def changes(self) -> int:
         """How many operations applying the whole plan would perform."""
         return sum(album.changes for album in self.albums)

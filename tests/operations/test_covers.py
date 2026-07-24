@@ -630,19 +630,24 @@ def test_applying_twice_changes_nothing_the_second_time(
 
 
 def test_progress_is_reported_for_every_operation(make_album: Callable[..., Path]) -> None:
-    """Every unit of work announces itself, so a bar sized from the plan fills.
+    """Every unit of work announces itself, in the order the plan promised.
+
+    A caller sizes its display from `touched`, so a run visiting
+    anything else would leave a bar short or overrun it.
 
     Args:
         make_album: Factory building an album folder.
     """
     art: bytes = encode(600)
     album: Path = make_album("Milestones", embedded=[art, None])
+    _ = (album / "folder.jpg").write_bytes(art)
     seen: list[Path] = []
 
     cover_plan = covers.plan([album])
     _ = covers.apply(cover_plan, on_progress=seen.append)
 
-    assert len(seen) == cover_plan.changes
+    assert len(cover_plan.touched) == cover_plan.changes
+    assert seen == list(cover_plan.touched)
 
 
 def test_a_failure_is_collected_and_the_run_continues(
