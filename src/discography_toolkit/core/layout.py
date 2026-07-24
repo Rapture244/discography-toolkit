@@ -234,6 +234,30 @@ def discover_albums(artist: Path) -> list[Path]:
     return sorted(albums, key=lambda path: path.name)
 
 
+def find_containers(artist: Path) -> list[Path]:
+    """Find every direct child of an artist folder that is a FLAC container.
+
+    A list rather than a single path, so a caller can refuse to guess:
+    more than one match means two containers exist, and merging them
+    could silently drop an album where both hold one of the same name.
+
+    A hidden folder is not filtered here as it is for albums: a container
+    is named for the word "FLAC", so one starting with a dot never reads
+    as a container in the first place.
+
+    Args:
+        artist: The artist folder to scan.
+
+    Returns:
+        Every visible direct subfolder that reads as the container,
+        sorted by name -- empty when there is none.
+    """
+    matches: list[Path] = [
+        entry for entry in artist.iterdir() if entry.is_dir() and is_flac_container(entry)
+    ]
+    return sorted(matches, key=lambda path: path.name)
+
+
 def owning_folder(path: Path, candidates: Sequence[Path]) -> Path | None:
     """Find which of some folders a path sits under.
 

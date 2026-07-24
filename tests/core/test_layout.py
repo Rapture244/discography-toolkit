@@ -23,6 +23,7 @@ from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
     find_audio_files,
+    find_containers,
     find_cover_images,
     is_artist_folder,
     is_effectively_empty,
@@ -671,3 +672,61 @@ def test_an_aac_m4a_is_only_lossy(tmp_path: Path) -> None:
     )
 
     assert detect_tier(album) is AudioTier.LOSSY
+
+
+# ==================================================================================== #
+#                                     CONTAINERS                                       #
+# ==================================================================================== #
+def test_find_containers_finds_the_container(tmp_path: Path) -> None:
+    """The bookkeeping folder is found; ordinary albums are not.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    (artist / "FLAC").mkdir(parents=True)
+    (artist / "01. (1951) - Modern Jazz").mkdir()
+
+    found: list[Path] = find_containers(artist)
+
+    assert [c.name for c in found] == ["FLAC"]
+
+
+def test_find_containers_recognizes_an_older_spelling(tmp_path: Path) -> None:
+    """A historical "FLAC - (56 on 65)" is the same container.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    (artist / "FLAC - (56 on 65)").mkdir(parents=True)
+
+    assert [c.name for c in find_containers(artist)] == ["FLAC - (56 on 65)"]
+
+
+def test_find_containers_returns_all_matches(tmp_path: Path) -> None:
+    """Two containers come back both, so a caller can refuse to merge them.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    (artist / "FLAC").mkdir(parents=True)
+    (artist / "FLAC (65 on 65)").mkdir()
+
+    assert len(find_containers(artist)) == 2
+
+
+def test_find_containers_is_empty_without_one(tmp_path: Path) -> None:
+    """An artist with only lossy albums has no container at all.
+
+    A file named "FLAC" is not one either -- only a folder can be.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    (artist / "01. (1951) - Modern Jazz").mkdir(parents=True)
+    _ = (artist / "FLAC").write_text("a note, not a container")
+
+    assert find_containers(artist) == []
