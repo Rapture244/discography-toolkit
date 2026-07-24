@@ -22,6 +22,12 @@ from titlecase import titlecase
 # in the name is part of the title.
 ARTIST_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"\s*(?:-\s*)?\[\s*M?\d[^\[\]]*\]\s*$")
 
+# The separator inside the label. U+2022 BULLET reads clearly at a file
+# browser's font size and is about as widely present in fonts as anything
+# outside Latin-1 -- chosen over the smaller U+00B7 and the rarer maths
+# dots.
+_LABEL_DOT: Final[str] = "\u2022"
+
 # Guards ARTIST_LABEL_RE: "90. (2013) - In India [1973]" matches the label
 # by accident, and only the index tells the two apart.
 ALBUM_INDEX_RE: Final[re.Pattern[str]] = re.compile(r"^©?\d+\.")
@@ -131,6 +137,46 @@ def strip_artist_label(folder_name: str) -> str | None:
     if stripped == folder_name.strip() or not stripped:
         return None
     return stripped
+
+
+def format_artist_label(total: int, flac: int, lossy: int, missing: int) -> str:
+    """Build the count label appended to an artist folder's name.
+
+    The three counts partition the total -- every album is one of
+    lossless, lossy, or missing -- so `flac + lossy + missing` always
+    equals `total`, and the label checks itself against a miscount.
+
+    Args:
+        total: How many albums the artist holds, both sides together.
+        flac: How many are lossless.
+        lossy: How many are held in a lossy format, opus among them.
+        missing: How many are empty placeholders.
+
+    Returns:
+        A label of the form "[90 • 60F • 0L • 30M]".
+    """
+    dot: str = f" {_LABEL_DOT} "
+    return f"[{total}{dot}{flac}F{dot}{lossy}L{dot}{missing}M]"
+
+
+def with_artist_label(name: str, label: str) -> str:
+    """Attach a fresh label to an artist folder name, replacing any old one.
+
+    The whole existing bracket is replaced rather than edited, so an
+    older "[M31 on 90]" and a label written with a different separator
+    both converge on the current form, and a name with none simply gains
+    one. A bracket that is part of the artist's real name -- "[Live]" --
+    is left alone, since the label pattern requires a leading digit.
+
+    Args:
+        name: The artist folder's current name.
+        label: The label to attach, as built by `format_artist_label`.
+
+    Returns:
+        The name carrying exactly one label, at the end.
+    """
+    stripped: str = ARTIST_LABEL_RE.sub("", name).rstrip()
+    return f"{stripped} - {label}"
 
 
 # ==================================================================================== #

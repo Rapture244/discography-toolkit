@@ -11,6 +11,7 @@ from __future__ import annotations
 from discography_toolkit.core.names import (
     clean_name,
     extract_year,
+    format_artist_label,
     is_approximate_year,
     sort_key,
     split_index,
@@ -21,6 +22,7 @@ from discography_toolkit.core.names import (
     strip_quality_tag,
     title_case,
     title_case_filename,
+    with_artist_label,
 )
 
 import pytest
@@ -75,6 +77,62 @@ def test_strip_artist_label_returns_none_without_one(folder_name: str) -> None:
         folder_name: The artist folder's name.
     """
     assert strip_artist_label(folder_name) is None
+
+
+def test_format_artist_label_reads_as_a_breakdown() -> None:
+    """The label states the total and its three parts, in that shape."""
+    assert format_artist_label(90, 60, 0, 30) == "[90 \u2022 60F \u2022 0L \u2022 30M]"
+
+
+def test_format_artist_label_counts_partition_the_total() -> None:
+    """The three parts always sum to the total, which is the label's own check."""
+    label: str = format_artist_label(12, 7, 3, 2)
+
+    assert label == "[12 \u2022 7F \u2022 3L \u2022 2M]"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # No label yet: one is simply gained.
+        "Charlie Mariano",
+        # An older form is replaced whole, not accumulated.
+        "Charlie Mariano - [M31 on 90]",
+        # The current form is replaced too, so a rerun stays at one label.
+        "Charlie Mariano - [90 \u2022 60F \u2022 0L \u2022 30M]",
+    ],
+)
+def test_with_artist_label_settles_on_one_label(name: str) -> None:
+    """Whatever a name carried, it comes out with exactly the new label.
+
+    Args:
+        name: The artist folder's current name.
+    """
+    label: str = format_artist_label(5, 3, 1, 1)
+
+    assert with_artist_label(name, label) == f"Charlie Mariano - {label}"
+
+
+def test_with_artist_label_keeps_a_real_bracket_in_the_name() -> None:
+    """A "[Live]" that is part of the artist's name is not mistaken for a label.
+
+    The label pattern requires a leading digit, so a word bracket survives.
+    """
+    label: str = format_artist_label(3, 3, 0, 0)
+
+    assert with_artist_label("Portishead [Live]", label) == f"Portishead [Live] - {label}"
+
+
+def test_with_artist_label_survives_a_prefix_in_the_name() -> None:
+    """Everything left of the old label is kept, prefix and all.
+
+    Splitting on " - " would cut the name at its first separator; the
+    label is matched at the end instead.
+    """
+    label: str = format_artist_label(2, 1, 1, 0)
+    name: str = "(Ivory Coast) - Christy B - [65 on 65]"
+
+    assert with_artist_label(name, label) == f"(Ivory Coast) - Christy B - {label}"
 
 
 # ==================================================================================== #
