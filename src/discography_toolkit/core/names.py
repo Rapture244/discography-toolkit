@@ -34,6 +34,54 @@ _YEAR_CORE: Final[str] = r"\d{2}[\dx]{2}"
 _YEAR_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(rf"\((?:{_YEAR_CORE})\)|\[(?:{_YEAR_CORE})\]")
 _YEAR_BARE_RE: Final[re.Pattern[str]] = re.compile(rf"(?<!\d){_YEAR_CORE}(?!\d)")
 
+# The "missing album" marker: an album known to exist but not held keeps
+# an empty placeholder folder, marked between the year and the title. A
+# plain "M" is the settled state -- declared missing, and the folder is
+# indeed empty. "⚠" is a conflict: the name says missing while the folder
+# holds audio. Neither resolution is the tool's to make -- the conflict
+# clears by deleting stray files (back to "M") or dropping the marker by
+# hand -- so a step states the problem in the name and stops there.
+MISSING_MARKER: Final[str] = "M"
+MISSING_CONFLICT_MARKER: Final[str] = "⚠"
+
+# Reads either marker at the front of what is left once the year is gone.
+# The older "(1967) M - Title" and the current "(1967) - M - Title" both
+# arrive as "M - Title", so one pattern covers both. Anchored, and the
+# hyphen is required: a title merely starting with M -- "Mirror", "Miles
+# Smiles" -- cannot match, and an album titled "M" carries no hyphen, so
+# it stays a title.
+_MISSING_MARKER_RE: Final[re.Pattern[str]] = re.compile(r"^(?:⚠|M)\s*-\s*")
+
+# A single "(...)" or "[...]" wrapper, captured whole so its inner text
+# can be read. Some albums mixed the quality word into a bracket with
+# another tag worth keeping -- "[FLAC, 40th Anniversary]", "(FLAC,
+# Live)", "[FLAC m4a]" -- so the word is cut from the bracket while the
+# rest of it survives.
+_ANY_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
+
+# A "FLAC" or "OPUS" word, case-insensitive, bounded so it cannot match
+# inside an unrelated word. Only applied to text already inside a
+# bracket, where a quality word is unambiguous.
+_QUALITY_BRACKETED_RE: Final[re.Pattern[str]] = re.compile(r"\b(?:FLAC|OPUS)\b", re.IGNORECASE)
+
+# An unbracketed quality word left over from before the convention, e.g.
+# "Some Album FLAC". Loose matching here is dangerous: "Opus" is an
+# ordinary title word ("Magnum Opus", "Opus One"). Two guards make the
+# mistake impossible -- anchored to the end, the only place a stale
+# marker sits, and case-sensitive, since the convention writes the codec
+# in caps while a title writes the word normally. The trade is
+# deliberate: a lowercase "flac" is left for the eye to catch, where the
+# opposite error would eat a word of the title.
+_QUALITY_TRAILING_RE: Final[re.Pattern[str]] = re.compile(r"\s*\b(?:FLAC|OPUS)\s*$")
+
+# Leftover separators (whitespace, hyphen, underscore, dot) at either end
+# of a name once a token has been cut out.
+_EDGE_SEPARATORS_RE: Final[re.Pattern[str]] = re.compile(r"^[\s._-]+|[\s._-]+$")
+
+# Two or more spaces, left behind when a token is removed from the middle
+# of a name rather than an edge.
+_MULTI_SPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s{2,}")
+
 
 # ==================================================================================== #
 #                                     ARTIST NAMES                                     #
@@ -96,6 +144,103 @@ def is_approximate_year(year: str) -> bool:
         `True` if it carries an "x" placeholder.
     """
     return "x" in year
+
+
+# ==================================================================================== #
+#                                   MISSING MARKER                                     #
+# ==================================================================================== #
+def split_missing_marker(name: str) -> tuple[bool, str]:
+    """Take a leading "missing" marker off a name, reporting it as a flag.
+
+    Accepts either spelling of the marker -- the settled "M - Title" and
+    the conflict "⚠ - Title" -- so a step can re-emit it in one canonical
+    place. The name is expected to have had its year removed already, the
+    point at which the marker lands at the front.
+
+    A title that merely begins with M does not match: the trailing hyphen
+    is required, so "Mirror" and "Miles Smiles" stay titles. The cost is
+    that a title genuinely written "M - Something", or the hyphenated
+    genre "M-Base", reads as a marker; that is rare enough to fix by hand
+    and shows up plainly in the rename preview.
+
+    Args:
+        name: A name with the year already removed, e.g. "M - Folk Soul"
+            or "Mirror".
+
+    Returns:
+        A `(is_missing, remainder)` pair. `remainder` has the marker and
+        its separator removed, or is the name unchanged when there is no
+        marker.
+    """
+    match: re.Match[str] | None = _MISSING_MARKER_RE.match(name)
+    if match is None:
+        return False, name
+    return True, name[match.end() :]
+
+
+# ==================================================================================== #
+#                                     QUALITY TAG                                      #
+# ==================================================================================== #
+def strip_quality_tag(name: str) -> str:
+    """Remove a stale "FLAC"/"OPUS" quality word from a name.
+
+    Only cleans up; it never decides a tier, which is the job of whatever
+    reads the album's actual files. A folder easily carries a word from
+    before its contents last changed -- a FLAC master transcoded to Opus
+    keeps the old "[FLAC]" until this strips it -- so either word goes
+    regardless of which is present.
+
+    Where the word shares a bracket with another tag worth keeping --
+    "[FLAC, 40th Anniversary]", "(FLAC, Live)", "[FLAC m4a]" -- only the
+    word itself is cut and the rest of the bracket is rebuilt in the same
+    style and place. A bracket holding only the word is removed entirely.
+    Failing any bracketed match, a bare trailing word is taken instead.
+
+    Args:
+        name: A name, past year extraction.
+
+    Returns:
+        The name with a stale quality word removed and its surroundings
+        tidied, or unchanged when there is no such word.
+    """
+    for wrapped in _ANY_WRAPPED_RE.finditer(name):
+        parens, brackets = wrapped.group(1), wrapped.group(2)
+        is_paren: bool = parens is not None
+        content: str = parens if is_paren else brackets
+        opening, closing = ("(", ")") if is_paren else ("[", "]")
+
+        quality: re.Match[str] | None = _QUALITY_BRACKETED_RE.search(content)
+        if quality is None:
+            continue
+
+        kept: str = content[: quality.start()] + content[quality.end() :]
+        kept = _MULTI_SPACE_RE.sub(" ", kept.strip(" ,")).strip()
+        replacement: str = f"{opening}{kept}{closing}" if kept else ""
+        return clean_name(name[: wrapped.start()] + replacement + name[wrapped.end() :])
+
+    trailing: re.Match[str] | None = _QUALITY_TRAILING_RE.search(name)
+    if trailing is None:
+        return name
+    return clean_name(name[: trailing.start()] + name[trailing.end() :])
+
+
+def clean_name(name: str) -> str:
+    """Tidy the spacing and edge punctuation left when a token is cut out.
+
+    Removing a year or a quality word from the middle of a name leaves a
+    double space; removing one from an end leaves a dangling separator.
+    This closes both.
+
+    Args:
+        name: A name with a token already removed.
+
+    Returns:
+        Internal whitespace collapsed to single spaces, and separator
+        characters -- spaces, hyphens, underscores, dots -- trimmed from
+        both ends.
+    """
+    collapsed: str = _MULTI_SPACE_RE.sub(" ", name)
+    return _EDGE_SEPARATORS_RE.sub("", collapsed).strip()
 
 
 # ==================================================================================== #

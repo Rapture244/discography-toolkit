@@ -9,9 +9,12 @@ untouched.
 from __future__ import annotations
 
 from discography_toolkit.core.names import (
+    clean_name,
     extract_year,
     is_approximate_year,
+    split_missing_marker,
     strip_artist_label,
+    strip_quality_tag,
     title_case,
 )
 
@@ -155,6 +158,167 @@ def test_is_approximate_year(year: str, *, expected: bool) -> None:
         expected: Whether it should read as approximate.
     """
     assert is_approximate_year(year) is expected
+
+
+# ==================================================================================== #
+#                                   MISSING MARKER                                     #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "remainder"),
+    [
+        ("M - Folk Soul", "Folk Soul"),
+        # The conflict spelling is accepted the same way.
+        ("\u26a0 - Some Album", "Some Album"),
+        # Both marker forms arrive here as "X - Title", so the older
+        # unseparated spelling is covered too.
+        ("M  -  Extra Spaces", "Extra Spaces"),
+    ],
+)
+def test_split_missing_marker_takes_the_marker(name: str, remainder: str) -> None:
+    """Either marker is lifted off, leaving the title behind.
+
+    Args:
+        name: A name with the year already removed.
+        remainder: What should be left once the marker is gone.
+    """
+    is_missing, rest = split_missing_marker(name)
+
+    assert is_missing is True
+    assert rest == remainder
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Mirror",  # a title that merely starts with M
+        "Miles Smiles",
+        "M",  # an album genuinely titled "M" carries no hyphen
+        "Kind of Blue",
+        "",
+    ],
+)
+def test_split_missing_marker_leaves_a_title_alone(name: str) -> None:
+    """The trailing hyphen is what tells a marker from a title starting M.
+
+    Args:
+        name: A name carrying no marker.
+    """
+    is_missing, rest = split_missing_marker(name)
+
+    assert is_missing is False
+    assert rest == name
+
+
+def test_split_missing_marker_swallows_a_hyphenated_title() -> None:
+    """A known cost: "M-Base" reads as a marker, since the hyphen is there.
+
+    Recorded rather than wished away. Requiring spaces around the hyphen
+    would be the fix, but the older unseparated spelling depends on their
+    absence, so the two cannot both be honored by one pattern. The case
+    is rare and shows plainly in the rename preview.
+    """
+    is_missing, rest = split_missing_marker("M-Base")
+
+    assert is_missing is True
+    assert rest == "Base"
+
+
+# ==================================================================================== #
+#                                     QUALITY TAG                                      #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Kind of Blue [FLAC]", "Kind of Blue"),
+        ("So What (OPUS)", "So What"),
+        # Case-insensitive inside a bracket, where the word is unambiguous.
+        ("Milestones [flac]", "Milestones"),
+        # A second bracket that is part of the title survives.
+        ("Bird [Live] [FLAC]", "Bird [Live]"),
+        # A bare trailing word, when nothing is bracketed.
+        ("Some Album FLAC", "Some Album"),
+        ("Some Album OPUS", "Some Album"),
+    ],
+)
+def test_strip_quality_tag_removes_the_word(name: str, expected: str) -> None:
+    """A stale quality word goes, whichever of the two it is.
+
+    Args:
+        name: A name past year extraction.
+        expected: The name once the word is gone.
+    """
+    assert strip_quality_tag(name) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Milestones [FLAC, 40th Anniversary]", "Milestones [40th Anniversary]"),
+        ("Live (FLAC, Live)", "Live (Live)"),
+        ("Nefertiti [FLAC m4a]", "Nefertiti [m4a]"),
+    ],
+)
+def test_strip_quality_tag_keeps_a_shared_bracket(name: str, expected: str) -> None:
+    """Only the word is cut; a tag sharing its bracket is kept, in style.
+
+    Args:
+        name: A name whose bracket holds the word and something else.
+        expected: The name with just the word removed.
+    """
+    assert strip_quality_tag(name) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # "Opus" is an ordinary title word, and only an all-caps trailing
+        # word is treated as a marker.
+        "Magnum Opus",
+        "Opus One",
+        "Opus de Jazz",
+        # Lowercase "flac" outside a bracket is left for the eye, since
+        # eating a title word is the worse mistake.
+        "Miles Ahead flac",
+        # No quality word at all.
+        "Sketches of Spain",
+        "",
+    ],
+)
+def test_strip_quality_tag_leaves_a_title_alone(name: str) -> None:
+    """The guards refuse anything that could be a title word.
+
+    Args:
+        name: A name carrying no stale quality word.
+    """
+    assert strip_quality_tag(name) == name
+
+
+# ==================================================================================== #
+#                                      CLEANUP                                         #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        # A token removed from the middle leaves a double space.
+        ("Kind of  Blue", "Kind of Blue"),
+        # One removed from an end leaves a dangling separator.
+        ("- Kind of Blue", "Kind of Blue"),
+        ("Kind of Blue -", "Kind of Blue"),
+        ("_Kind of Blue.", "Kind of Blue"),
+        ("  Kind of Blue  ", "Kind of Blue"),
+        # A hyphen inside the name is not an edge and stays.
+        ("Sun Ra - Space Is the Place", "Sun Ra - Space Is the Place"),
+        ("", ""),
+    ],
+)
+def test_clean_name(name: str, expected: str) -> None:
+    """Spacing collapses and edge separators go; the middle is untouched.
+
+    Args:
+        name: A name with a token already cut out.
+        expected: How it should read once tidied.
+    """
+    assert clean_name(name) == expected
 
 
 # ==================================================================================== #
