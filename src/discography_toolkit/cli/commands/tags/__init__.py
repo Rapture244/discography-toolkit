@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands.tags import album_artist, genre, title, year
+from discography_toolkit.cli.commands.tags import album, album_artist, genre, title, year
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -30,16 +30,20 @@ def main() -> None:
 #                                  COMMAND REGISTRY                                    #
 # ==================================================================================== #
 _ = app.command(
+    name="album",
+    help="Write each track's 'Album' tag from its album folder's name.",
+)(album.album)
+_ = app.command(
     name="album-artist",
-    help="Write each track's Album Artist from the artist folder above it.",
+    help="Write each track's 'Album Artist' from the artist folder above it.",
 )(album_artist.album_artist)
-_ = app.command(name="genre", help="Set the Genre tag on every audio file beneath a path.")(
+_ = app.command(name="genre", help="Set the 'Genre' tag on every audio file beneath a path.")(
     genre.genre
 )
-_ = app.command(name="title", help="Title-case the Title tag of every audio file beneath a path.")(
-    title.title
-)
+_ = app.command(
+    name="title", help="Title-case the 'Title' tag of every audio file beneath a path."
+)(title.title)
 _ = app.command(
     name="year",
-    help="Write each track's Date tag from the year in its album folder's name.",
+    help="Write each track's 'Date' tag from the year in its album folder's name.",
 )(year.year)
