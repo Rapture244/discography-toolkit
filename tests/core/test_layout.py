@@ -22,6 +22,7 @@ from discography_toolkit.core.layout import (
     discover_albums,
     find_albums,
     find_artist_folders,
+    find_artists,
     find_audio_files,
     find_containers,
     find_cover_images,
@@ -730,3 +731,130 @@ def test_find_containers_is_empty_without_one(tmp_path: Path) -> None:
     _ = (artist / "FLAC").write_text("a note, not a container")
 
     assert find_containers(artist) == []
+
+
+# ==================================================================================== #
+#                                  ARTISTS BY AUDIO                                    #
+# ==================================================================================== #
+def _track(album: Path) -> None:
+    """Put one stub audio file in a folder, making its parents.
+
+    Args:
+        album: The folder to place a track in.
+    """
+    album.mkdir(parents=True, exist_ok=True)
+    _ = (album / "01.flac").write_bytes(b"x")
+
+
+def test_find_artists_walks_a_nested_shelf(tmp_path: Path) -> None:
+    """An artist is found however deep the shelf buries it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    _track(tmp_path / "Jazz" / "Africa" / "Fela Kuti" / "(1972) - Zombie")
+
+    found: list[Path] = find_artists(tmp_path)
+
+    assert found == [tmp_path / "Jazz" / "Africa" / "Fela Kuti"]
+
+
+def test_find_artists_returns_an_artist_once(tmp_path: Path) -> None:
+    """Many albums under one artist still name it a single time.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    _track(artist / "(1959) - Kind of Blue")
+    _track(artist / "(1970) - Live")
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_steps_over_the_container(tmp_path: Path) -> None:
+    """A lossless album inside the container still points to the artist, not it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    _track(artist / "FLAC" / "(1959) - Kind of Blue")
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_steps_over_a_disc_folder(tmp_path: Path) -> None:
+    """A multi-disc album resolves to its artist, not the album or the disc.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    _track(artist / "(1970) - Bitches Brew" / "CD 1")
+    _track(artist / "(1970) - Bitches Brew" / "CD 2")
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_steps_over_disc_and_container_together(tmp_path: Path) -> None:
+    """A multi-disc lossless album crosses both levels to reach the artist.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    _track(artist / "FLAC" / "(1970) - Bitches Brew" / "CD 1")
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_finds_an_artist_pointed_at_directly(tmp_path: Path) -> None:
+    """A path that is itself an artist returns just itself.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    _track(artist / "(1959) - Kind of Blue")
+
+    assert find_artists(artist) == [artist]
+
+
+def test_find_artists_ignores_an_artist_without_audio(tmp_path: Path) -> None:
+    """An artist whose albums are all empty placeholders cannot be anchored on.
+
+    A real artist beside it is still found; the empty one is not.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    _track(tmp_path / "Miles Davis" / "(1959) - Kind of Blue")
+    (tmp_path / "Ghost Artist" / "(1999) - Nothing").mkdir(parents=True)
+
+    assert find_artists(tmp_path) == [tmp_path / "Miles Davis"]
+
+
+def test_find_artists_still_finds_an_artist_with_a_placeholder(tmp_path: Path) -> None:
+    """An empty album beside a real one does not stop the artist being found.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    _track(artist / "(1959) - Kind of Blue")
+    (artist / "(1980) - M - Missing").mkdir()
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_clamps_to_the_given_path(tmp_path: Path) -> None:
+    """Pointed at an album, it reaches no artist above and returns nothing.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = tmp_path / "Miles Davis" / "(1959) - Kind of Blue"
+    _track(album)
+
+    assert find_artists(album) == []

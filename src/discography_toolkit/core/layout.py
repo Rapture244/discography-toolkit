@@ -57,6 +57,16 @@ FLAC_CONTAINER_RE: Final[re.Pattern[str]] = re.compile(
 CONTAINER_NAME: Final[str] = "FLAC"
 
 
+# A multi-disc album keeps its tracks in "CD 1"/"Disc 2" subfolders.
+# Recognising them by name is what lets artist discovery tell a disc from
+# an album on fresh material, where both simply hold audio: an album's
+# parent is the artist, a disc's parent is the album. Heuristic by
+# nature -- an album genuinely titled "Disc 9" would be misread -- but
+# the shape is near-universal and the cost is one misplaced folder in a
+# preview, not silent loss.
+_DISC_FOLDER_RE: Final[re.Pattern[str]] = re.compile(r"^(?:cd|disc|disk)\s*_?\s*\d", re.IGNORECASE)
+
+
 class AudioTier(StrEnum):
     """What quality an album is held in, decided from its files.
 
@@ -356,3 +366,44 @@ def find_artist_folders(root: Path) -> list[Path]:
             found.extend(find_artist_folders(entry))
 
     return found
+
+
+def find_artists(root: Path) -> list[Path]:
+    """Find artist folders by their audio, without needing a label.
+
+    The label-based `find_artist_folders` only sees folders the pipeline
+    has already labelled, so it is blind to the fresh material the layout
+    pass is handed. This works from the other end: every audio file sits
+    in an album, every album in an artist, so walking up from the audio
+    finds the artist whatever the folders are called.
+
+    Two levels are stepped over on the way up when present: a disc
+    subfolder between an album and its tracks, recognised by name, and
+    the FLAC container between an artist and its lossless albums,
+    recognised by shape. An album with neither is one level under its
+    artist; one with both is three.
+
+    A result is kept only when it is `root` itself or sits beneath it, so
+    a path pointed too deep -- at an album, say -- yields nothing rather
+    than reaching up to a sibling-filled artist outside it. An artist
+    whose every album is an empty placeholder holds no audio and is not
+    found: there is nothing to anchor on, and bare folders cannot be told
+    from a shelf.
+
+    Args:
+        root: The folder to search -- a shelf at any depth, or an artist.
+
+    Returns:
+        The artist folders found, each once, sorted by path.
+    """
+    artists: set[Path] = set()
+    for audio in find_audio_files(root):
+        album: Path = audio.parent
+        if _DISC_FOLDER_RE.match(album.name):
+            album = album.parent
+        artist: Path = album.parent
+        if is_flac_container(artist):
+            artist = artist.parent
+        if artist == root or root in artist.parents:
+            artists.add(artist)
+    return sorted(artists)
