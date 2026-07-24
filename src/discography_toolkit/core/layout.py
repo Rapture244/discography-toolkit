@@ -173,19 +173,39 @@ def discover_albums(artist: Path) -> list[Path]:
     return sorted(albums, key=lambda path: path.name)
 
 
-def owning_artist(track: Path, artists: Sequence[Path]) -> Path | None:
-    """Find which artist folder a file sits under, if any.
+def owning_folder(path: Path, candidates: Sequence[Path]) -> Path | None:
+    """Find which of some folders a path sits under.
+
+    One question asked of two lists: which artist owns this track, and
+    which album does. The bodies were identical, so the name is the
+    general one.
 
     Args:
-        track: The file to place.
-        artists: Candidate artist folders.
+        path: The file or folder to place.
+        candidates: Folders it might sit under.
 
     Returns:
-        The artist folder containing `track`, or `None` for a file
-        outside every one of them.
+        The containing folder, or `None` when it is under none of them.
     """
-    parents = set(track.parents)
-    return next((artist for artist in artists if artist in parents), None)
+    parents = set(path.parents)
+    return next((folder for folder in candidates if folder in parents), None)
+
+
+def find_albums(root: Path) -> list[Path]:
+    """Find every album folder at or beneath a path.
+
+    Albums are discovered through their artist, so a path with no
+    labelled artist beneath it yields none -- the layout pass has not run
+    there, and nothing else says which folders are albums.
+
+    Args:
+        root: The folder to search from -- a shelf, a region, or an
+            artist.
+
+    Returns:
+        Album folders, grouped under the artist that holds them.
+    """
+    return [album for artist in find_artist_folders(root) for album in discover_albums(artist)]
 
 
 def find_artist_folders(root: Path) -> list[Path]:

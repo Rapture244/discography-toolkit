@@ -16,12 +16,13 @@ from discography_toolkit.core.layout import (
     LOSSY_EXTENSIONS,
     OPUS_EXTENSIONS,
     discover_albums,
+    find_albums,
     find_artist_folders,
     find_audio_files,
     is_artist_folder,
     is_effectively_empty,
     is_flac_container,
-    owning_artist,
+    owning_folder,
 )
 from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 
@@ -344,7 +345,7 @@ def test_find_audio_files_scoped_to_one_album(artist: Path) -> None:
     assert found == ["01 - Pharaoh's Dance.flac", "01 - Spanish Key.flac"]
 
 
-def test_owning_artist_finds_the_containing_folder(tmp_path: Path) -> None:
+def test_owning_folder_finds_the_containing_folder(tmp_path: Path) -> None:
     """A track belongs to the artist folder above it, however deep.
 
     Args:
@@ -353,10 +354,10 @@ def test_owning_artist_finds_the_containing_folder(tmp_path: Path) -> None:
     miles: Path = tmp_path / "Miles Davis - [1 on 1]"
     track: Path = miles / "FLAC" / "01. (1959) - Kind of Blue [FLAC]" / "CD 1" / "01.flac"
 
-    assert owning_artist(track, [miles]) == miles
+    assert owning_folder(track, [miles]) == miles
 
 
-def test_owning_artist_returns_none_for_a_loose_track(tmp_path: Path) -> None:
+def test_owning_folder_returns_none_for_a_loose_track(tmp_path: Path) -> None:
     """A track outside every artist folder belongs to none of them.
 
     Args:
@@ -364,7 +365,54 @@ def test_owning_artist_returns_none_for_a_loose_track(tmp_path: Path) -> None:
     """
     miles: Path = tmp_path / "Miles Davis - [1 on 1]"
 
-    assert owning_artist(tmp_path / "loose.flac", [miles]) is None
+    assert owning_folder(tmp_path / "loose.flac", [miles]) is None
+
+
+def test_find_albums_gathers_every_artists_albums(tmp_path: Path) -> None:
+    """A shelf-wide run resolves each track to its own album.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    for artist, albums in (
+        ("USA/Miles Davis - [2 on 2]", ("01. (1959) - Kind of Blue", "02. (1970) - Bitches Brew")),
+        ("Japan/Casiopea - [1 on 1]", ("01. (1979) - Casiopea",)),
+    ):
+        for album in albums:
+            (tmp_path / artist / "FLAC" / album).mkdir(parents=True)
+
+    found: list[str] = [album.name for album in find_albums(tmp_path)]
+
+    assert found == [
+        "01. (1979) - Casiopea",
+        "01. (1959) - Kind of Blue",
+        "02. (1970) - Bitches Brew",
+    ]
+
+
+def test_find_albums_needs_a_labelled_artist(tmp_path: Path) -> None:
+    """Albums are recognized through their artist, and nothing else says so.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    (tmp_path / "Unsorted" / "01. (1959) - Kind of Blue").mkdir(parents=True)
+
+    assert find_albums(tmp_path) == []
+
+
+def test_find_albums_on_one_artist(tmp_path: Path) -> None:
+    """An artist folder is its own scope.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis - [1 on 1]"
+    (artist / "FLAC" / "01. (1959) - Kind of Blue").mkdir(parents=True)
+
+    found: list[str] = [album.name for album in find_albums(artist)]
+
+    assert found == ["01. (1959) - Kind of Blue"]
 
 
 # ==================================================================================== #

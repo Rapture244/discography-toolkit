@@ -1,18 +1,19 @@
-# src/discography_toolkit/cli/commands/tags/album_artist.py
-"""The `rapt tags album-artist` command.
+# src/discography_toolkit/cli/commands/tags/year.py
+"""The `rapt tags year` command.
 
-Writes the Album Artist tag -- the discography a track belongs to, taken
-from the name of the artist folder above it. Not the Artist tag: that
-names who played, which on a collaboration album differs and is left
-alone.
+Writes the Date tag from the year in the album folder's name. The tag is
+called Date because that is the field -- it holds a full date perfectly
+well -- while the command is called year because a year is what goes in
+it.
 
-The value is per artist, not per run. Pointed at one artist every track
-gets that name; pointed at a shelf each track gets the name of the folder
-it sits under, so one pass covers a whole region.
+An approximate year clears the tag rather than writing "199x". A date
+field holding something that is not a date is worse than an empty one:
+players sort on it, and ID3 stores it in a timestamp frame that refuses
+the value anyway.
 
-A track under no labelled artist folder is left alone and reported. There
-is no name to derive, and guessing one from a parent folder that has not
-been through the layout pass would invent a discography.
+A track under no album folder is left alone and reported. Albums are
+recognized through their artist, so a path the layout pass has not
+touched has nothing to read a year from.
 """
 
 from __future__ import annotations
@@ -34,13 +35,14 @@ from discography_toolkit.cli.console import (
 )
 from discography_toolkit.cli.parameters import resolve_path
 from discography_toolkit.core.layout import (
+    find_albums,
     find_artist_folders,
     find_audio_files,
     is_artist_folder,
     owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
-from discography_toolkit.core.names import strip_artist_label
+from discography_toolkit.core.names import extract_year, is_approximate_year
 from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
@@ -50,7 +52,7 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 #                                    PUBLIC COMMAND                                    #
 # ==================================================================================== #
-def album_artist(
+def year(
     path: Annotated[
         Path | None,
         typer.Option(
@@ -68,32 +70,28 @@ def album_artist(
         typer.Option("--dry-run", help="Show what would change without writing."),
     ] = False,
 ) -> None:
-    """Write each track's Album Artist from the artist folder above it.
+    """Write each track's Date tag from the year in its album folder's name.
 
     Args:
         path: Folder to work beneath; prompted for if omitted.
         dry_run: Report what would change without writing.
 
     Raises:
-        typer.Exit: On an invalid path, no audio found, no artist folder
-            recognized, a user abort, or a completed run.
+        typer.Exit: On an invalid path, no album found, no audio found, a
+            user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    artists: list[Path] = find_artist_folders(target)
-    echo_banner(
-        "Metadata: Album Artist",
-        target.name,
-        children=[] if is_artist_folder(target) else [folder.name for folder in artists],
-    )
+    echo_banner("Metadata: Year", target.name, children=_artist_names(target))
 
-    if not artists:
+    albums: list[Path] = find_albums(target)
+    if not albums:
         typer.secho(
-            f"\nNo artist folder found at or beneath {target.name!r}.",
+            f"\nNo album folder found at or beneath {target.name!r}.",
             fg=typer.colors.RED,
             err=True,
         )
         typer.secho(
-            "Run the layout pass first -- it writes the count label this reads from.",
+            "Run the layout pass first -- albums are recognized through their artist.",
             fg=typer.colors.RED,
             err=True,
         )
@@ -104,13 +102,13 @@ def album_artist(
         typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    _echo_artists(artists)
+    artists: list[Path] = find_artist_folders(target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
-        plan = tagging.plan(tracks, [Tag.ALBUM_ARTIST], _wants(artists), on_progress=advance)
+        plan = tagging.plan(tracks, [Tag.DATE], _wants(albums), on_progress=advance)
 
-    _echo_plan(plan, artists)
+    _echo_plan(plan, albums)
 
     if dry_run:
         typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
@@ -118,12 +116,10 @@ def album_artist(
 
     pending: int = len(plan.pending)
     if not pending:
-        typer.secho(
-            "\nEvery file already carries its Album Artist. Nothing to do.", fg=typer.colors.GREEN
-        )
+        typer.secho("\nEvery file already carries its year. Nothing to do.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\nWrite Album Artist to {pending} file(s)?"):
+    if not typer.confirm(f"\nWrite the Date tag to {pending} file(s)?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
@@ -144,11 +140,11 @@ def album_artist(
 # ==================================================================================== #
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
-def _wants(artists: Sequence[Path]) -> tagging.Desired:
-    """Build the value function: each track named for the folder above it.
+def _wants(albums: Sequence[Path]) -> tagging.Desired:
+    """Build the value function: each track dated by its album folder.
 
     Args:
-        artists: The artist folders in scope.
+        albums: The album folders in scope.
 
     Returns:
         A `Desired` callable returning nothing for a track under none of
@@ -156,95 +152,102 @@ def _wants(artists: Sequence[Path]) -> tagging.Desired:
     """
 
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        name: str | None = _artist_of(track, artists)
-        return {} if name is None else {Tag.ALBUM_ARTIST: name}
+        value: str | None = _year_of(track, albums)
+        return {} if value is None else {Tag.DATE: value}
 
     return desired
 
 
-def _artist_of(track: Path, artists: Sequence[Path]) -> str | None:
-    """Find the Album Artist a track should carry.
+def _year_of(track: Path, albums: Sequence[Path]) -> str | None:
+    """Find the Date a track should carry.
+
+    An approximate year resolves to an empty string, which clears the
+    tag: "199x" is not a date, and a date field holding a non-date is
+    worse than an empty one.
 
     Args:
         track: The track to place.
-        artists: The artist folders in scope.
+        albums: The album folders in scope.
 
     Returns:
-        The owning folder's name without its count label, or `None` when
-        the track sits under no artist folder.
+        The year, an empty string for an approximation, or `None` when
+        the track sits under no album folder.
     """
-    folder: Path | None = owning_folder(track, artists)
-    if folder is None:
+    album: Path | None = owning_folder(track, albums)
+    if album is None:
         return None
-    return strip_artist_label(folder.name)
+
+    token: str | None = extract_year(album.name)
+    if token is None:
+        return None
+    return "" if is_approximate_year(token) else token
 
 
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _echo_artists(artists: Sequence[Path]) -> None:
-    """Show the value each artist folder resolves to, before any writing.
-
-    The derived name is the one decision this command makes, and it is
-    about to go into hundreds of files, so it is shown rather than
-    inferred from the folder name.
+def _artist_names(target: Path) -> list[str]:
+    """List the artist folders inside a target, for the banner.
 
     Args:
-        artists: The artist folders in scope.
+        target: The folder the run is scoped to.
+
+    Returns:
+        Names of the artist folders found beneath it, empty when the
+        target is itself an artist.
     """
-    label: str = typer.style("Album Artist ->", fg=typer.colors.GREEN, bold=True)
-    typer.echo()
-    for folder in artists:
-        name: str | None = strip_artist_label(folder.name)
-        typer.echo(f"{label} {name!r}")
+    if is_artist_folder(target):
+        return []
+    return [folder.name for folder in find_artist_folders(target)]
 
 
-def _unresolved(plan: tagging.TagPlan, artists: Sequence[Path]) -> list[tagging.TrackOutcome]:
-    """Find tracks sitting under no artist folder.
+def _undated(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.TrackOutcome]:
+    """Find tracks whose album offers no year.
 
-    They count as clean, since nothing was written, but they are a
-    different thing from a track already correct and worth naming.
+    Either they sit under no album folder, or the folder's name carries
+    no year token. Both count as clean, since nothing is written, but
+    both are worth naming.
 
     Args:
         plan: The plan to inspect.
-        artists: The artist folders in scope.
+        albums: The album folders in scope.
 
     Returns:
-        Outcomes for tracks with no derivable Album Artist.
+        Outcomes with no derivable year.
     """
     return [
         outcome
         for outcome in plan.outcomes
-        if outcome.status == "already_correct" and _artist_of(outcome.path, artists) is None
+        if outcome.status == "already_correct" and _year_of(outcome.path, albums) is None
     ]
 
 
-def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path]) -> None:
+def _echo_plan(plan: tagging.TagPlan, albums: Sequence[Path]) -> None:
     """Render a plan as a summary box, plus anything that needs naming.
 
     Args:
         plan: The plan to summarize.
-        artists: The artist folders in scope.
+        albums: The album folders in scope.
     """
-    unresolved: list[tagging.TrackOutcome] = _unresolved(plan, artists)
+    undated: list[tagging.TrackOutcome] = _undated(plan, albums)
     counts: list[list[SummaryRow]] = [
         [SummaryRow(label="Total", count=plan.total, indent="", percent=False)],
         [
             SummaryRow(
-                label="Tagged", count=len(plan.pending), marker="(->)", color=typer.colors.GREEN
+                label="Dated", count=len(plan.pending), marker="(->)", color=typer.colors.GREEN
             ),
             SummaryRow(
                 label="Clean",
-                count=plan.clean - len(unresolved),
+                count=plan.clean - len(undated),
                 marker="(==)",
                 color=typer.colors.BLUE,
             ),
         ],
     ]
-    if unresolved:
+    if undated:
         counts[1].append(
             SummaryRow(
-                label="No artist", count=len(unresolved), marker="(--)", color=typer.colors.YELLOW
+                label="No year", count=len(undated), marker="(--)", color=typer.colors.YELLOW
             )
         )
     if plan.errors:
@@ -256,11 +259,9 @@ def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path]) -> None:
 
     echo_summary(counts, total=plan.total)
 
-    if unresolved:
-        typer.secho(
-            f"\n{len(unresolved)} file(s) sit under no artist folder:", fg=typer.colors.YELLOW
-        )
-        for outcome in unresolved:
+    if undated:
+        typer.secho(f"\n{len(undated)} file(s) have no year to take:", fg=typer.colors.YELLOW)
+        for outcome in undated:
             typer.secho(f"  {str(outcome.path)!r}", fg=typer.colors.BRIGHT_BLACK)
 
     if plan.errors:

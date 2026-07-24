@@ -19,7 +19,7 @@ from rich.rule import Rule
 from rich.text import Text
 import typer
 
-from discography_toolkit.core.layout import owning_artist
+from discography_toolkit.core.layout import owning_folder
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -181,7 +181,7 @@ def make_advancer(
     overall: TaskID = progress.add_task(label, total=len(tracks))
 
     expected: Counter[Path] = Counter(
-        artist for track in tracks if (artist := owning_artist(track, artists)) is not None
+        artist for track in tracks if (artist := owning_folder(track, artists)) is not None
     )
     tasks: dict[Path, TaskID] = {
         artist: progress.add_task(f"  {artist.name}", total=count)
@@ -191,7 +191,7 @@ def make_advancer(
 
     def advance(track: Path) -> None:
         progress.advance(overall)
-        artist: Path | None = owning_artist(track, artists)
+        artist: Path | None = owning_folder(track, artists)
         if artist is None or artist not in tasks:
             return
         progress.advance(tasks[artist])
