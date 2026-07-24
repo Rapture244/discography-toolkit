@@ -1,4 +1,4 @@
-# tests/cli/commands/test_title.py
+# tests/cli/commands/tags/test_title.py
 """Tests for the `rapt title` command."""
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def test_recases_lowercase_titles(album: Callable[..., Path]) -> None:
     """
     folder: Path = album("so what", "freddie freeloader")
 
-    result = runner.invoke(app, ["title", "-p", str(folder)], input="y\n")
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)], input="y\n")
 
     assert result.exit_code == 0
     assert titles_in(folder) == ["So What", "Freddie Freeloader"]
@@ -88,7 +88,7 @@ def test_leaves_a_correct_title_alone(album: Callable[..., Path]) -> None:
     """
     folder: Path = album("Kind of Blue")
 
-    result = runner.invoke(app, ["title", "-p", str(folder)])
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)])
 
     assert "Nothing to do" in result.output
 
@@ -101,7 +101,7 @@ def test_leaves_an_untitled_track_alone(album: Callable[..., Path]) -> None:
     """
     folder: Path = album(None)
 
-    result = runner.invoke(app, ["title", "-p", str(folder)])
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)])
 
     assert titles_in(folder) == [""]
     assert "carry no Title tag" in result.output
@@ -115,7 +115,7 @@ def test_untitled_is_counted_apart_from_clean(album: Callable[..., Path]) -> Non
     """
     folder: Path = album("Kind of Blue", None)
 
-    result = runner.invoke(app, ["title", "-p", str(folder)])
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)])
 
     assert "Untitled" in result.output
     assert "Clean" in result.output
@@ -128,9 +128,9 @@ def test_a_second_run_finds_nothing(album: Callable[..., Path]) -> None:
         album: Factory building an album.
     """
     folder: Path = album("so what")
-    _ = runner.invoke(app, ["title", "-p", str(folder)], input="y\n")
+    _ = runner.invoke(app, ["tags", "title", "-p", str(folder)], input="y\n")
 
-    result = runner.invoke(app, ["title", "-p", str(folder)])
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)])
 
     assert "Nothing to do" in result.output
 
@@ -146,7 +146,7 @@ def test_a_dry_run_lists_old_beside_new(album: Callable[..., Path]) -> None:
     """
     folder: Path = album("so what")
 
-    result = runner.invoke(app, ["title", "-p", str(folder), "--dry-run"])
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder), "--dry-run"])
 
     assert "'so what'" in result.output
     assert "'So What'" in result.output
@@ -160,7 +160,7 @@ def test_a_real_run_omits_the_listing(album: Callable[..., Path]) -> None:
     """
     folder: Path = album("so what")
 
-    result = runner.invoke(app, ["title", "-p", str(folder)], input="y\n")
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)], input="y\n")
 
     assert "'so what'" not in result.output
 
@@ -173,7 +173,7 @@ def test_a_dry_run_changes_nothing(album: Callable[..., Path]) -> None:
     """
     folder: Path = album("so what")
 
-    result = runner.invoke(app, ["title", "-p", str(folder), "--dry-run"])
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder), "--dry-run"])
 
     assert "Dry run" in result.output
     assert titles_in(folder) == ["so what"]
@@ -187,7 +187,7 @@ def test_declining_the_prompt_changes_nothing(album: Callable[..., Path]) -> Non
     """
     folder: Path = album("so what")
 
-    result = runner.invoke(app, ["title", "-p", str(folder)], input="n\n")
+    result = runner.invoke(app, ["tags", "title", "-p", str(folder)], input="n\n")
 
     assert "Aborted" in result.output
     assert titles_in(folder) == ["so what"]
@@ -199,7 +199,7 @@ def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     Args:
         tmp_path: Pytest's per-test temporary directory.
     """
-    result = runner.invoke(app, ["title", "-p", str(tmp_path)])
+    result = runner.invoke(app, ["tags", "title", "-p", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "No audio files" in result.output

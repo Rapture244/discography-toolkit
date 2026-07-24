@@ -1,4 +1,4 @@
-# src/discography_toolkit/cli/commands/title.py
+# src/discography_toolkit/cli/commands/tags/title.py
 """The `rapt title` command.
 
 Recases the Title tag each track already carries, rather than deriving

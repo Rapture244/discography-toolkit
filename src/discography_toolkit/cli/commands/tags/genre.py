@@ -1,4 +1,4 @@
-# src/discography_toolkit/cli/commands/genre.py
+# src/discography_toolkit/cli/commands/tags/genre.py
 """The `rapt genre` command.
 
 Pairs with `operations.tagging`: that plans and writes, this decides what

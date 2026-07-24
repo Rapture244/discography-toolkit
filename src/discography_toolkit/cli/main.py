@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import genre, title
+from discography_toolkit.cli.commands import tags
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -44,16 +44,12 @@ def main() -> None:
 
 
 # ==================================================================================== #
-#                                  COMMAND REGISTRY                                    #
+#                                   GROUP REGISTRY                                     #
 # ==================================================================================== #
-# The decorator returns the function it wrapped; discarding it is the
-# point, since the command is registered as a side effect.
-_ = app.command(name="genre", help="Set the Genre tag on every audio file beneath a path.")(
-    genre.genre
-)
-_ = app.command(name="title", help="Title-case the Title tag of every audio file beneath a path.")(
-    title.title
-)
+# Groups, not bare commands: the toolkit splits into what it does to the
+# folders and what it writes inside the files, and `rapt --help` should
+# say so before listing nine verbs.
+app.add_typer(tags.app, name="tags")
 
 
 if __name__ == "__main__":

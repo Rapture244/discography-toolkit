@@ -1,4 +1,4 @@
-# tests/cli/commands/test_genre.py
+# tests/cli/commands/tags/test_genre.py
 """Tests for the `rapt genre` command.
 
 These exercise the wiring rather than the logic: whether the command
@@ -88,7 +88,7 @@ def test_tags_every_track_beneath_the_path(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
     assert result.exit_code == 0
     assert genres_under(shelf) == {"Jazz"}
@@ -100,7 +100,7 @@ def test_tags_a_loose_track_outside_any_artist(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    _ = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
     loose: Path = shelf / "Unsorted" / "loose.flac"
     assert metadata.read(loose, [Tag.GENRE])[Tag.GENRE] == "Jazz"
@@ -112,7 +112,7 @@ def test_lists_the_artists_it_found(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"], input="n\n")
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="n\n")
 
     assert "Miles Davis - [2 • 2F • 0L • 0M]" in result.output
     assert "Casiopea - [1 • 1F • 0L • 0M]" in result.output
@@ -126,7 +126,7 @@ def test_an_artist_is_not_listed_beneath_itself(shelf: Path) -> None:
     """
     artist: Path = shelf / "USA" / "Miles Davis - [2 • 2F • 0L • 0M]"
 
-    result = runner.invoke(app, ["genre", "-p", str(artist), "-g", "Jazz"], input="n\n")
+    result = runner.invoke(app, ["tags", "genre", "-p", str(artist), "-g", "Jazz"], input="n\n")
 
     # Children are printed indented under the banner; the name also
     # appears as the banner target and the progress label, so the indent
@@ -140,9 +140,9 @@ def test_a_second_run_reports_nothing_to_do(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    _ = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"])
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"])
 
     assert "Nothing to do" in result.output
 
@@ -153,7 +153,9 @@ def test_the_value_is_written_verbatim(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    _ = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz;Jazz Fusion"], input="y\n")
+    _ = runner.invoke(
+        app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz;Jazz Fusion"], input="y\n"
+    )
 
     assert genres_under(shelf) == {"Jazz;Jazz Fusion"}
 
@@ -167,7 +169,7 @@ def test_dry_run_changes_nothing(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz", "--dry-run"])
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz", "--dry-run"])
 
     assert "Dry run" in result.output
     assert genres_under(shelf) == {""}
@@ -179,7 +181,7 @@ def test_declining_the_prompt_changes_nothing(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"], input="n\n")
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="n\n")
 
     assert "Aborted" in result.output
     assert genres_under(shelf) == {""}
@@ -191,7 +193,7 @@ def test_an_empty_genre_is_refused(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "   "])
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "   "])
 
     # Asserting the message, not just the code: an unanswered confirmation
     # prompt also exits 1, so the code alone would pass either way.
@@ -205,7 +207,7 @@ def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     Args:
         tmp_path: Pytest's per-test temporary directory.
     """
-    result = runner.invoke(app, ["genre", "-p", str(tmp_path), "-g", "Jazz"])
+    result = runner.invoke(app, ["tags", "genre", "-p", str(tmp_path), "-g", "Jazz"])
 
     assert result.exit_code == 0
     assert "No audio files" in result.output
@@ -220,7 +222,7 @@ def test_prompts_for_both_when_given_neither(shelf: Path) -> None:
     Args:
         shelf: The fixture shelf.
     """
-    result = runner.invoke(app, ["genre"], input=f'"{shelf}"\nJazz\ny\n')
+    result = runner.invoke(app, ["tags", "genre"], input=f'"{shelf}"\nJazz\ny\n')
 
     assert result.exit_code == 0
     assert genres_under(shelf) == {"Jazz"}
@@ -238,7 +240,7 @@ def test_reports_a_file_it_cannot_read(shelf: Path, make_broken: Callable[[Path]
 
     intact: Path = next((shelf / "USA").rglob("*.flac"))
 
-    result = runner.invoke(app, ["genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
     assert "could not be read" in result.output
     assert metadata.read(intact, [Tag.GENRE])[Tag.GENRE] == "Jazz"
