@@ -44,6 +44,13 @@ _INDEX_PREFIX_RE: Final[re.Pattern[str]] = re.compile(
     r"^(?:\(\d{1,3}\)|\[\d{1,3}\]|\d{1,3}(?!\d))[._\s-]*"
 )
 
+# Strips the "M"/"⚠" marker for ordering, keeping the "(year) - " ahead of
+# it. Unlike `_MISSING_MARKER_RE`, which reads the marker once the year is
+# gone, this runs on the whole "(year) - M - Title" so a sort key can drop
+# the marker without losing the year it orders by. The leading group is
+# any parenthesised head, in practice the year.
+_SORT_MARKER_RE: Final[re.Pattern[str]] = re.compile(r"^(\([^)]*\)\s*-\s*)(?:⚠|M)\s*-\s*")
+
 # A year, with "x" standing in for a digit nobody knows: "1994", "199x",
 # "19xx". Searched wrapped-first so a title carrying a bare number --
 # "17.01.2002", "Helen 12 Trees" -- cannot outrank the real year in
@@ -174,6 +181,28 @@ def split_index(name: str) -> tuple[str, str]:
     if match is None:
         return "", name
     return match.group(0), name[match.end() :]
+
+
+def sort_key(name: str) -> str:
+    """Build the key an album orders by, ignoring what should not move it.
+
+    Numbering runs down an artist's albums in this order and assigns
+    "01.", "02." in turn, so the key has to leave out anything that is
+    not the album's identity: the "©" pin, any existing index, and the
+    "M"/"⚠" availability marker. Dropping the marker is what keeps the
+    sequence stable -- an album that gains or loses audio holds its place
+    instead of jumping to wherever the glyph happens to sort. The year is
+    kept, so albums order by year and then title.
+
+    Args:
+        name: The raw album folder name.
+
+    Returns:
+        The casefolded remainder, ready to sort on.
+    """
+    _, rest = split_pin_mark(name)
+    _, rest = split_index(rest)
+    return _SORT_MARKER_RE.sub(r"\1", rest, count=1).casefold()
 
 
 # ==================================================================================== #

@@ -12,6 +12,7 @@ from discography_toolkit.core.names import (
     clean_name,
     extract_year,
     is_approximate_year,
+    sort_key,
     split_index,
     split_missing_marker,
     split_pin_mark,
@@ -161,6 +162,54 @@ def test_split_index_leaves_an_unnumbered_name(name: str) -> None:
 
     assert prefix == ""
     assert rest == name
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("\u00a901. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue [flac]"),
+        ("05. (1959) - So What [FLAC]", "(1959) - so what [flac]"),
+        # The conflict glyph is stripped the same as the plain marker.
+        ("12. (1980) - \u26a0 - Decoy", "(1980) - decoy"),
+        # A name with none of the strippable parts casefolds as it is.
+        ("No Year Album", "no year album"),
+    ],
+)
+def test_sort_key_ignores_what_should_not_move_an_album(name: str, expected: str) -> None:
+    """The key is year and title, with pin, index and marker taken out.
+
+    Args:
+        name: The raw album folder name.
+        expected: The key it should produce.
+    """
+    assert sort_key(name) == expected
+
+
+def test_sort_key_is_stable_when_availability_changes() -> None:
+    """Gaining or losing the marker must not change where an album sorts.
+
+    An album found missing and later held keeps its place in the
+    sequence, so numbering does not shuffle everything after it.
+    """
+    missing: str = "07. (1971) - M - Live-Evil [FLAC]"
+    held: str = "07. (1971) - Live-Evil [FLAC]"
+
+    assert sort_key(missing) == sort_key(held)
+
+
+def test_sort_key_orders_by_year_then_title() -> None:
+    """An earlier year sorts first, and same-year albums fall back to title."""
+    names: list[str] = [
+        "01. (1970) - Bitches Brew",
+        "02. (1959) - So What",
+        "03. (1959) - Ascension",
+    ]
+
+    assert sorted(names, key=sort_key) == [
+        "03. (1959) - Ascension",
+        "02. (1959) - So What",
+        "01. (1970) - Bitches Brew",
+    ]
 
 
 # ==================================================================================== #
