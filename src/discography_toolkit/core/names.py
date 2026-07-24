@@ -385,3 +385,32 @@ def title_case(text: str) -> str:
         The text in title case.
     """
     return titlecase(text)
+
+
+def title_case_filename(name: str) -> str:
+    """Title-case a filename's stem, leaving its extension untouched.
+
+    Only the stem is cased. The extension is written back exactly as
+    found -- ".Flac" is the same file to a case-insensitive OS but a
+    different string to every `suffix.lower()` check in the pipeline, and
+    a file that stops matching stops being tagged.
+
+    Runs of whitespace left in the stem are collapsed and its ends
+    trimmed. A stem that cases to nothing at all -- one that was only
+    punctuation -- leaves the whole name as it was, rather than producing
+    a file called just its extension.
+
+    Args:
+        name: A filename with its extension, e.g. "01 - so what.flac".
+
+    Returns:
+        The filename with its stem cased and its extension unchanged.
+    """
+    stem, dot, suffix = name.rpartition(".")
+    if not dot:
+        stem, suffix = name, ""
+
+    cased: str = _MULTI_SPACE_RE.sub(" ", title_case(stem)).strip()
+    if not cased:
+        return name
+    return f"{cased}.{suffix}" if dot else cased

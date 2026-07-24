@@ -20,6 +20,7 @@ from discography_toolkit.core.names import (
     strip_artist_label,
     strip_quality_tag,
     title_case,
+    title_case_filename,
 )
 
 import pytest
@@ -581,3 +582,64 @@ def test_title_case_applies_english_rules_to_other_languages() -> None:
     than correct, which the dry run is there to catch.
     """
     assert title_case("warum bist du traurig") == "Warum Bist Du Traurig"
+
+
+# ==================================================================================== #
+#                                   FILENAME CASING                                    #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("kind of blue.flac", "Kind of Blue.flac"),
+        ("01 - so what.flac", "01 - So What.flac"),
+        # The extension is written back verbatim, not cased.
+        ("track.FLAC", "Track.FLAC"),
+        # An embedded acronym survives; full shouting normalizes.
+        ("theme from OST.mp3", "Theme From OST.mp3"),
+        ("THE MAN WITH THE HORN.wav", "The Man With the Horn.wav"),
+        # Runs of whitespace in the stem collapse.
+        ("multi   space   name.flac", "Multi Space Name.flac"),
+        # Only the last dot splits the extension.
+        ("a.b.c.flac", "A.b.c.flac"),
+        # A dotted stem that cases to itself proves the split is the last
+        # dot, not the first: a first-dot split would cap the lone "e".
+        ("e.s.p.flac", "e.s.p.flac"),
+    ],
+)
+def test_title_case_filename_cases_the_stem_only(name: str, expected: str) -> None:
+    """The stem is cased and tidied; the extension is left exactly as found.
+
+    Args:
+        name: The filename as found.
+        expected: How it should read.
+    """
+    assert title_case_filename(name) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "四人囃子.flac",  # a script with no letter case
+        "Already Cased.flac",
+        ".hidden",  # nothing but an extension
+        # A stem of only whitespace cases to nothing; the whole name is
+        # kept rather than collapsing to a bare ".flac" hidden file.
+        "   .flac",
+    ],
+)
+def test_title_case_filename_leaves_these_alone(name: str) -> None:
+    """A name with nothing to case comes back unchanged.
+
+    Args:
+        name: The filename as found.
+    """
+    assert title_case_filename(name) == name
+
+
+def test_title_case_filename_applies_english_rules_to_other_languages() -> None:
+    """The convention is English, so a German title is capitalized, not fixed.
+
+    Recorded rather than wished away: the result is capitalized rather
+    than correct, which the rename preview is there to catch.
+    """
+    assert title_case_filename("warum bist du traurig.opus") == "Warum Bist Du Traurig.opus"
