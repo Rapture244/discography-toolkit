@@ -15,6 +15,7 @@ from discography_toolkit.core.names import (
     split_index,
     split_missing_marker,
     split_pin_mark,
+    split_year,
     strip_artist_label,
     strip_quality_tag,
     title_case,
@@ -234,6 +235,45 @@ def test_extract_year_returns_none_without_one(name: str) -> None:
         name: The album folder's name.
     """
     assert extract_year(name) is None
+
+
+@pytest.mark.parametrize(
+    ("name", "year", "remainder"),
+    [
+        ("(1959) - Kind of Blue", "1959", "Kind of Blue"),
+        # A wrapped year is removed even when a bare number sits before it.
+        ("1999 (1982)", "1982", "1999"),
+        ("In India [1973]", "1973", "In India"),
+        # A bare year, when nothing is wrapped, and the remainder tidied.
+        ("Sketches of Spain 1960", "1960", "Sketches of Spain"),
+        ("(199x) - Unknown Decade", "199x", "Unknown Decade"),
+    ],
+)
+def test_split_year_removes_the_year(name: str, year: str, remainder: str) -> None:
+    """The token comes back with the name it was cut from, tidied.
+
+    Args:
+        name: The album folder's name.
+        year: The token that should be found.
+        remainder: The name once the year is gone.
+    """
+    found, rest = split_year(name)
+
+    assert found == year
+    assert rest == remainder
+
+
+@pytest.mark.parametrize("name", ["Kind of Blue", "M - Folk Soul", ""])
+def test_split_year_leaves_a_yearless_name(name: str) -> None:
+    """No year means the name is handed back whole.
+
+    Args:
+        name: A name carrying no year.
+    """
+    found, rest = split_year(name)
+
+    assert found is None
+    assert rest == name
 
 
 @pytest.mark.parametrize(

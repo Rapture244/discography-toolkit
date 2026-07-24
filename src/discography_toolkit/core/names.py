@@ -179,13 +179,39 @@ def split_index(name: str) -> tuple[str, str]:
 # ==================================================================================== #
 #                                        YEARS                                         #
 # ==================================================================================== #
+def split_year(name: str) -> tuple[str | None, str]:
+    """Find a year token and hand back the name without it.
+
+    A wrapped year -- "(1994)", "[1994]" -- wins over a bare one wherever
+    it sits, so "17.01.2002" or "In India [1973]" resolves to the year in
+    its own brackets. Among equals the leftmost wins, which is where the
+    convention puts the release over a reissue. The remainder is tidied,
+    ready for the next thing to be read off its front.
+
+    Args:
+        name: The album folder's name.
+
+    Returns:
+        A `(year, remainder)` pair. `year` is the four-character token --
+        "1994", "199x" -- or `None` when the name carries none, in which
+        case `remainder` is the name unchanged.
+    """
+    match: re.Match[str] | None = _YEAR_WRAPPED_RE.search(name)
+    if match is None:
+        match = _YEAR_BARE_RE.search(name)
+    if match is None:
+        return None, name
+    token: str = match.group(0).strip("()[]")
+    return token, clean_name(name[: match.start()] + name[match.end() :])
+
+
 def extract_year(name: str) -> str | None:
     """Find the year token in an album folder name, leaving the name alone.
 
-    A wrapped year wins over a bare one wherever it sits, so an album
-    titled "17.01.2002" or "In India [1973]" resolves to the year in its
-    own brackets rather than the number in its title. Among equals the
-    leftmost wins, which is where the convention puts it.
+    The non-destructive read, for a caller that wants only the token --
+    the year tag is derived from it, and the folder is not being
+    rebuilt. Naming, which strips the year to keep parsing, wants
+    `split_year` instead.
 
     Args:
         name: The album folder's name.
@@ -194,12 +220,7 @@ def extract_year(name: str) -> str | None:
         The four-character token -- "1994", "199x" -- or `None` when the
         name carries no year at all.
     """
-    match: re.Match[str] | None = _YEAR_WRAPPED_RE.search(name)
-    if match is None:
-        match = _YEAR_BARE_RE.search(name)
-    if match is None:
-        return None
-    return match.group(0).strip("()[]")
+    return split_year(name)[0]
 
 
 def is_approximate_year(year: str) -> bool:
