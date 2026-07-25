@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import align_tags, layout, tags
+from discography_toolkit.cli.commands import align_tags, layout, organize, tags
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -64,6 +64,13 @@ _ = app.command(
     name="align-tags",
     help="Write every folder-derived tag -- album, artist, year, title, cover.",
 )(align_tags.align_tags)
+
+# The whole job in one: layout then align-tags, the app's tagline as a
+# command. It sits first because it is the one most people want.
+_ = app.command(
+    name="organize",
+    help="Lay out the folders and then write every folder-derived tag.",
+)(organize.organize)
 
 
 if __name__ == "__main__":
