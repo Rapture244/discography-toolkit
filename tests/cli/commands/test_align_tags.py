@@ -143,7 +143,7 @@ def test_running_twice_settles(shelf: Callable[..., Path]) -> None:
     second = runner.invoke(app, ["align-tags", "--path", str(root)], input="y\n")
 
     assert second.exit_code == 0
-    assert "0 tag write(s)" in second.stdout
+    assert "0 file(s) tagged" in second.stdout
 
 
 def test_each_pass_shows_by_name(shelf: Callable[..., Path]) -> None:
@@ -163,6 +163,60 @@ def test_each_pass_shows_by_name(shelf: Callable[..., Path]) -> None:
         assert name in result.stdout
     # Covers is settled before the first tag is written.
     assert result.stdout.index("Covers") < result.stdout.index("Album ")
+
+
+def test_a_file_needing_several_tags_is_written_once(shelf: Callable[..., Path]) -> None:
+    """The tags share one save: the breakdown sums past the files tagged.
+
+    One track needs Album, Album Artist, Year, and a recased Title -- four
+    fields, but one file, written once. The per-tag lines each count it,
+    while the summary counts the file a single time.
+
+    Args:
+        shelf: Factory building a laid-out artist.
+    """
+    track: Path = shelf(title="so what")
+
+    result = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
+
+    # Every field landed, proving the one save carried all of them.
+    tags = tags_of(track)
+    assert tags[Tag.ALBUM]
+    assert tags[Tag.ALBUM_ARTIST]
+    assert tags[Tag.DATE]
+    assert tags[Tag.TITLE] == "So What"
+    # The file is counted once, not once per field.
+    assert "1 file(s) tagged" in result.stdout
+
+
+def test_the_breakdown_counts_only_the_tags_that_change(tmp_path: Path) -> None:
+    """A tag already right is not counted; only what changes is.
+
+    Album, Album Artist and Date are pre-set correctly and only the Title
+    needs recasing, so the breakdown must read the Title alone.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    album: Path = artist / "FLAC" / "01. (1959) - Kind of Blue [FLAC]"
+    album.mkdir(parents=True)
+    track: Path = album / "01 - so what.flac"
+    sf.write(track, np.zeros(441, dtype="float32"), 44100, format="FLAC")
+    metadata.write(
+        track,
+        {
+            Tag.ALBUM: "01. (1959) - Kind of Blue [FLAC]",
+            Tag.ALBUM_ARTIST: "Miles Davis",
+            Tag.DATE: "1959",
+            Tag.TITLE: "so what",  # the one field that needs a change
+        },
+    )
+
+    result = runner.invoke(app, ["align-tags", "--path", str(tmp_path)], input="y\n")
+
+    assert f"  {'Album':<13} 0 tagged" in result.stdout
+    assert f"  {'Title':<13} 1 recased" in result.stdout
 
 
 # ==================================================================================== #

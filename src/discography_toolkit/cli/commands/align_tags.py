@@ -13,11 +13,12 @@ Genre is the one tag left out. Nothing in the folders says what a record
 sounds like, so genre stays a separate, deliberate `rapt tags genre`
 with a value given by hand.
 
-The passes run one after another and in sight of each other, the way the
-individual tag commands would if run by hand: the covers settle first, on
-disk and into the files, and then each text tag is written in turn, each
-with its own progress. Settling covers and writing tags are different
-work, and a long run should show which it is doing.
+Covers and tags are different work, so they run as two visible passes.
+The covers settle first, on disk and into the files. Then the four text
+tags are read and written together -- one open and one save per file for
+all of them, since rewriting a large lossless file four times over to
+set four fields would be four times the work for none of the gain -- and
+the run reports how many files each tag touched.
 """
 
 from __future__ import annotations
@@ -57,33 +58,16 @@ if TYPE_CHECKING:
 
     from rich.progress import Progress, TaskID
 
-
-# ==================================================================================== #
-#                                     RESULT TYPE                                      #
-# ==================================================================================== #
-class _TagStep:
-    """One text-tag pass: its name, the tag it writes, and how it derives it.
-
-    Attributes:
-        name: The pass's display name, e.g. "Album".
-        verb: How its result reads, e.g. "tagged" or "recased".
-        tags: The tags it writes, almost always one.
-        wants: The value function for `tagging.plan`.
-    """
-
-    def __init__(self, name: str, verb: str, tags: list[Tag], wants: tagging.Desired) -> None:
-        """Record the pass.
-
-        Args:
-            name: The pass's display name.
-            verb: How its result reads.
-            tags: The tags it writes.
-            wants: The value function.
-        """
-        self.name: str = name
-        self.verb: str = verb
-        self.tags: list[Tag] = tags
-        self.wants: tagging.Desired = wants
+# The text tags read off the folders, each with its display name and how
+# its count reads. Genre is not here -- it cannot be derived -- and the
+# cover is settled by its own pass, not written as a text tag.
+_TAG_LABELS: list[tuple[Tag, str, str]] = [
+    (Tag.ALBUM, "Album", "tagged"),
+    (Tag.ALBUM_ARTIST, "Album Artist", "tagged"),
+    (Tag.DATE, "Year", "dated"),
+    (Tag.TITLE, "Title", "recased"),
+]
+_TEXT_TAGS: list[Tag] = [tag for tag, _, _ in _TAG_LABELS]
 
 
 # ==================================================================================== #
@@ -140,10 +124,8 @@ def align_tags(
         typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    steps: list[_TagStep] = _tag_steps(albums, artists)
-
     if dry_run:
-        _preview(albums, tracks, artists, steps)
+        _preview(albums, tracks, artists)
         typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
         raise typer.Exit(code=0)
 
@@ -155,116 +137,59 @@ def align_tags(
 
     typer.echo()
     cover_report: covers.CoverReport = _run_covers(albums)
-    tag_reports: list[tuple[_TagStep, tagging.WriteReport]] = [
-        (step, _run_tag(step, tracks, artists)) for step in steps
-    ]
+    tag_report: tagging.WriteReport = _run_tags(tracks, albums, artists)
 
-    _echo_summary(cover_report, tag_reports)
+    _echo_summary(cover_report, tag_report)
 
 
 # ==================================================================================== #
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
-def _tag_steps(albums: Sequence[Path], artists: Sequence[Path]) -> list[_TagStep]:
-    """Build the ordered text-tag passes, each deriving its own value.
+def _wants(albums: Sequence[Path], artists: Sequence[Path]) -> tagging.Desired:
+    """Build the value function reading all four text tags off the folders.
 
-    Each derivation matches the command that owns it, so a pass here can
-    never disagree with `rapt tags album` and its siblings run alone.
+    Each tag is derived exactly as its own command derives it: the Album
+    from the album folder's name, the Album Artist from the artist
+    folder's name without its label, the Date from the year in the album
+    name -- cleared when approximate -- and the Title recased from the one
+    already there. A tag with nothing to derive is left out, which leaves
+    that field untouched.
 
     Args:
         albums: The album folders in scope.
         artists: The artist folders in scope.
 
     Returns:
-        The passes, in the order they run.
-    """
-    return [
-        _TagStep("Album", "tagged", [Tag.ALBUM], _album_wants(albums)),
-        _TagStep("Album Artist", "tagged", [Tag.ALBUM_ARTIST], _artist_wants(artists)),
-        _TagStep("Year", "dated", [Tag.DATE], _year_wants(albums)),
-        _TagStep("Title", "recased", [Tag.TITLE], _title_wants),
-    ]
-
-
-def _album_wants(albums: Sequence[Path]) -> tagging.Desired:
-    """Build the Album value function: each track named for its album folder.
-
-    Args:
-        albums: The album folders in scope.
-
-    Returns:
-        A `Desired` callable, empty for a track under no album.
+        A `Desired` callable for the combined tagging pass.
     """
 
-    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        folder: Path | None = owning_folder(track, albums)
-        return {} if folder is None else {Tag.ALBUM: folder.name}
+    def desired(track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+        wanted: dict[Tag, str] = {}
 
-    return desired
-
-
-def _artist_wants(artists: Sequence[Path]) -> tagging.Desired:
-    """Build the Album Artist value function, from the folder above a track.
-
-    Args:
-        artists: The artist folders in scope.
-
-    Returns:
-        A `Desired` callable, empty for a track under no artist.
-    """
-
-    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        folder: Path | None = owning_folder(track, artists)
-        if folder is None:
-            return {}
-        name: str | None = strip_artist_label(folder.name)
-        return {} if name is None else {Tag.ALBUM_ARTIST: name}
-
-    return desired
-
-
-def _year_wants(albums: Sequence[Path]) -> tagging.Desired:
-    """Build the Date value function, from the year in the album's name.
-
-    An approximate year clears the tag: "199x" is not a date.
-
-    Args:
-        albums: The album folders in scope.
-
-    Returns:
-        A `Desired` callable, empty for a track whose album has no year.
-    """
-
-    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
         album: Path | None = owning_folder(track, albums)
-        if album is None:
-            return {}
-        token: str | None = extract_year(album.name)
-        if token is None:
-            return {}
-        return {Tag.DATE: "" if is_approximate_year(token) else token}
+        if album is not None:
+            wanted[Tag.ALBUM] = album.name
+            token: str | None = extract_year(album.name)
+            if token is not None:
+                wanted[Tag.DATE] = "" if is_approximate_year(token) else token
+
+        artist: Path | None = owning_folder(track, artists)
+        if artist is not None:
+            name: str | None = strip_artist_label(artist.name)
+            if name is not None:
+                wanted[Tag.ALBUM_ARTIST] = name
+
+        # Recased in place, exactly as the title command does it: an
+        # absent title cases to nothing, compares equal, and is left be.
+        wanted[Tag.TITLE] = title_case(current.get(Tag.TITLE, ""))
+
+        return wanted
 
     return desired
-
-
-def _title_wants(_track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-    """Return the recased form of the Title already there.
-
-    An absent title cases to nothing, compares equal, and is left be --
-    the title is recased in place, never invented from the filename.
-
-    Args:
-        _track: The track, unused: the value comes from the tag.
-        current: The track's tags as found.
-
-    Returns:
-        The Title tag, recased.
-    """
-    return {Tag.TITLE: title_case(current.get(Tag.TITLE, ""))}
 
 
 # ==================================================================================== #
-#                                    STEP RUNNERS                                      #
+#                                       PASSES                                         #
 # ==================================================================================== #
 def _run_covers(albums: Sequence[Path]) -> covers.CoverReport:
     """Settle the covers, showing a bar for the scan and one for the work.
@@ -285,30 +210,57 @@ def _run_covers(albums: Sequence[Path]) -> covers.CoverReport:
     return report
 
 
-def _run_tag(
-    step: _TagStep, tracks: Sequence[Path], artists: Sequence[Path]
+def _run_tags(
+    tracks: Sequence[Path], albums: Sequence[Path], artists: Sequence[Path]
 ) -> tagging.WriteReport:
-    """Run one text-tag pass, showing a bar for the scan and one for the write.
+    """Read all four tags in one scan and write them in one save per file.
+
+    Rewriting a lossless file once for four fields rather than four times
+    for one each is the whole reason the tags share a pass. The per-tag
+    counts come out of the plan afterward, so the run still says how many
+    files each field touched.
 
     Args:
-        step: The pass to run.
         tracks: Every audio file in scope.
-        artists: The artist folders, for the per-artist sub-bars.
+        albums: The album folders in scope.
+        artists: The artist folders in scope.
 
     Returns:
-        What the pass did.
+        What the pass did, counted in files written.
     """
     with make_progress() as progress:
-        advance = make_advancer(progress, f"{step.name}: scanning", tracks, artists)
-        plan = tagging.plan(tracks, step.tags, step.wants, on_progress=advance)
+        advance = make_advancer(progress, "Tags: scanning", tracks, artists)
+        plan = tagging.plan(tracks, _TEXT_TAGS, _wants(albums, artists), on_progress=advance)
+
+    breakdown: dict[Tag, int] = _breakdown(plan)
 
     with make_progress() as progress:
         pending: list[Path] = [outcome.path for outcome in plan.pending]
-        advance = make_advancer(progress, f"{step.name}: writing", pending, artists)
+        advance = make_advancer(progress, "Tags: writing", pending, artists)
         report = tagging.apply(plan, on_progress=advance)
 
-    _echo_result(step.name, report.written, step.verb, report.failures)
+    _echo_breakdown(breakdown, report.failures)
     return report
+
+
+def _breakdown(plan: tagging.TagPlan) -> dict[Tag, int]:
+    """Count how many files each tag will be written on.
+
+    A file's outcome carries only the fields that actually change, so
+    summing them per tag gives what each field touched -- their total is
+    more than the file count, since one file can change several.
+
+    Args:
+        plan: The combined tag plan.
+
+    Returns:
+        Each text tag mapped to the number of files it changes.
+    """
+    counts: dict[Tag, int] = dict.fromkeys(_TEXT_TAGS, 0)
+    for outcome in plan.pending:
+        for tag in outcome.values:
+            counts[tag] += 1
+    return counts
 
 
 # ==================================================================================== #
@@ -334,12 +286,12 @@ def _bar(progress: Progress, label: str, total: int) -> Callable[[Path], None]:
 
 
 def _echo_result(name: str, count: int, verb: str, failures: Sequence[tuple[Path, str]]) -> None:
-    """Print one pass's result, and any failures beneath it.
+    """Print one line for a pass, and any failures beneath it.
 
     Args:
         name: The pass's name.
         count: How many files it changed.
-        verb: How the count reads, e.g. "tagged".
+        verb: How the count reads, e.g. "settled".
         failures: `(path, reason)` for anything that failed.
     """
     colour: str = typer.colors.GREEN if count else typer.colors.BRIGHT_BLACK
@@ -348,19 +300,26 @@ def _echo_result(name: str, count: int, verb: str, failures: Sequence[tuple[Path
         typer.secho(f"      {str(failed)!r} - {detail}", fg=typer.colors.RED)
 
 
-def _preview(
-    albums: Sequence[Path],
-    tracks: Sequence[Path],
-    artists: Sequence[Path],
-    steps: Sequence[_TagStep],
-) -> None:
-    """Plan every pass and report its counts, without writing.
+def _echo_breakdown(breakdown: Mapping[Tag, int], failures: Sequence[tuple[Path, str]]) -> None:
+    """Print one line per tag, from the combined plan's counts.
+
+    Args:
+        breakdown: Each text tag mapped to the files it changes.
+        failures: `(path, reason)` for any write that failed.
+    """
+    for tag, name, verb in _TAG_LABELS:
+        _echo_result(name, breakdown[tag], verb, ())
+    for failed, detail in failures:
+        typer.secho(f"      {str(failed)!r} - {detail}", fg=typer.colors.RED)
+
+
+def _preview(albums: Sequence[Path], tracks: Sequence[Path], artists: Sequence[Path]) -> None:
+    """Plan both passes and report their counts, without writing.
 
     Args:
         albums: The album folders in scope.
         tracks: Every audio file in scope.
         artists: The artist folders in scope.
-        steps: The text-tag passes.
     """
     typer.echo()
     with make_progress(noun="albums") as progress:
@@ -369,31 +328,27 @@ def _preview(
         )
     _echo_result("Covers", cover_plan.changes, "to settle", ())
 
-    for step in steps:
-        with make_progress() as progress:
-            advance = make_advancer(progress, f"{step.name}: scanning", tracks, artists)
-            plan = tagging.plan(tracks, step.tags, step.wants, on_progress=advance)
-        _echo_result(step.name, len(plan.pending), "to write", ())
+    with make_progress() as progress:
+        advance = make_advancer(progress, "Tags: scanning", tracks, artists)
+        plan = tagging.plan(tracks, _TEXT_TAGS, _wants(albums, artists), on_progress=advance)
+
+    breakdown: dict[Tag, int] = _breakdown(plan)
+    for tag, name, _verb in _TAG_LABELS:
+        _echo_result(name, breakdown[tag], "to write", ())
 
 
-def _echo_summary(
-    cover_report: covers.CoverReport,
-    tag_reports: Sequence[tuple[_TagStep, tagging.WriteReport]],
-) -> None:
-    """Print the closing totals across every pass.
+def _echo_summary(cover_report: covers.CoverReport, tag_report: tagging.WriteReport) -> None:
+    """Print the closing totals across both passes.
 
     Args:
         cover_report: What the cover pass did.
-        tag_reports: What each text-tag pass did.
+        tag_report: What the tag pass did.
     """
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
-    written: int = sum(report.written for _, report in tag_reports)
-    failures: int = len(cover_report.failures) + sum(
-        len(report.failures) for _, report in tag_reports
-    )
+    failures: int = len(cover_report.failures) + len(tag_report.failures)
 
     typer.secho(
-        f"\nDone. {settled} cover change(s) settled, {written} tag write(s) across the files.",
+        f"\nDone. {settled} cover change(s) settled, {tag_report.written} file(s) tagged.",
         fg=typer.colors.GREEN,
         bold=True,
     )
