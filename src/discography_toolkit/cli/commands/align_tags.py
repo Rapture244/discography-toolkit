@@ -6,18 +6,18 @@ tags to match them. Once the layout has run, the structure is the
 canonical form of the collection, and every tag but one can be read
 straight off it: the Album from the album folder, the Album Artist from
 the artist folder, the Date from the year in the album's name, the cover
-from the image beside the tracks. The Title is the exception it still
-recases in place rather than inventing, the same claim the title command
-makes on its own.
+from the image beside the tracks. The Title is the exception it recases
+in place rather than inventing, the same claim the title command makes.
 
 Genre is the one tag left out. Nothing in the folders says what a record
 sounds like, so genre stays a separate, deliberate `rapt tags genre`
 with a value given by hand.
 
-The four text tags are written in a single pass -- one read and one save
-per file for all of them -- and the covers are settled alongside. Both
-plan before they touch anything, so `--dry-run` shows the whole of what
-would change.
+The passes run one after another and in sight of each other, the way the
+individual tag commands would if run by hand: the covers settle first, on
+disk and into the files, and then each text tag is written in turn, each
+with its own progress. Settling covers and writing tags are different
+work, and a long run should show which it is doing.
 """
 
 from __future__ import annotations
@@ -31,10 +31,8 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import (
-    SummaryRow,
     artist_names,
     echo_banner,
-    echo_summary,
     make_advancer,
     make_progress,
 )
@@ -59,10 +57,33 @@ if TYPE_CHECKING:
 
     from rich.progress import Progress, TaskID
 
-# The tags read straight off the folders in one pass. Genre is not among
-# them: it cannot be derived, and the cover is settled by its own
-# operation, not written as a text tag.
-_TEXT_TAGS: list[Tag] = [Tag.ALBUM, Tag.ALBUM_ARTIST, Tag.DATE, Tag.TITLE]
+
+# ==================================================================================== #
+#                                     RESULT TYPE                                      #
+# ==================================================================================== #
+class _TagStep:
+    """One text-tag pass: its name, the tag it writes, and how it derives it.
+
+    Attributes:
+        name: The pass's display name, e.g. "Album".
+        verb: How its result reads, e.g. "tagged" or "recased".
+        tags: The tags it writes, almost always one.
+        wants: The value function for `tagging.plan`.
+    """
+
+    def __init__(self, name: str, verb: str, tags: list[Tag], wants: tagging.Desired) -> None:
+        """Record the pass.
+
+        Args:
+            name: The pass's display name.
+            verb: How its result reads.
+            tags: The tags it writes.
+            wants: The value function.
+        """
+        self.name: str = name
+        self.verb: str = verb
+        self.tags: list[Tag] = tags
+        self.wants: tagging.Desired = wants
 
 
 # ==================================================================================== #
@@ -86,7 +107,7 @@ def align_tags(
         typer.Option("--dry-run", help="Show what would change without writing."),
     ] = False,
 ) -> None:
-    """Write every folder-derived tag -- album, artist, year, title, cover.
+    """Write every folder-derived tag -- covers, album, artist, year, title.
 
     Args:
         path: Folder to align beneath; prompted for if omitted.
@@ -108,7 +129,7 @@ def align_tags(
             err=True,
         )
         typer.secho(
-            "Run the layout pass first -- align reads the tags off the folders it settles.",
+            "Run the layout pass first -- align-tags reads the tags off the folders it settles.",
             fg=typer.colors.RED,
             err=True,
         )
@@ -119,190 +140,262 @@ def align_tags(
         typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    with make_progress(noun="albums") as progress:
-        advance = _album_advancer(progress, "Covers", albums)
-        cover_plan = covers.plan(albums, on_progress=advance)
-    with make_progress() as progress:
-        advance = make_advancer(progress, target.name, tracks, artists)
-        tag_plan = tagging.plan(tracks, _TEXT_TAGS, _wants(albums, artists), on_progress=advance)
-
-    _echo_plan(cover_plan, tag_plan)
+    steps: list[_TagStep] = _tag_steps(albums, artists)
 
     if dry_run:
+        _preview(albums, tracks, artists, steps)
         typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
         raise typer.Exit(code=0)
 
-    if not cover_plan.changes and not tag_plan.pending:
-        typer.secho(
-            "\nEvery file already agrees with its folders. Nothing to do.", fg=typer.colors.GREEN
-        )
-        raise typer.Exit(code=0)
-
-    if not typer.confirm(f"\n{_intent(cover_plan, tag_plan)}?"):
+    if not typer.confirm(
+        f"\nAlign tags beneath {target.name!r}? Settles covers, then album, artist, year, title."
+    ):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    cover_report = covers.apply(cover_plan)
-    with make_progress() as progress:
-        advance = make_advancer(
-            progress, target.name, [outcome.path for outcome in tag_plan.pending], artists
-        )
-        tag_report = tagging.apply(tag_plan, on_progress=advance)
+    typer.echo()
+    cover_report: covers.CoverReport = _run_covers(albums)
+    tag_reports: list[tuple[_TagStep, tagging.WriteReport]] = [
+        (step, _run_tag(step, tracks, artists)) for step in steps
+    ]
 
-    _echo_report(cover_report, tag_report)
+    _echo_summary(cover_report, tag_reports)
 
 
 # ==================================================================================== #
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
-def _wants(albums: Sequence[Path], artists: Sequence[Path]) -> tagging.Desired:
-    """Build the value function reading all four text tags off the folders.
+def _tag_steps(albums: Sequence[Path], artists: Sequence[Path]) -> list[_TagStep]:
+    """Build the ordered text-tag passes, each deriving its own value.
 
-    Each tag is derived exactly as its own command derives it: the Album
-    from the album folder's name, the Album Artist from the artist
-    folder's name without its label, the Date from the year in the album
-    name -- cleared when approximate -- and the Title recased from the one
-    already there. A tag with nothing to derive is left out, which leaves
-    that field untouched.
+    Each derivation matches the command that owns it, so a pass here can
+    never disagree with `rapt tags album` and its siblings run alone.
 
     Args:
         albums: The album folders in scope.
         artists: The artist folders in scope.
 
     Returns:
-        A `Desired` callable for the combined tagging pass.
+        The passes, in the order they run.
+    """
+    return [
+        _TagStep("Album", "tagged", [Tag.ALBUM], _album_wants(albums)),
+        _TagStep("Album Artist", "tagged", [Tag.ALBUM_ARTIST], _artist_wants(artists)),
+        _TagStep("Year", "dated", [Tag.DATE], _year_wants(albums)),
+        _TagStep("Title", "recased", [Tag.TITLE], _title_wants),
+    ]
+
+
+def _album_wants(albums: Sequence[Path]) -> tagging.Desired:
+    """Build the Album value function: each track named for its album folder.
+
+    Args:
+        albums: The album folders in scope.
+
+    Returns:
+        A `Desired` callable, empty for a track under no album.
     """
 
-    def desired(track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        wanted: dict[Tag, str] = {}
-
-        album: Path | None = owning_folder(track, albums)
-        if album is not None:
-            wanted[Tag.ALBUM] = album.name
-            token: str | None = extract_year(album.name)
-            if token is not None:
-                wanted[Tag.DATE] = "" if is_approximate_year(token) else token
-
-        artist: Path | None = owning_folder(track, artists)
-        if artist is not None:
-            name: str | None = strip_artist_label(artist.name)
-            if name is not None:
-                wanted[Tag.ALBUM_ARTIST] = name
-
-        # Recased in place, exactly as the title command does it: an
-        # absent title cases to nothing, compares equal, and is left be.
-        wanted[Tag.TITLE] = title_case(current.get(Tag.TITLE, ""))
-
-        return wanted
+    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+        folder: Path | None = owning_folder(track, albums)
+        return {} if folder is None else {Tag.ALBUM: folder.name}
 
     return desired
+
+
+def _artist_wants(artists: Sequence[Path]) -> tagging.Desired:
+    """Build the Album Artist value function, from the folder above a track.
+
+    Args:
+        artists: The artist folders in scope.
+
+    Returns:
+        A `Desired` callable, empty for a track under no artist.
+    """
+
+    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+        folder: Path | None = owning_folder(track, artists)
+        if folder is None:
+            return {}
+        name: str | None = strip_artist_label(folder.name)
+        return {} if name is None else {Tag.ALBUM_ARTIST: name}
+
+    return desired
+
+
+def _year_wants(albums: Sequence[Path]) -> tagging.Desired:
+    """Build the Date value function, from the year in the album's name.
+
+    An approximate year clears the tag: "199x" is not a date.
+
+    Args:
+        albums: The album folders in scope.
+
+    Returns:
+        A `Desired` callable, empty for a track whose album has no year.
+    """
+
+    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+        album: Path | None = owning_folder(track, albums)
+        if album is None:
+            return {}
+        token: str | None = extract_year(album.name)
+        if token is None:
+            return {}
+        return {Tag.DATE: "" if is_approximate_year(token) else token}
+
+    return desired
+
+
+def _title_wants(_track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+    """Return the recased form of the Title already there.
+
+    An absent title cases to nothing, compares equal, and is left be --
+    the title is recased in place, never invented from the filename.
+
+    Args:
+        _track: The track, unused: the value comes from the tag.
+        current: The track's tags as found.
+
+    Returns:
+        The Title tag, recased.
+    """
+    return {Tag.TITLE: title_case(current.get(Tag.TITLE, ""))}
+
+
+# ==================================================================================== #
+#                                    STEP RUNNERS                                      #
+# ==================================================================================== #
+def _run_covers(albums: Sequence[Path]) -> covers.CoverReport:
+    """Settle the covers, showing a bar for the scan and one for the work.
+
+    Args:
+        albums: The album folders in scope.
+
+    Returns:
+        What the cover pass did.
+    """
+    with make_progress(noun="albums") as progress:
+        plan = covers.plan(albums, on_progress=_bar(progress, "Covers: scanning", len(albums)))
+    with make_progress(noun="changes") as progress:
+        report = covers.apply(plan, on_progress=_bar(progress, "Covers: settling", plan.changes))
+
+    settled: int = report.written + report.renamed + report.embedded
+    _echo_result("Covers", settled, "settled", report.failures)
+    return report
+
+
+def _run_tag(
+    step: _TagStep, tracks: Sequence[Path], artists: Sequence[Path]
+) -> tagging.WriteReport:
+    """Run one text-tag pass, showing a bar for the scan and one for the write.
+
+    Args:
+        step: The pass to run.
+        tracks: Every audio file in scope.
+        artists: The artist folders, for the per-artist sub-bars.
+
+    Returns:
+        What the pass did.
+    """
+    with make_progress() as progress:
+        advance = make_advancer(progress, f"{step.name}: scanning", tracks, artists)
+        plan = tagging.plan(tracks, step.tags, step.wants, on_progress=advance)
+
+    with make_progress() as progress:
+        pending: list[Path] = [outcome.path for outcome in plan.pending]
+        advance = make_advancer(progress, f"{step.name}: writing", pending, artists)
+        report = tagging.apply(plan, on_progress=advance)
+
+    _echo_result(step.name, report.written, step.verb, report.failures)
+    return report
 
 
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _album_advancer(
-    progress: Progress, label: str, albums: Sequence[Path]
-) -> Callable[[Path], None]:
-    """Build a simple one-bar callback over albums, for the cover scan.
+def _bar(progress: Progress, label: str, total: int) -> Callable[[Path], None]:
+    """Build a one-bar callback, for a pass with no per-artist breakdown.
 
     Args:
         progress: The live progress display.
         label: The bar's description.
-        albums: The albums about to be examined, for sizing.
+        total: How many advances fill it.
 
     Returns:
-        A callback advancing the bar once per album.
+        A callback advancing the bar once per item.
     """
-    task: TaskID = progress.add_task(label, total=len(albums))
+    task: TaskID = progress.add_task(label, total=total)
 
-    def advance(_album: Path) -> None:
+    def advance(_item: Path) -> None:
         progress.advance(task)
 
     return advance
 
 
-def _intent(cover_plan: covers.CoverPlan, tag_plan: tagging.TagPlan) -> str:
-    """Phrase the confirmation from what there is to do.
+def _echo_result(name: str, count: int, verb: str, failures: Sequence[tuple[Path, str]]) -> None:
+    """Print one pass's result, and any failures beneath it.
 
     Args:
-        cover_plan: The planned cover work.
-        tag_plan: The planned tag work.
-
-    Returns:
-        A question naming the file counts, e.g. "Tag 40 file(s) and
-        settle 3 cover(s)".
+        name: The pass's name.
+        count: How many files it changed.
+        verb: How the count reads, e.g. "tagged".
+        failures: `(path, reason)` for anything that failed.
     """
-    parts: list[str] = []
-    if tag_plan.pending:
-        parts.append(f"tag {len(tag_plan.pending)} file(s)")
-    if cover_plan.changes:
-        parts.append(f"settle {cover_plan.changes} cover change(s)")
-    return "Align tags: " + " and ".join(parts)
+    colour: str = typer.colors.GREEN if count else typer.colors.BRIGHT_BLACK
+    typer.secho(f"  {name:<13} {count} {verb}", fg=colour)
+    for failed, detail in failures:
+        typer.secho(f"      {str(failed)!r} - {detail}", fg=typer.colors.RED)
 
 
-def _echo_plan(cover_plan: covers.CoverPlan, tag_plan: tagging.TagPlan) -> None:
-    """Render both plans as one summary box.
+def _preview(
+    albums: Sequence[Path],
+    tracks: Sequence[Path],
+    artists: Sequence[Path],
+    steps: Sequence[_TagStep],
+) -> None:
+    """Plan every pass and report its counts, without writing.
 
     Args:
-        cover_plan: The planned cover work.
-        tag_plan: The planned tag work.
+        albums: The album folders in scope.
+        tracks: Every audio file in scope.
+        artists: The artist folders in scope.
+        steps: The text-tag passes.
     """
-    counts: list[list[SummaryRow]] = [
-        [SummaryRow(label="Files", count=tag_plan.total, indent="", percent=False)],
-        [
-            SummaryRow(
-                label="Tagged", count=len(tag_plan.pending), marker="(->)", color=typer.colors.GREEN
-            ),
-            SummaryRow(label="Clean", count=tag_plan.clean, marker="(==)", color=typer.colors.BLUE),
-        ],
-    ]
-    if tag_plan.errors:
-        counts[1].append(
-            SummaryRow(
-                label="Errors", count=len(tag_plan.errors), marker="(!!)", color=typer.colors.RED
-            )
+    typer.echo()
+    with make_progress(noun="albums") as progress:
+        cover_plan = covers.plan(
+            albums, on_progress=_bar(progress, "Covers: scanning", len(albums))
         )
+    _echo_result("Covers", cover_plan.changes, "to settle", ())
 
-    cover_rows: list[SummaryRow] = [
-        SummaryRow(label="Cover writes", count=cover_plan.writes, color=typer.colors.GREEN),
-        SummaryRow(label="Cover embeds", count=cover_plan.embeds, color=typer.colors.GREEN),
-    ]
-    if cover_plan.without_artwork:
-        cover_rows.append(
-            SummaryRow(
-                label="No cover",
-                count=len(cover_plan.without_artwork),
-                marker="(--)",
-                color=typer.colors.YELLOW,
-            )
-        )
-    counts.append(cover_rows)
-
-    echo_summary(counts, total=tag_plan.total)
-
-    if tag_plan.errors:
-        typer.secho(f"\n{len(tag_plan.errors)} file(s) could not be read:", fg=typer.colors.YELLOW)
-        for outcome in tag_plan.errors:
-            typer.echo(f"  {str(outcome.path)!r} - {outcome.detail}")
+    for step in steps:
+        with make_progress() as progress:
+            advance = make_advancer(progress, f"{step.name}: scanning", tracks, artists)
+            plan = tagging.plan(tracks, step.tags, step.wants, on_progress=advance)
+        _echo_result(step.name, len(plan.pending), "to write", ())
 
 
-def _echo_report(cover_report: covers.CoverReport, tag_report: tagging.WriteReport) -> None:
-    """Print the closing counts across both operations.
+def _echo_summary(
+    cover_report: covers.CoverReport,
+    tag_reports: Sequence[tuple[_TagStep, tagging.WriteReport]],
+) -> None:
+    """Print the closing totals across every pass.
 
     Args:
         cover_report: What the cover pass did.
-        tag_report: What the tagging pass did.
+        tag_reports: What each text-tag pass did.
     """
-    for failed, detail in (*tag_report.failures, *cover_report.failures):
-        typer.secho(f"  Failed: {str(failed)!r} - {detail}", fg=typer.colors.RED)
-
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
+    written: int = sum(report.written for _, report in tag_reports)
+    failures: int = len(cover_report.failures) + sum(
+        len(report.failures) for _, report in tag_reports
+    )
+
     typer.secho(
-        f"\nDone. {tag_report.written} file(s) tagged, {settled} cover change(s) settled.",
+        f"\nDone. {settled} cover change(s) settled, {written} tag write(s) across the files.",
         fg=typer.colors.GREEN,
         bold=True,
     )
-    failures: int = len(tag_report.failures) + len(cover_report.failures)
     if failures:
         typer.secho(f"{failures} operation(s) failed during writing.", fg=typer.colors.RED)

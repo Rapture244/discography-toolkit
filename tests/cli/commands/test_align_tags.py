@@ -143,7 +143,26 @@ def test_running_twice_settles(shelf: Callable[..., Path]) -> None:
     second = runner.invoke(app, ["align-tags", "--path", str(root)], input="y\n")
 
     assert second.exit_code == 0
-    assert "Nothing to do" in second.stdout
+    assert "0 tag write(s)" in second.stdout
+
+
+def test_each_pass_shows_by_name(shelf: Callable[..., Path]) -> None:
+    """Every pass reports itself, covers before the tags, for visibility.
+
+    A long run should say which work it is doing rather than settle
+    covers and write four tags behind one silent bar.
+
+    Args:
+        shelf: Factory building a laid-out artist.
+    """
+    track: Path = shelf(title="So What")
+
+    result = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
+
+    for name in ("Covers", "Album", "Album Artist", "Year", "Title"):
+        assert name in result.stdout
+    # Covers is settled before the first tag is written.
+    assert result.stdout.index("Covers") < result.stdout.index("Album ")
 
 
 # ==================================================================================== #
