@@ -1,5 +1,5 @@
-# tests/cli/commands/test_align.py
-"""Tests for the `rapt align` command.
+# tests/cli/commands/test_align_tags.py
+"""Tests for the `rapt align-tags` command.
 
 The command wires the cover pass and a four-tag pass over a laid-out
 shelf, so these check the wiring: that each tag is read off the right
@@ -79,7 +79,7 @@ def test_the_folder_derived_tags_are_written(shelf: Callable[..., Path]) -> None
     """
     track: Path = shelf(title="So What")
 
-    result = runner.invoke(app, ["align", "--path", str(track.parents[3])], input="y\n")
+    result = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
     assert result.exit_code == 0
     tags = tags_of(track)
@@ -99,7 +99,7 @@ def test_the_title_is_recased_not_derived(shelf: Callable[..., Path]) -> None:
     """
     track: Path = shelf(title="so what")
 
-    _ = runner.invoke(app, ["align", "--path", str(track.parents[3])], input="y\n")
+    _ = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
     assert tags_of(track)[Tag.TITLE] == "So What"
 
@@ -112,7 +112,7 @@ def test_a_track_with_no_title_is_left_untitled(shelf: Callable[..., Path]) -> N
     """
     track: Path = shelf(title="")
 
-    _ = runner.invoke(app, ["align", "--path", str(track.parents[3])], input="y\n")
+    _ = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
     assert tags_of(track)[Tag.TITLE] == ""
 
@@ -125,7 +125,7 @@ def test_an_approximate_year_clears_the_date(shelf: Callable[..., Path]) -> None
     """
     track: Path = shelf(album_name="01. (199x) - Unknown [FLAC]", title="So What")
 
-    _ = runner.invoke(app, ["align", "--path", str(track.parents[3])], input="y\n")
+    _ = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
     assert tags_of(track)[Tag.DATE] == ""
 
@@ -139,8 +139,8 @@ def test_running_twice_settles(shelf: Callable[..., Path]) -> None:
     track: Path = shelf(title="So What")
     root: Path = track.parents[3]
 
-    _ = runner.invoke(app, ["align", "--path", str(root)], input="y\n")
-    second = runner.invoke(app, ["align", "--path", str(root)], input="y\n")
+    _ = runner.invoke(app, ["align-tags", "--path", str(root)], input="y\n")
+    second = runner.invoke(app, ["align-tags", "--path", str(root)], input="y\n")
 
     assert second.exit_code == 0
     assert "Nothing to do" in second.stdout
@@ -157,7 +157,7 @@ def test_a_dry_run_writes_nothing(shelf: Callable[..., Path]) -> None:
     """
     track: Path = shelf(title="So What")
 
-    result = runner.invoke(app, ["align", "--path", str(track.parents[3]), "--dry-run"])
+    result = runner.invoke(app, ["align-tags", "--path", str(track.parents[3]), "--dry-run"])
 
     assert result.exit_code == 0
     assert tags_of(track)[Tag.ALBUM] == ""
@@ -171,7 +171,7 @@ def test_declining_the_prompt_writes_nothing(shelf: Callable[..., Path]) -> None
     """
     track: Path = shelf(title="So What")
 
-    result = runner.invoke(app, ["align", "--path", str(track.parents[3])], input="n\n")
+    result = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="n\n")
 
     assert result.exit_code == 0
     assert tags_of(track)[Tag.ALBUM] == ""
@@ -188,7 +188,7 @@ def test_unlaid_material_is_an_error(tmp_path: Path) -> None:
     album.mkdir(parents=True)
     sf.write(album / "track.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
 
-    result = runner.invoke(app, ["align", "--path", str(tmp_path)], input="y\n")
+    result = runner.invoke(app, ["align-tags", "--path", str(tmp_path)], input="y\n")
 
     assert result.exit_code == 1
 
@@ -202,6 +202,6 @@ def test_genre_is_never_touched(shelf: Callable[..., Path]) -> None:
     track: Path = shelf(title="So What")
     metadata.write(track, {Tag.GENRE: "Jazz"})
 
-    _ = runner.invoke(app, ["align", "--path", str(track.parents[3])], input="y\n")
+    _ = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
     assert metadata.read(track, [Tag.GENRE])[Tag.GENRE] == "Jazz"

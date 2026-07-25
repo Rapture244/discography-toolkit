@@ -1,5 +1,5 @@
-# src/discography_toolkit/cli/commands/align.py
-"""The `rapt align` command.
+# src/discography_toolkit/cli/commands/align_tags.py
+"""The `rapt align-tags` command.
 
 Where `rapt layout` settles the folders and filenames, this settles the
 tags to match them. Once the layout has run, the structure is the
@@ -68,7 +68,7 @@ _TEXT_TAGS: list[Tag] = [Tag.ALBUM, Tag.ALBUM_ARTIST, Tag.DATE, Tag.TITLE]
 # ==================================================================================== #
 #                                    PUBLIC COMMAND                                    #
 # ==================================================================================== #
-def align(
+def align_tags(
     path: Annotated[
         Path | None,
         typer.Option(
@@ -98,7 +98,7 @@ def align(
     """
     target: Path = resolve_path(path, "Enter the absolute path to align beneath")
     artists: list[Path] = find_artist_folders(target)
-    echo_banner("Align", target.name, children=artist_names(target, artists))
+    echo_banner("Align Tags", target.name, children=artist_names(target, artists))
 
     albums: list[Path] = find_albums(target)
     if not albums:
@@ -238,7 +238,7 @@ def _intent(cover_plan: covers.CoverPlan, tag_plan: tagging.TagPlan) -> str:
         parts.append(f"tag {len(tag_plan.pending)} file(s)")
     if cover_plan.changes:
         parts.append(f"settle {cover_plan.changes} cover change(s)")
-    return "Align: " + " and ".join(parts)
+    return "Align tags: " + " and ".join(parts)
 
 
 def _echo_plan(cover_plan: covers.CoverPlan, tag_plan: tagging.TagPlan) -> None:

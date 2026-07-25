@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import align, layout, tags
+from discography_toolkit.cli.commands import align_tags, layout, tags
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -61,9 +61,9 @@ _ = app.command(
 # The tag counterpart to layout: it settles the folders, this settles the
 # tags to match them -- every one the structure determines, genre aside.
 _ = app.command(
-    name="align",
+    name="align-tags",
     help="Write every folder-derived tag -- album, artist, year, title, cover.",
-)(align.align)
+)(align_tags.align_tags)
 
 
 if __name__ == "__main__":
