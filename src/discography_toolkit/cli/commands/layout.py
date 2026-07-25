@@ -192,19 +192,23 @@ def _lay_out(artist: Path) -> ArtistResult:
 #                                      RENDERING                                       #
 # ==================================================================================== #
 def _echo_artist(result: ArtistResult) -> None:
-    """Print one line for an artist as it finishes.
+    """Print one line for an artist as it finishes, plus its changes.
+
+    The name carries its own outcome -- a fresh label means it was laid
+    out -- so it stands alone, green when something changed and dim when
+    nothing did. What changed is listed beneath it.
 
     Args:
         result: What laying the artist out changed.
     """
     if not result.changed:
-        typer.secho(f"  clean    {result.artist.name!r}", fg=typer.colors.BLUE)
+        typer.secho(f"  {result.artist.name!r}", fg=typer.colors.BRIGHT_BLACK)
         return
 
-    typer.secho(f"  laid out {result.artist.name!r}", fg=typer.colors.GREEN)
-    typer.secho(f"           {_phrase(result)}", fg=typer.colors.BRIGHT_BLACK)
+    typer.secho(f"  {result.artist.name!r}", fg=typer.colors.GREEN)
+    typer.secho(f"      {_phrase(result)}", fg=typer.colors.BRIGHT_BLACK)
     if result.failures:
-        typer.secho(f"           {result.failures} operation(s) failed", fg=typer.colors.RED)
+        typer.secho(f"      {result.failures} operation(s) failed", fg=typer.colors.RED)
 
 
 def _phrase(result: ArtistResult) -> str:

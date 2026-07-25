@@ -140,7 +140,7 @@ def test_running_twice_settles(messy_artist: Callable[[], Path]) -> None:
     second = runner.invoke(app, ["layout", "--path", str(laid_out), "--yes"])
 
     assert second.exit_code == 0
-    assert "clean" in second.stdout
+    assert "0 of 1 artist(s) changed" in second.stdout
     # The name is unchanged, so the label did not accumulate a second bracket.
     assert (parent / "Miles Davis - [4 \u2022 2F \u2022 1L \u2022 1M]").is_dir()
 
