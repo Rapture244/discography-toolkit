@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import tags
+from discography_toolkit.cli.commands import layout, tags
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -50,6 +50,13 @@ def main() -> None:
 # folders and what it writes inside the files, and `rapt --help` should
 # say so before listing nine verbs.
 app.add_typer(tags.app, name="tags")
+
+# The one exception is a bare command, not a group: layout is a single
+# protocol, not a family of verbs, so it reads as one on `rapt --help`.
+_ = app.command(
+    name="layout",
+    help="Rename, renumber, recase, file, and label a discography's folders.",
+)(layout.layout)
 
 
 if __name__ == "__main__":

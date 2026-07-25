@@ -186,9 +186,13 @@ def _clashing(changing: Sequence[tuple[Path, str]]) -> set[Path]:
     """Find the tracks whose target name is already taken in their folder.
 
     A target is taken when a file of that name exists that is not the
-    track itself, or when two tracks in the same folder case to the very
-    same name. Checked per folder, since `with_name` keeps the parent:
-    two albums may each hold a track of the same name without clashing.
+    track itself. "Itself" is judged by file identity, not by path text,
+    so a change that only alters case -- where the file's own name reads
+    as the target on a case-insensitive filesystem -- is a rename, not a
+    clash, while a differently-cased *other* file still collides.
+
+    Checked per folder, since `with_name` keeps the parent: two albums
+    may each hold a track of the same name without clashing.
 
     Unlike a general rename, casing needs no "moving out of the way"
     escape: a file that is changing never currently holds a cased name --
@@ -206,7 +210,8 @@ def _clashing(changing: Sequence[tuple[Path, str]]) -> set[Path]:
 
     for track, new_name in changing:
         target: Path = track.with_name(new_name)
-        if (target.exists() and target != track) or target in claimed:
+        taken_on_disk: bool = target.exists() and not target.samefile(track)
+        if taken_on_disk or target in claimed:
             clashing.add(track)
         claimed.add(target)
 

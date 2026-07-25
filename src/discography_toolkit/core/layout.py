@@ -369,26 +369,23 @@ def find_artist_folders(root: Path) -> list[Path]:
 
 
 def find_artists(root: Path) -> list[Path]:
-    """Find artist folders by their audio, without needing a label.
+    """Find artist folders by their shape, without needing a label.
 
     The label-based `find_artist_folders` only sees folders the pipeline
     has already labelled, so it is blind to the fresh material the layout
-    pass is handed. This works from the other end: every audio file sits
-    in an album, every album in an artist, so walking up from the audio
-    finds the artist whatever the folders are called.
+    pass is handed. This reads the shape instead: an artist is a folder
+    whose children are albums -- a numbered album, the FLAC container, or,
+    on fresh material, a folder that holds audio within a disc's reach.
 
-    Two levels are stepped over on the way up when present: a disc
-    subfolder between an album and its tracks, recognised by name, and
-    the FLAC container between an artist and its lossless albums,
-    recognised by shape. An album with neither is one level under its
-    artist; one with both is three.
+    The search descends until it reaches an artist, then stops: it never
+    steps inside an album, so a box set's own inner folders are never
+    mistaken for albums and the box for an artist. A numbered album and
+    the container are dead ends for the same reason.
 
-    A result is kept only when it is `root` itself or sits beneath it, so
-    a path pointed too deep -- at an album, say -- yields nothing rather
-    than reaching up to a sibling-filled artist outside it. An artist
-    whose every album is an empty placeholder holds no audio and is not
-    found: there is nothing to anchor on, and bare folders cannot be told
-    from a shelf.
+    A path that is itself an artist returns just itself. One pointed at an
+    album, or at a shelf whose artists hold no audio and carry no numbers
+    yet, yields nothing -- there is nothing to tell an unlabelled,
+    unnumbered artist from the shelf above it.
 
     Args:
         root: The folder to search -- a shelf at any depth, or an artist.
@@ -396,14 +393,75 @@ def find_artists(root: Path) -> list[Path]:
     Returns:
         The artist folders found, each once, sorted by path.
     """
-    artists: set[Path] = set()
-    for audio in find_audio_files(root):
-        album: Path = audio.parent
-        if _DISC_FOLDER_RE.match(album.name):
-            album = album.parent
-        artist: Path = album.parent
-        if is_flac_container(artist):
-            artist = artist.parent
-        if artist == root or root in artist.parents:
-            artists.add(artist)
-    return sorted(artists)
+    found: list[Path] = []
+    _collect_artists(root, found)
+    return sorted(set(found))
+
+
+def _collect_artists(folder: Path, found: list[Path]) -> None:
+    """Descend a folder, adding the artists found and not stepping past them.
+
+    Args:
+        folder: The folder to examine.
+        found: The list to append artists to, in place.
+    """
+    if is_flac_container(folder) or ALBUM_INDEX_RE.match(folder.name) is not None:
+        return  # a container or a numbered album holds no artists
+
+    children: list[Path] = [
+        entry for entry in folder.iterdir() if entry.is_dir() and not entry.name.startswith(".")
+    ]
+    if any(is_flac_container(child) or _is_album(child) for child in children):
+        found.append(folder)  # its children are albums, so it is an artist
+        return  # an album is a dead end; never step inside one
+
+    for child in sorted(children, key=lambda path: path.name):
+        _collect_artists(child, found)
+
+
+def _is_album(folder: Path) -> bool:
+    """Report whether a folder is an album rather than an artist or a disc.
+
+    A numbered folder is an album outright. Failing a number -- fresh
+    material has none yet -- a folder counts as an album when it holds
+    audio directly or in a disc subfolder, which an artist never does:
+    its audio is a further level down, inside the albums. A disc folder
+    is not itself an album; it belongs to one.
+
+    Args:
+        folder: The folder to test.
+
+    Returns:
+        `True` if the folder reads as an album.
+    """
+    if _DISC_FOLDER_RE.match(folder.name) is not None:
+        return False
+    if ALBUM_INDEX_RE.match(folder.name) is not None:
+        return True
+    return _holds_audio(folder)
+
+
+def _holds_audio(folder: Path) -> bool:
+    """Report whether a folder holds audio directly or one disc down.
+
+    Args:
+        folder: The folder to test.
+
+    Returns:
+        `True` if a track sits in the folder or in a disc subfolder of it.
+    """
+    for entry in folder.iterdir():
+        if entry.name.startswith("."):
+            continue
+        if entry.is_file() and entry.suffix.lower() in AUDIO_EXTENSIONS:
+            return True
+        if (
+            entry.is_dir()
+            and _DISC_FOLDER_RE.match(entry.name) is not None
+            and any(
+                disc_entry.is_file() and disc_entry.suffix.lower() in AUDIO_EXTENSIONS
+                for disc_entry in entry.iterdir()
+            )
+        ):
+            return True
+    return False

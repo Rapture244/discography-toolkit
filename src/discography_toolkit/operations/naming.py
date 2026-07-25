@@ -45,6 +45,12 @@ _QUALITY_TAG: Final[Mapping[AudioTier, str]] = {
     AudioTier.OPUS: " [OPUS]",
 }
 
+# The name a folder wears mid-rename, for a change that only alters case.
+# On a case-insensitive filesystem the source and target are one folder
+# and a direct rename is ambiguous, so the change goes via a distinct
+# staging name first. Hidden, and distinct enough that no album is it.
+_STAGING_PREFIX: str = ".__naming__"
+
 
 # ==================================================================================== #
 #                                     RESULT TYPES                                     #
@@ -302,7 +308,11 @@ def _rename(album: Path, target: Path) -> str | None:
 
     A target already in place holds an album of its own, so the rename is
     refused rather than destroying it -- the collision is the person's to
-    resolve.
+    resolve. "In place" is judged by file identity, not path text: a
+    change that only alters case reads as "already there" on a
+    case-insensitive filesystem though it is the folder's own name, so
+    that is recognised as a rename and routed through a staging name,
+    which a direct rename cannot do unambiguously there.
 
     Args:
         album: The folder to rename.
@@ -311,10 +321,16 @@ def _rename(album: Path, target: Path) -> str | None:
     Returns:
         The failure's detail, or `None` on success.
     """
-    if target.exists():
+    case_only: bool = album.name.casefold() == target.name.casefold()
+    if target.exists() and not target.samefile(album):
         return f"a folder named {target.name!r} is already there"
     try:
-        _ = album.rename(target)
+        if case_only:
+            staging: Path = album.with_name(f"{_STAGING_PREFIX}{target.name}")
+            _ = album.rename(staging)
+            _ = staging.rename(target)
+        else:
+            _ = album.rename(target)
     except OSError as exc:
         return str(exc)
     return None

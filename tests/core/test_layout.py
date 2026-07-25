@@ -858,3 +858,64 @@ def test_find_artists_clamps_to_the_given_path(tmp_path: Path) -> None:
     _track(album)
 
     assert find_artists(album) == []
+
+
+def test_find_artists_does_not_descend_into_a_numbered_album(tmp_path: Path) -> None:
+    """A box set is an album by its index, so its inner folders are never albums.
+
+    Its subfolders hold audio but are not discs, which is what fooled a
+    walk that started from the audio: here the numbered box stops the
+    descent, so the artist is the box's owner, not the box.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    box: Path = artist / "FLAC" / "24. (1957) - The Complete Birth of the Cool [FLAC]"
+    _track(box / "Sessions 1948")
+    _track(box / "Sessions 1950")
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_reads_an_organised_shelf(tmp_path: Path) -> None:
+    """Two labelled artists, each with numbered albums, come back as two.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    mariano: Path = tmp_path / "Charlie Mariano - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    _track(mariano / "FLAC" / "01. (1962) - Mirror")
+    davis: Path = tmp_path / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    _track(davis / "FLAC" / "01. (1959) - Kind of Blue [FLAC]")
+
+    assert find_artists(tmp_path) == sorted([mariano, davis])
+
+
+def test_find_artists_pointed_at_a_numbered_album_finds_nothing(tmp_path: Path) -> None:
+    """A numbered box set is an album, not an artist, even pointed at directly.
+
+    Without the index stopping the descent, its inner audio-bearing
+    folders would read as albums and the box as their artist.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    box: Path = tmp_path / "24. (1957) - The Complete Birth of the Cool [FLAC]"
+    _track(box / "Sessions 1948")
+    _track(box / "Sessions 1950")
+
+    assert find_artists(box) == []
+
+
+def test_find_artists_pointed_at_a_multi_disc_album_finds_nothing(tmp_path: Path) -> None:
+    """A fresh multi-disc album is an album; its discs are not sub-albums.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = tmp_path / "(1970) - Bitches Brew"
+    _track(album / "CD 1")
+    _track(album / "CD 2")
+
+    assert find_artists(album) == []

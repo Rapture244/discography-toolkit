@@ -324,6 +324,54 @@ def test_applying_renames_the_folder(make_album: Callable[..., Path]) -> None:
     assert not album.exists()
 
 
+def test_a_case_only_rename_is_applied(make_album: Callable[..., Path]) -> None:
+    """A title that differs only in case is still recased on disk.
+
+    A lossy album earns no tag, so casing "kind of blue" to "Kind of
+    Blue" is a change of case alone -- which a case-insensitive
+    filesystem treats as no change unless it is staged.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1959) - kind of blue", tier="lossy")
+    parent: Path = album.parent
+
+    report = naming.apply(naming.plan([album]))
+
+    assert report.renamed == 1
+    assert (parent / "01. (1959) - Kind of Blue").is_dir()
+
+
+def test_a_case_only_rename_routes_through_staging(
+    make_album: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A case-only change goes via a staging name, not straight across.
+
+    On a case-sensitive host the two are the same by result, so the path
+    itself is checked -- the staging step is what makes the rename land
+    on a case-insensitive filesystem, where the folder's own name reads
+    as the target.
+
+    Args:
+        make_album: Factory building an album folder.
+        monkeypatch: Pytest's attribute patcher.
+    """
+    album: Path = make_album("01. (1959) - kind of blue", tier="lossy")
+    moves: list[tuple[str, str]] = []
+    real_rename = type(album).rename
+
+    def spy(self: Path, target: Path) -> Path:
+        moves.append((self.name, target.name))
+        return real_rename(self, target)
+
+    monkeypatch.setattr(type(album), "rename", spy)
+    _ = naming.apply(naming.plan([album]))
+
+    assert any(after.startswith(".__naming__") for _, after in moves)
+    assert moves[-1][1] == "01. (1959) - Kind of Blue"
+
+
 def test_applying_is_idempotent(make_album: Callable[..., Path]) -> None:
     """A second run finds the name already settled and changes nothing.
 
