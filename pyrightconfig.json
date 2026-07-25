@@ -21,7 +21,6 @@
     // Directories to type-check
     "include": [
         "src",
-        "scripts",
         "tests"
     ],
 
@@ -56,8 +55,8 @@
     // mutagen has no type stubs — don't flag Unknown types coming from it
     "allowedUntypedLibraries": ["mutagen", "titlecase"],
 
-    // scripts/ = thin glue over mutagen + Any-returning typer helpers.
-    // Relax Unknown-propagation rules there only; src/ and tests/ stay strict.
+    // metadata.py is thin glue over mutagen's Any-returning API; relax the
+    // Unknown-propagation rules there only, so the rest of src/ stays strict.
     "executionEnvironments": [
       {
         "root": "src/discography_toolkit/core/metadata.py",
@@ -68,15 +67,6 @@
         "reportMissingParameterType": "none",
         "reportAny": "none",
         "reportUnusedCallResult": "none"
-      },
-      {
-        "root": "scripts",
-        "reportUnknownArgumentType": "none",
-        "reportUnknownMemberType": "none",
-        "reportUnknownVariableType": "none",
-        "reportUnknownParameterType": "none",
-        "reportMissingParameterType": "none",
-        "reportAny": "none"
       },
       {
         "root": "tests/core/test_metadata.py",
