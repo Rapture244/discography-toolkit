@@ -136,10 +136,29 @@ def align_tags(
         raise typer.Exit(code=0)
 
     typer.echo()
+    cover_report, tag_report = run(albums, tracks, artists)
+    _echo_summary(cover_report, tag_report)
+
+
+def run(
+    albums: Sequence[Path], tracks: Sequence[Path], artists: Sequence[Path]
+) -> tuple[covers.CoverReport, tagging.WriteReport]:
+    """Settle the covers, then write the tags, each pass in sight.
+
+    The work the command runs after confirming, lifted out so the
+    organize command can drive it too without a second confirmation.
+
+    Args:
+        albums: The album folders in scope.
+        tracks: Every audio file in scope.
+        artists: The artist folders in scope.
+
+    Returns:
+        What the cover pass and the tag pass each did.
+    """
     cover_report: covers.CoverReport = _run_covers(albums)
     tag_report: tagging.WriteReport = _run_tags(tracks, albums, artists)
-
-    _echo_summary(cover_report, tag_report)
+    return cover_report, tag_report
 
 
 # ==================================================================================== #

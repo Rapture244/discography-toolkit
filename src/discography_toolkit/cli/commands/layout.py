@@ -28,7 +28,7 @@ from dataclasses import dataclass
 # annotations at registration, so every name in the signature must exist
 # in module globals.
 from pathlib import Path  # noqa: TC003
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -41,6 +41,9 @@ from discography_toolkit.core.layout import (
     find_containers,
 )
 from discography_toolkit.operations import artist_label, naming, numbering, placement, track_naming
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 # ==================================================================================== #
@@ -130,6 +133,23 @@ def layout(
         raise typer.Exit(code=0)
 
     typer.echo()
+    results, blocked = run(artists)
+    _echo_summary(results, blocked)
+
+
+def run(artists: Sequence[Path]) -> tuple[list[ArtistResult], list[Path]]:
+    """Lay out each artist in turn, printing its line as it finishes.
+
+    The loop the command runs after confirming, lifted out so the
+    organize command can drive it too without a second confirmation.
+
+    Args:
+        artists: The artist folders to lay out.
+
+    Returns:
+        The result for each artist laid out, and the artists skipped for
+        holding more than one container.
+    """
     results: list[ArtistResult] = []
     blocked: list[Path] = []
     for artist in artists:
@@ -145,7 +165,7 @@ def layout(
         results.append(result)
         _echo_artist(result)
 
-    _echo_summary(results, blocked)
+    return results, blocked
 
 
 # ==================================================================================== #
