@@ -83,6 +83,7 @@ def test_a_lossless_album_in_the_root_moves_in(artist: Path) -> None:
         artist: The artist folder.
     """
     album: Path = fill(artist / "01. (1959) - Kind of Blue", "lossless")
+    _ = fill(artist / "02. (1990) - Lossy", "lossy")  # makes a mix, so a container is wanted
 
     result = placement.plan(artist)
 
@@ -174,6 +175,9 @@ def test_the_container_is_created_for_a_first_lossless_album(artist: Path) -> No
         artist: The artist folder.
     """
     _ = fill(artist / "01. (1959) - Kind of Blue", "lossless")
+    _ = fill(
+        artist / "02. (1990) - Lossy", "lossy"
+    )  # the non-lossless the container separates from
 
     result = placement.plan(artist)
 
@@ -188,6 +192,7 @@ def test_an_older_container_name_is_normalised(artist: Path) -> None:
         artist: The artist folder.
     """
     _ = fill(artist / "FLAC - (56 on 65)" / "01. (1959) - Kept", "lossless")
+    _ = fill(artist / "02. (1990) - Lossy", "lossy")  # keeps the container earning its place
 
     result = placement.plan(artist)
 
@@ -215,8 +220,46 @@ def test_a_correct_container_needs_no_change(artist: Path) -> None:
         artist: The artist folder.
     """
     _ = fill(artist / "FLAC" / "01. (1959) - Kept", "lossless")
+    _ = fill(artist / "02. (1990) - Lossy", "lossy")  # the non-lossless it separates from
 
     assert placement.plan(artist).container_change is None
+
+
+def test_an_all_lossless_artist_wants_no_container(artist: Path) -> None:
+    """With every album lossless there is nothing to separate, so no container.
+
+    The albums stay flat under the artist rather than gathering in a
+    container of their own.
+
+    Args:
+        artist: The artist folder.
+    """
+    _ = fill(artist / "01. (1959) - Kind of Blue", "lossless")
+    _ = fill(artist / "02. (1970) - Bitches Brew", "lossless")
+
+    result = placement.plan(artist)
+
+    assert result.container_change is None
+    assert result.moving_in == ()
+    assert result.kept == 2
+
+
+def test_an_all_lossless_artist_has_its_container_dissolved(artist: Path) -> None:
+    """A container left from when a lossy album existed is taken back down.
+
+    Its lossless albums move out to the root and the container is removed.
+
+    Args:
+        artist: The artist folder.
+    """
+    inside: Path = fill(artist / "FLAC" / "01. (1959) - Kind of Blue", "lossless")
+
+    result = placement.plan(artist)
+
+    assert result.container_change is ContainerChange.REMOVE
+    moved = next(p for p in result.placements if p.album == inside)
+    assert moved.side is Side.OUT
+    assert moved.destination == artist / inside.name
 
 
 def test_two_containers_are_refused(artist: Path) -> None:
@@ -334,6 +377,7 @@ def test_applying_creates_the_container_before_moving_in(artist: Path) -> None:
         artist: The artist folder.
     """
     _ = fill(artist / "01. (1959) - Kind of Blue", "lossless")
+    _ = fill(artist / "02. (1990) - Lossy", "lossy")  # makes a mix, so a container is wanted
 
     report = placement.apply(placement.plan(artist))
 
@@ -396,6 +440,7 @@ def test_a_move_that_fails_is_reported(artist: Path) -> None:
     """
     gone: Path = fill(artist / "01. (1959) - Gone", "lossless")
     _ = fill(artist / "02. (1960) - Here", "lossless")
+    _ = fill(artist / "03. (1990) - Lossy", "lossy")  # makes a mix, so the lossless albums move in
     plan = placement.plan(artist)
     # Remove one source between planning and applying.
     (gone / "01.flac").unlink()

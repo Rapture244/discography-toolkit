@@ -204,18 +204,27 @@ def plan(
     # lifted out of it, so the rename waits until after the moves.
     working_container: Path = container if container is not None else artist / CONTAINER_NAME
 
-    placements: list[Placement] = []
-    for album in discover_albums(artist):
-        placements.append(_place(album, artist, working_container))
+    # Tiers are read first, before any album is placed, because where an
+    # album belongs depends on the whole: the container is only wanted
+    # when it has something to separate the lossless albums from.
+    albums: list[Path] = discover_albums(artist)
+    tiers: dict[Path, AudioTier] = {}
+    for album in albums:
+        tiers[album] = detect_tier(album)
         if on_progress is not None:
             on_progress(album)
 
-    flac_count: int = sum(1 for p in placements if p.tier is AudioTier.LOSSLESS)
+    flac_count: int = sum(1 for tier in tiers.values() if tier is AudioTier.LOSSLESS)
+    wanted: bool = _container_wanted(flac_count, len(albums))
+
+    placements: tuple[Placement, ...] = tuple(
+        _place(album, tiers[album], artist, working_container, wanted) for album in albums
+    )
     return PlacementPlan(
-        placements=tuple(placements),
+        placements=placements,
         container=container,
         working_container=working_container,
-        container_change=_container_change(container, flac_count),
+        container_change=_container_change(container, wanted),
     )
 
 
@@ -263,22 +272,61 @@ def apply(
 # ==================================================================================== #
 #                                       PLANNING                                       #
 # ==================================================================================== #
-def _place(album: Path, artist: Path, working_container: Path) -> Placement:
+def _container_wanted(flac_count: int, total: int) -> bool:
+    """Report whether the container earns its place: a genuine mix.
+
+    The container exists to separate lossless albums from the rest, so it
+    is wanted only when both are present -- at least one lossless album
+    and at least one that is not. An all-lossless artist keeps its albums
+    flat, with nothing to separate them from; an all-lossy or all-missing
+    one never had a container to begin with.
+
+    Args:
+        flac_count: How many albums are lossless.
+        total: How many albums there are in all.
+
+    Returns:
+        `True` when the artist holds both lossless and non-lossless
+        albums.
+    """
+    return 0 < flac_count < total
+
+
+def _place(
+    album: Path,
+    tier: AudioTier,
+    artist: Path,
+    working_container: Path,
+    wanted: bool,
+) -> Placement:
     """Decide the side one album belongs on.
+
+    With a container wanted, lossless albums belong inside it and the
+    rest in the root. With none wanted -- an all-lossless artist, or one
+    with no lossless at all -- every album belongs in the root, and any
+    still sitting in an old container is lifted out so the container can
+    go.
 
     Args:
         album: The album folder to inspect.
-        artist: The artist folder, where everything non-lossless belongs.
+        tier: The album's tier, already detected.
+        artist: The artist folder, where the root-side albums belong.
         working_container: The container path a lossless album moves to.
+        wanted: Whether the container is wanted for this artist.
 
     Returns:
         The album's tier and the move it needs, if any.
     """
-    tier: AudioTier = detect_tier(album)
     in_container: bool = album.parent != artist
 
+    if not wanted:
+        if in_container:
+            destination: Path = artist / album.name
+            return Placement(album, tier, Side.OUT, destination, collision=destination.exists())
+        return Placement(album, tier, Side.KEEP)
+
     if tier is AudioTier.LOSSLESS and not in_container:
-        destination: Path = working_container / album.name
+        destination = working_container / album.name
         return Placement(album, tier, Side.IN, destination, collision=destination.exists())
     if tier is not AudioTier.LOSSLESS and in_container:
         destination = artist / album.name
@@ -286,18 +334,18 @@ def _place(album: Path, artist: Path, working_container: Path) -> Placement:
     return Placement(album, tier, Side.KEEP)
 
 
-def _container_change(container: Path | None, flac_count: int) -> ContainerChange | None:
-    """Decide what the container needs, from how many lossless albums exist.
+def _container_change(container: Path | None, wanted: bool) -> ContainerChange | None:
+    """Decide what the container needs, from whether it is wanted.
 
     Args:
         container: The existing container, or `None`.
-        flac_count: How many lossless albums the artist has.
+        wanted: Whether the artist wants a container at all.
 
     Returns:
         The change the container needs, or `None` when it is already
         right.
     """
-    if flac_count == 0:
+    if not wanted:
         return ContainerChange.REMOVE if container is not None else None
     if container is None:
         return ContainerChange.CREATE

@@ -74,11 +74,11 @@ def test_fresh_material_is_laid_out_and_tagged(fresh_shelf: Callable[[], Path]) 
     result = runner.invoke(app, ["organize", "--path", str(shelf)], input="y\n")
 
     assert result.exit_code == 0
-    # Folders: laid out and labelled.
+    # Folders: laid out and labelled. Miles is all-lossless, so no container
+    # is built and the album sits flat under the artist.
     album: Path = (
         shelf
         / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
-        / "FLAC"
         / "01. (1959) - Kind of Blue [FLAC]"
     )
     assert album.is_dir()
