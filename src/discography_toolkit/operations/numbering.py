@@ -14,6 +14,11 @@ the year and title do. That is what keeps the sequence stable: an album
 found missing and later held keeps its number instead of shuffling
 everything after it.
 
+A singles collection is the one album set outside the sequence. Titled
+"Singles" and carrying no year, it gathers loose tracks that are no
+release of their own, so it is pinned ahead of everything at "00" rather
+than sorted in among the dated albums.
+
 Planning never writes. Applying renames in two phases -- every folder to
 a temporary name, then each to its final one -- because renumbering
 swaps names around, and a folder's new name is often another folder's
@@ -133,10 +138,20 @@ def plan(
     Returns:
         One outcome per album, in numbered order.
     """
-    ordered: list[Path] = sorted(albums, key=lambda album: names.sort_key(album.name))
+    singles: list[Path] = [album for album in albums if names.is_singles(album.name)]
+    dated: list[Path] = [album for album in albums if not names.is_singles(album.name)]
+    ordered: list[Path] = sorted(dated, key=lambda album: names.sort_key(album.name))
     width: int = max(_MIN_INDEX_WIDTH, len(str(len(ordered))))
 
     outcomes: list[Numbering] = []
+    # A singles collection carries no year to sort on and is not a release
+    # among the others, so it is pinned ahead of them all at "00" rather
+    # than folded into the dated sequence. Several formats of it each take
+    # "00", kept apart by their own tags.
+    for album in singles:
+        outcomes.append(Numbering(album=album, new_name=_renumbered(album.name, 0, width)))
+        if on_progress is not None:
+            on_progress(album)
     for index, album in enumerate(ordered, start=1):
         outcomes.append(Numbering(album=album, new_name=_renumbered(album.name, index, width)))
         if on_progress is not None:

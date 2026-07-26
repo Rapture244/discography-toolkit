@@ -13,6 +13,7 @@ from discography_toolkit.core.names import (
     extract_year,
     format_artist_label,
     is_approximate_year,
+    is_singles,
     sort_key,
     split_index,
     split_missing_marker,
@@ -269,6 +270,47 @@ def test_sort_key_orders_by_year_then_title() -> None:
         "02. (1959) - So What",
         "01. (1970) - Bitches Brew",
     ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Singles",
+        "singles",  # case-insensitive
+        "SINGLES",
+        "00. Singles",
+        "00. Singles [FLAC]",
+        "©05. Singles [OPUS]",
+        "Singles [OGG]",  # a non-standard format tag is still set aside
+        "07. Singles",  # wrongly numbered, still a singles collection
+    ],
+)
+def test_is_singles_recognises_a_singles_collection(name: str) -> None:
+    """Titled "Singles" and yearless, whatever decorations it wears.
+
+    Args:
+        name: An album folder name that is a singles collection.
+    """
+    assert is_singles(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "01. (1970) - Bitches Brew [FLAC]",  # a dated album
+        "(2015) - Singles",  # a year makes it a real release, not the pile
+        "00. Singles Collection",  # a different title
+        "The Singles",
+        "00. (2015) - Best Of [OGG]",
+    ],
+)
+def test_is_singles_rejects_everything_else(name: str) -> None:
+    """A year, or any title but "Singles", is not a singles collection.
+
+    Args:
+        name: An album folder name that is not a singles collection.
+    """
+    assert not is_singles(name)
 
 
 # ==================================================================================== #

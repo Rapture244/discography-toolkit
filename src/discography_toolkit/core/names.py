@@ -75,6 +75,18 @@ _YEAR_BARE_RE: Final[re.Pattern[str]] = re.compile(rf"(?<!\d){_YEAR_CORE}(?!\d)"
 MISSING_MARKER: Final[str] = "M"
 MISSING_CONFLICT_MARKER: Final[str] = "⚠"
 
+# The bare title of a singles collection -- the yearless album that
+# gathers loose tracks belonging to no release, pinned ahead of the dated
+# albums at "00". Matched case-insensitively, so "singles" is recognised
+# and rewritten to this.
+SINGLES_TITLE: Final[str] = "Singles"
+
+# One trailing "(...)" or "[...]" tag, stripped when reading a title so a
+# collection kept in several formats -- "Singles [FLAC]", "Singles
+# [OPUS]", "Singles [OGG]" -- is recognised whatever it is stored as. Only
+# the last such group goes, and only at the very end.
+_TRAILING_TAG_RE: Final[re.Pattern[str]] = re.compile(r"\s*[\[(][^\[\]()]*[\])]\s*$")
+
 # Reads either marker at the front of what is left once the year is gone.
 # The older "(1967) M - Title" and the current "(1967) - M - Title" both
 # arrive as "M - Title", so one pattern covers both. Anchored, and the
@@ -249,6 +261,36 @@ def sort_key(name: str) -> str:
     _, rest = split_pin_mark(name)
     _, rest = split_index(rest)
     return _SORT_MARKER_RE.sub(r"\1", rest, count=1).casefold()
+
+
+def is_singles(name: str) -> bool:
+    """Report whether an album is an artist's singles collection.
+
+    A singles collection is the yearless exception: titled "Singles", it
+    gathers loose tracks that belong to no release -- no album, EP or
+    mixtape -- and is pinned ahead of the dated albums at "00". A name
+    carrying a year, however it is titled, is an ordinary release and not
+    this: a year is what a real album has and a singles pile does not.
+
+    The pin, index, year, availability marker and one trailing format tag
+    are all set aside before the title is read, so "©05. Singles [FLAC]"
+    and a bare "singles" alike are recognised, and a collection kept in
+    several formats is caught whatever bracket it wears.
+
+    Args:
+        name: The album folder's name.
+
+    Returns:
+        `True` when the album reads as a singles collection.
+    """
+    _, rest = split_pin_mark(name)
+    _, rest = split_index(rest)
+    year, rest = split_year(rest)
+    if year is not None:
+        return False
+    _, rest = split_missing_marker(rest)
+    bare: str = _TRAILING_TAG_RE.sub("", rest).strip()
+    return bare.casefold() == SINGLES_TITLE.casefold()
 
 
 # ==================================================================================== #

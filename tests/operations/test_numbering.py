@@ -190,6 +190,62 @@ def test_an_album_without_a_year_is_still_numbered(
     assert any(outcome.new_name.endswith("No Year Here") for outcome in result.outcomes)
 
 
+def test_a_singles_collection_is_pinned_to_zero(
+    shelf: Callable[..., list[Path]],
+) -> None:
+    """A singles pile sits at 00, ahead of the dated albums that start at 01.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    albums: list[Path] = shelf(
+        "(1970) - Bitches Brew [FLAC]",
+        "Singles [FLAC]",
+        "(1959) - Kind of Blue [FLAC]",
+    )
+
+    result = numbering.plan(albums)
+    named: dict[str, str] = {outcome.album.name: outcome.new_name for outcome in result.outcomes}
+
+    assert named["Singles [FLAC]"] == "00. Singles [FLAC]"
+    assert named["(1959) - Kind of Blue [FLAC]"] == "01. (1959) - Kind of Blue [FLAC]"
+    assert named["(1970) - Bitches Brew [FLAC]"] == "02. (1970) - Bitches Brew [FLAC]"
+
+
+def test_several_formats_of_singles_all_take_zero(
+    shelf: Callable[..., list[Path]],
+) -> None:
+    """A collection kept in two formats takes 00 twice, kept apart by tag.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    albums: list[Path] = shelf("Singles [FLAC]", "Singles [OPUS]", "(1980) - Real [FLAC]")
+
+    result = numbering.plan(albums)
+    named: dict[str, str] = {outcome.album.name: outcome.new_name for outcome in result.outcomes}
+
+    assert named["Singles [FLAC]"] == "00. Singles [FLAC]"
+    assert named["Singles [OPUS]"] == "00. Singles [OPUS]"
+    assert named["(1980) - Real [FLAC]"] == "01. (1980) - Real [FLAC]"
+
+
+def test_a_misnumbered_singles_collection_is_moved_to_zero(
+    shelf: Callable[..., list[Path]],
+) -> None:
+    """A singles pile that drifted to a real index is pulled back to 00.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    albums: list[Path] = shelf("(1980) - Real [FLAC]", "07. Singles [FLAC]")
+
+    result = numbering.plan(albums)
+    named: dict[str, str] = {outcome.album.name: outcome.new_name for outcome in result.outcomes}
+
+    assert named["07. Singles [FLAC]"] == "00. Singles [FLAC]"
+
+
 # ==================================================================================== #
 #                                     THE WHOLE PLAN                                   #
 # ==================================================================================== #
