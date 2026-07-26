@@ -222,22 +222,23 @@ def test_find_artist_folders_stops_at_the_artist(tmp_path: Path) -> None:
 def test_find_artist_folders_does_not_enter_albums(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The walk stops at album level even when no artist folder is labelled.
+    """A labelled artist is recognized by name and never descended into.
 
-    Verified by counting directory listings, since the result is the same
-    either way -- an album is never mistaken for an artist. What differs
-    is the work: without the guard the walk reads every disc folder in
-    the library to find nothing.
+    Verified by watching directory listings: once the artist's label is
+    matched, not one of its albums or disc folders is read -- descending
+    would trawl the whole discography to find nothing.
 
     Args:
         tmp_path: Pytest's per-test temporary directory.
-        monkeypatch: Used to count `Path.iterdir` calls.
+        monkeypatch: Used to record `Path.iterdir` calls.
     """
-    unlabelled: Path = tmp_path / "Miles Davis"
+    artist: Path = tmp_path / "Miles Davis - [10 \u2022 10F \u2022 0L \u2022 0M]"
+    albums: list[Path] = []
     for index in range(1, 11):
-        album: Path = unlabelled / f"{index:02d}. (196{index}) - Album {index}"
+        album: Path = artist / f"{index:02d}. (196{index}) - Album {index}"
         (album / "CD 1").mkdir(parents=True)
         (album / "CD 2").mkdir(parents=True)
+        albums.append(album)
 
     listings: list[Path] = []
     original = Path.iterdir
@@ -247,10 +248,11 @@ def test_find_artist_folders_does_not_enter_albums(
         return original(self)
 
     monkeypatch.setattr(Path, "iterdir", counted)
-    assert find_artist_folders(tmp_path) == []
+    assert find_artist_folders(tmp_path) == [artist]
 
-    # tmp_path and the unlabelled folder; never an album, never a disc.
-    assert len(listings) == 2
+    # The artist stopped the walk: nothing at or beneath it was read.
+    assert artist not in listings
+    assert all(album not in listings for album in albums)
 
 
 def test_find_artist_folders_on_an_artist_returns_itself(tmp_path: Path) -> None:
@@ -406,6 +408,27 @@ def test_find_albums_needs_a_labelled_artist(tmp_path: Path) -> None:
     (tmp_path / "Unsorted" / "01. (1959) - Kind of Blue").mkdir(parents=True)
 
     assert find_albums(tmp_path) == []
+
+
+def test_find_albums_reaches_through_a_numbered_category(tmp_path: Path) -> None:
+    """A numbered category between the root and its artists is walked through.
+
+    The tag pass re-discovers albums this way after layout, so a shelf
+    like "01. Countries" must not stop the search at its own name.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = (
+        tmp_path
+        / "01. Countries"
+        / "Africa"
+        / "(Mali) - Toumani - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    )
+    album: Path = artist / "FLAC" / "01. (1988) - Songhai [FLAC]"
+    album.mkdir(parents=True)
+
+    assert find_albums(tmp_path / "01. Countries") == [album]
 
 
 def test_find_albums_on_one_artist(tmp_path: Path) -> None:

@@ -355,9 +355,11 @@ def find_artist_folders(root: Path) -> list[Path]:
 
     # A folder whose name does not match ARTIST_LABEL_RE -- "Miles Davis"
     # rather than "Miles Davis - [65 • 65F • 0L • 0M]" -- is descended
-    # into like any other. Its albums stop the walk here instead of
-    # letting it run through every disc folder beneath them.
-    if is_flac_container(root) or ALBUM_INDEX_RE.match(root.name):
+    # into like any other. An album or container stops the walk here
+    # instead of letting it run through every disc folder beneath, but a
+    # numbered *category* like "01. Countries" is not an album and is
+    # walked straight through.
+    if is_flac_container(root) or _is_album(root):
         return []
 
     found: list[Path] = []
