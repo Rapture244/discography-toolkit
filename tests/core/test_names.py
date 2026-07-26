@@ -630,16 +630,28 @@ def test_title_case_normalizes_lowercase(text: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        # An acronym among ordinary words is deliberate and kept.
+        # A word in the keep-caps list stays capital, and a lower-cased
+        # one is restored to it.
         ("theme from OST", "Theme From OST"),
+        ("theme from ost", "Theme From OST"),
         ("live at BBC", "Live at BBC"),
-        # A lone capital goes through the library, which keeps roman
-        # numerals: str.title() would give "Vol. Ii".
+        ("recorded in usa", "Recorded in USA"),
+        ("a flac rip", "A FLAC Rip"),
+        # Roman numerals stay capital; a word that merely looks like one
+        # does not.
         ("it's standard time, vol. II", "It's Standard Time, Vol. II"),
+        ("guitars from agadez vol. iii", "Guitars From Agadez Vol. III"),
+        ("the mix", "The Mix"),
+        # A code gluing letters to digits is kept exactly as written,
+        # standing alone or among words.
+        ("SF120", "SF120"),
+        ("78RPM", "78RPM"),
+        ("[SF034] group inerane", "[SF034] Group Inerane"),
+        ("music of the bahnar [24bVFLAC]", "Music of the Bahnar [24bVFLAC]"),
     ],
 )
-def test_title_case_keeps_acronyms(text: str, expected: str) -> None:
-    """Words written in full caps are treated as deliberate.
+def test_title_case_keeps_acronyms_romans_and_codes(text: str, expected: str) -> None:
+    """Known acronyms, roman numerals and letter-digit codes stay in caps.
 
     Args:
         text: The title as found.
@@ -655,6 +667,15 @@ def test_title_case_normalizes_shouting() -> None:
     is lowercase, since there is then nothing to make it stand out.
     """
     assert title_case("THE MAN WITH THE HORN") == "The Man With the Horn"
+
+
+def test_title_case_normalizes_shouting_past_a_mixed_case_tag() -> None:
+    """Shouting is tamed even when a rip tag leaves a stray lower-case letter.
+
+    A lone lowercase letter -- the "b" of "[24bVFLAC]" -- would stop the
+    library reading the rest as shouting, so the taming is done first.
+    """
+    assert title_case("MUSIC OF THE BAHNAR [24bVFLAC]") == "Music of the Bahnar [24bVFLAC]"
 
 
 @pytest.mark.parametrize(

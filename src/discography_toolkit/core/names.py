@@ -125,6 +125,69 @@ _EDGE_SEPARATORS_RE: Final[re.Pattern[str]] = re.compile(r"^[\s._-]+|[\s._-]+$")
 # of a name rather than an edge.
 _MULTI_SPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s{2,}")
 
+# Words kept in capitals against the title-caser, which would otherwise
+# read them as shouting and lower them. Formats, media and rip types,
+# a few country codes, roles and labels -- ambiguous ones a real word
+# could shadow ("US", "LA", "AM", "MIX") are deliberately left out.
+KEEP_CAPS: Final[frozenset[str]] = frozenset(
+    {
+        "FLAC",
+        "OPUS",
+        "MP3",
+        "AAC",
+        "ALAC",
+        "WAV",
+        "AIFF",
+        "DSF",
+        "DSD",
+        "OGG",
+        "WMA",
+        "APE",
+        "TTA",
+        "MQA",
+        "PCM",
+        "OST",
+        "EP",
+        "LP",
+        "CD",
+        "DVD",
+        "SACD",
+        "HDCD",
+        "VHS",
+        "VBR",
+        "CBR",
+        "DIVX",
+        "XVID",
+        "USA",
+        "UK",
+        "USSR",
+        "UAE",
+        "DJ",
+        "MC",
+        "EDM",
+        "IDM",
+        "DNB",
+        "BBC",
+        "NPR",
+        "NTS",
+        "KEXP",
+    }
+)
+
+# A roman numeral of two letters or more, built only from I, V and X.
+# The restriction is what keeps the common word "MIX" (an M) from being
+# read as one, at the cost of numbers past thirty-eight, which albums do
+# not reach. A lone "I" or "V" is left to the caser, being as often a
+# word as a number.
+_ROMAN_RE: Final[re.Pattern[str]] = re.compile(r"[IVX]{2,}")
+
+# Splits a token into its punctuation edges and alphanumeric core, so
+# "[SF034]" and "III." are read past their brackets and stops. The core
+# is non-greedy, letting the trailing run take every closing mark.
+_WORD_EDGES: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<lead>[^0-9A-Za-z]*)(?P<core>.*?)(?P<trail>[^0-9A-Za-z]*)$"
+)
+
 
 # ==================================================================================== #
 #                                     ARTIST NAMES                                     #
@@ -453,26 +516,105 @@ def clean_name(name: str) -> str:
 #                                     TITLE CASING                                     #
 # ==================================================================================== #
 def title_case(text: str) -> str:
-    """Apply classic English title case.
+    """Apply classic English title case, keeping known acronyms in caps.
 
-    A thin pass to `titlecase`, which implements John Gruber's
-    algorithm. It already handles the cases that need handling: minor
-    words stay lowercase unless they lead, apostrophes survive where
-    `str.title()` gives "It'S", an acronym among ordinary words is kept,
-    a wholly-capitalized title is read as shouting and normalized, and a
-    script without letter case is left alone.
+    A pass to `titlecase`, John Gruber's algorithm, which already reads a
+    wholly-capitalised title as shouting and normalises it -- "SO WHAT"
+    to "So What". What it does not know is which words are meant to stay
+    capitalised, so a callback holds those back: the acronyms in
+    `KEEP_CAPS`, roman numerals, and any code that glues letters to
+    digits, like a catalogue number "SF034" or a rip tag "24bVFLAC".
 
     The convention is English, so a German or French title comes out
-    capitalized rather than correct. No library can settle that without
+    capitalised rather than correct. No library can settle that without
     knowing the language.
 
     Args:
         text: The text to case.
 
     Returns:
-        The text in title case.
+        The text in title case, its acronyms and codes left in caps.
     """
-    return titlecase(text)
+    # titlecase only reads a title as shouting, and normalises it, when
+    # every word is capital; one lower-case letter anywhere -- the "b" of
+    # "[24bVFLAC]", the "s" of "1970's" -- and it leaves the rest of the
+    # capitals be. Rips carry such tags routinely, so the shouting is
+    # tamed here first: each all-caps word not worth keeping is lowered,
+    # and titlecase then capitalises it as it would any ordinary word.
+    tamed: str = " ".join(_tame(token) for token in text.split(" "))
+    return titlecase(tamed, callback=_keep_caps)
+
+
+def _tame(token: str) -> str:
+    """Lower an all-caps word so the title-caser will recapitalise it.
+
+    A word already worth keeping in caps -- an acronym, a roman numeral,
+    a code -- is left alone; anything else that is wholly capital is
+    shouting, and comes down to lower case for the caser to lift back up.
+
+    Args:
+        token: One whitespace-delimited token, punctuation included.
+
+    Returns:
+        The token, its core lowered when it was needless shouting.
+    """
+    edges: re.Match[str] | None = _WORD_EDGES.match(token)
+    if edges is None:
+        return token
+    core: str = edges.group("core")
+    if core.isalpha() and core.isupper() and _core_case(core) is None:
+        return f"{edges.group('lead')}{core.lower()}{edges.group('trail')}"
+    return token
+
+
+def _keep_caps(word: str, **_kwargs: object) -> str | None:
+    """Decide a word's case for `titlecase`, or defer to it.
+
+    The word arrives with its surrounding punctuation -- "[SF034]",
+    "III." -- so the alphanumeric core is read out, cased, and the
+    punctuation put back. Returning `None` leaves the word to the
+    ordinary algorithm.
+
+    Args:
+        word: One whitespace-delimited token, punctuation included.
+        **_kwargs: Extra arguments `titlecase` passes, unused.
+
+    Returns:
+        The token cased, or `None` to let `titlecase` handle it.
+    """
+    edges: re.Match[str] | None = _WORD_EDGES.match(word)
+    if edges is None:
+        return None
+    core: str = edges.group("core")
+    cased: str | None = _core_case(core)
+    if cased is None:
+        return None
+    return f"{edges.group('lead')}{cased}{edges.group('trail')}"
+
+
+def _core_case(core: str) -> str | None:
+    """Case one word's core if it is an acronym, a roman numeral or a code.
+
+    A known acronym and a roman numeral are forced to caps -- so a
+    lower-cased "ost" or "iii" is restored, not just preserved. A code
+    gluing letters to digits is kept exactly as written, since its case
+    is not ours to normalise: "24bVFLAC" is not "24BVFLAC".
+
+    Args:
+        core: A word stripped of its surrounding punctuation.
+
+    Returns:
+        The core cased, or `None` when the ordinary algorithm should
+        decide.
+    """
+    if not core:
+        return None
+    upper: str = core.upper()
+    if upper in KEEP_CAPS or _ROMAN_RE.fullmatch(upper) is not None:
+        return upper
+    if any(char.isalpha() for char in core) and any(char.isdigit() for char in core):
+        return core
+    return None
 
 
 def title_case_filename(name: str) -> str:

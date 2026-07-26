@@ -184,13 +184,13 @@ def test_an_opus_without_a_flac_twin_survives_layout(tmp_path: Path) -> None:
         tmp_path: Pytest's per-test temporary directory.
     """
     artist: Path = tmp_path / "DJ Example"
-    opus(artist / "(2020) - opus only")
+    opus(artist / "(2020) - lonely nights")
 
     result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
 
     assert result.exit_code == 0
     laid_out: Path = tmp_path / "DJ Example - [1 \u2022 0F \u2022 1L \u2022 0M]"
-    assert (laid_out / "01. (2020) - Opus Only [OPUS]").is_dir()
+    assert (laid_out / "01. (2020) - Lonely Nights [OPUS]").is_dir()
 
 
 def test_a_whole_shelf_is_walked(tmp_path: Path) -> None:
