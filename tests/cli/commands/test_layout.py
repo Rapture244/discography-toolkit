@@ -49,6 +49,16 @@ def lossy(album: Path) -> None:
     _ = (album / "a track.mp3").write_bytes(b"x")
 
 
+def opus(album: Path) -> None:
+    """Put a stub Opus track in a folder, making its parents.
+
+    Args:
+        album: The album folder to fill.
+    """
+    album.mkdir(parents=True, exist_ok=True)
+    _ = (album / "a track.opus").write_bytes(b"x")
+
+
 def subfolders(root: Path) -> set[str]:
     """The relative paths of every folder beneath a root.
 
@@ -143,6 +153,44 @@ def test_running_twice_settles(messy_artist: Callable[[], Path]) -> None:
     assert "0 of 1 artist(s) changed" in second.stdout
     # The name is unchanged, so the label did not accumulate a second bracket.
     assert (parent / "Miles Davis - [4 \u2022 2F \u2022 1L \u2022 1M]").is_dir()
+
+
+def test_an_opus_duplicate_is_pruned_before_layout(tmp_path: Path) -> None:
+    """An album held in both formats loses its Opus copy, keeping the FLAC.
+
+    The Opus sits in the root and the FLAC in the container, as a real
+    library keeps them; both name the same album, so the Opus is deleted
+    and only the lossless one is laid out.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "DJ Example"
+    opus(artist / "02. (1999) - mapouka [OPUS]")
+    flac(artist / "FLAC" / "01. (1999) - mapouka [FLAC]")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert result.exit_code == 0
+    laid_out: Path = tmp_path / "DJ Example - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    remaining: list[str] = [child.name for child in laid_out.iterdir() if child.is_dir()]
+    assert remaining == ["01. (1999) - Mapouka [FLAC]"]  # the Opus is gone, the FLAC kept
+
+
+def test_an_opus_without_a_flac_twin_survives_layout(tmp_path: Path) -> None:
+    """An Opus-only album is laid out, not pruned: it is nobody's copy.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "DJ Example"
+    opus(artist / "(2020) - opus only")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert result.exit_code == 0
+    laid_out: Path = tmp_path / "DJ Example - [1 \u2022 0F \u2022 1L \u2022 0M]"
+    assert (laid_out / "01. (2020) - Opus Only [OPUS]").is_dir()
 
 
 def test_a_whole_shelf_is_walked(tmp_path: Path) -> None:

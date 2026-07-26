@@ -40,7 +40,14 @@ from discography_toolkit.core.layout import (
     find_audio_files,
     find_containers,
 )
-from discography_toolkit.operations import artist_label, naming, numbering, placement, track_naming
+from discography_toolkit.operations import (
+    artist_label,
+    naming,
+    numbering,
+    placement,
+    pruning,
+    track_naming,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -55,6 +62,7 @@ class ArtistResult:
 
     Attributes:
         artist: The artist folder after the run, renamed by the label.
+        pruned: Opus albums deleted for duplicating a lossless one.
         named: Album folders renamed.
         numbered: Album folders renumbered.
         cased: Track filenames recased.
@@ -64,6 +72,7 @@ class ArtistResult:
     """
 
     artist: Path
+    pruned: int
     named: int
     numbered: int
     cased: int
@@ -74,7 +83,9 @@ class ArtistResult:
     @property
     def changed(self) -> bool:
         """Whether anything about the artist changed."""
-        return bool(self.named or self.numbered or self.cased or self.moved or self.labelled)
+        return bool(
+            self.pruned or self.named or self.numbered or self.cased or self.moved or self.labelled
+        )
 
 
 # ==================================================================================== #
@@ -126,7 +137,7 @@ def layout(
         raise typer.Exit(code=1)
 
     typer.echo()
-    warning: str = f"This will rename, renumber, recase, file, and label {len(artists)} artist(s) -- there is no dry run."
+    warning: str = f"This will delete Opus albums that duplicate a FLAC one, then rename, renumber, recase, file, and label {len(artists)} artist(s) -- there is no dry run."
     typer.secho(warning, fg=typer.colors.YELLOW)
     if not assume_yes and not typer.confirm("Proceed?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
@@ -175,9 +186,10 @@ def _lay_out(artist: Path) -> ArtistResult:
     """Run the five steps on one artist, each against the last one's output.
 
     Albums and tracks are re-read before every step that needs them,
-    because the step before renamed or moved what this one reads. The
-    label runs last: it renames the artist folder, which invalidates
-    every path beneath it.
+    because the step before renamed or moved what this one reads. Pruning
+    runs first, so the count and the numbering settle over what remains
+    once the Opus duplicates are gone. The label runs last: it renames
+    the artist folder, which invalidates every path beneath it.
 
     Args:
         artist: The artist folder to lay out.
@@ -185,6 +197,7 @@ def _lay_out(artist: Path) -> ArtistResult:
     Returns:
         A tally of what changed.
     """
+    pruned = pruning.apply(pruning.plan(discover_albums(artist)))
     named = naming.apply(naming.plan(discover_albums(artist)))
     numbered = numbering.apply(numbering.plan(discover_albums(artist)))
     cased = track_naming.apply(track_naming.plan(find_audio_files(artist)))
@@ -192,13 +205,18 @@ def _lay_out(artist: Path) -> ArtistResult:
     labelled = artist_label.apply(artist_label.plan(artist))
 
     failures: int = (
-        len(named.failures) + len(numbered.failures) + len(cased.failures) + len(placed.failures)
+        len(pruned.failures)
+        + len(named.failures)
+        + len(numbered.failures)
+        + len(cased.failures)
+        + len(placed.failures)
     )
     if labelled.detail is not None:
         failures += 1
 
     return ArtistResult(
         artist=labelled.artist,
+        pruned=pruned.deleted,
         named=named.renamed,
         numbered=numbered.renamed,
         cased=cased.renamed,
@@ -241,6 +259,8 @@ def _phrase(result: ArtistResult) -> str:
         A comma-joined phrase, e.g. "3 named, 40 recased".
     """
     parts: list[str] = []
+    if result.pruned:
+        parts.append(f"{result.pruned} Opus pruned")
     if result.named:
         parts.append(f"{result.named} named")
     if result.numbered:

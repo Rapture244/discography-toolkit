@@ -80,7 +80,7 @@ def organize(
         raise typer.Exit(code=1)
 
     typer.echo()
-    warning: str = f"This lays out {len(artists)} artist(s) and then writes every tag but genre. There is no dry run."
+    warning: str = f"This deletes Opus albums that duplicate a FLAC one, lays out {len(artists)} artist(s), and then writes every tag but genre. There is no dry run."
     typer.secho(warning, fg=typer.colors.YELLOW)
     if not typer.confirm("Proceed?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
