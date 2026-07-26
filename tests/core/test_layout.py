@@ -919,3 +919,65 @@ def test_find_artists_pointed_at_a_multi_disc_album_finds_nothing(tmp_path: Path
     _track(album / "CD 2")
 
     assert find_artists(album) == []
+
+
+def test_find_artists_walks_through_a_numbered_category(tmp_path: Path) -> None:
+    """A numbered organizational folder is not an album, so it is walked.
+
+    "01. Countries" shares the shape of an album's index but its real
+    content is levels down; it must be descended into, not dismissed.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "01. Countries" / "Africa" / "(Mali) - Ali Farka Touré - [M1 on 20]"
+    _track(artist / "01. (1976) - Special")
+
+    assert find_artists(tmp_path / "01. Countries") == [artist]
+
+
+def test_find_artists_does_not_flag_a_category_parent(tmp_path: Path) -> None:
+    """The folder above a numbered category is not itself taken for an artist.
+
+    The category would otherwise read as an album child, making its
+    parent look like the artist.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = (
+        tmp_path / "DISCOGRAPHY" / "01. Countries" / "Africa" / "(Niger) - Mdou Moctar - [13 on 13]"
+    )
+    _track(artist / "01. (2013) - Afelan [FLAC]")
+
+    assert find_artists(tmp_path / "DISCOGRAPHY") == [artist]
+
+
+def test_find_artists_keeps_a_missing_placeholder_from_breaking_detection(tmp_path: Path) -> None:
+    """An empty numbered placeholder counts as an album, so the artist is found.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "(Mali) - Ali Farka Touré - [M1 on 20]"
+    _track(artist / "01. (1976) - Special")
+    (artist / "18. MISSING (2011) - Sac A Paroles").mkdir()  # empty placeholder
+
+    assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_finds_an_artist_of_only_placeholders(tmp_path: Path) -> None:
+    """An artist whose albums are all numbered placeholders is still found.
+
+    A numbered placeholder is a known album, missing for now; an artist
+    made only of them has nothing to anchor on but is not a bare shelf.
+    An unnumbered empty folder, by contrast, cannot be told from one.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "(Mali) - Lost Artist - [M2 on 2]"
+    (artist / "01. MISSING (1970) - A").mkdir(parents=True)
+    (artist / "02. MISSING (1972) - B").mkdir()
+
+    assert find_artists(tmp_path) == [artist]

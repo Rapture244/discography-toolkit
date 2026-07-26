@@ -379,8 +379,10 @@ def find_artists(root: Path) -> list[Path]:
 
     The search descends until it reaches an artist, then stops: it never
     steps inside an album, so a box set's own inner folders are never
-    mistaken for albums and the box for an artist. A numbered album and
-    the container are dead ends for the same reason.
+    mistaken for albums and the box for an artist. An album and the
+    container are dead ends for the same reason -- but a numbered folder
+    whose real content is levels down, a *category* like "01. Countries",
+    is not an album and is walked straight through.
 
     A path that is itself an artist returns just itself. One pointed at an
     album, or at a shelf whose artists hold no audio and carry no numbers
@@ -405,8 +407,8 @@ def _collect_artists(folder: Path, found: list[Path]) -> None:
         folder: The folder to examine.
         found: The list to append artists to, in place.
     """
-    if is_flac_container(folder) or ALBUM_INDEX_RE.match(folder.name) is not None:
-        return  # a container or a numbered album holds no artists
+    if is_flac_container(folder) or _is_album(folder):
+        return  # a container or an album holds no artists
 
     children: list[Path] = [
         entry for entry in folder.iterdir() if entry.is_dir() and not entry.name.startswith(".")
@@ -420,13 +422,18 @@ def _collect_artists(folder: Path, found: list[Path]) -> None:
 
 
 def _is_album(folder: Path) -> bool:
-    """Report whether a folder is an album rather than an artist or a disc.
+    """Report whether a folder is an album rather than an artist or a category.
 
-    A numbered folder is an album outright. Failing a number -- fresh
-    material has none yet -- a folder counts as an album when it holds
-    audio directly or in a disc subfolder, which an artist never does:
-    its audio is a further level down, inside the albums. A disc folder
-    is not itself an album; it belongs to one.
+    A folder holding audio of its own -- directly, or one disc down -- is
+    an album; an artist never does, its audio being a level further down
+    inside the albums. A disc folder belongs to an album and is not one.
+
+    A number alone does not make an album, because a *category* is
+    numbered too ("01. Countries"). A numbered folder that holds no audio
+    of its own counts as an album only when it is an empty placeholder --
+    a missing album -- or a box set whose immediate parts hold the audio.
+    A numbered folder whose real content lies levels down is a category,
+    and not an album.
 
     Args:
         folder: The folder to test.
@@ -436,9 +443,45 @@ def _is_album(folder: Path) -> bool:
     """
     if _DISC_FOLDER_RE.match(folder.name) is not None:
         return False
-    if ALBUM_INDEX_RE.match(folder.name) is not None:
+    if _holds_audio(folder):
         return True
-    return _holds_audio(folder)
+    if ALBUM_INDEX_RE.match(folder.name) is None:
+        return False
+    return _is_empty(folder) or _parts_hold_audio(folder)
+
+
+def _is_empty(folder: Path) -> bool:
+    """Report whether a folder has no visible subfolders -- a missing placeholder.
+
+    Args:
+        folder: The folder to test.
+
+    Returns:
+        `True` when nothing but files, if that, sits inside.
+    """
+    return not any(entry.is_dir() and not entry.name.startswith(".") for entry in folder.iterdir())
+
+
+def _parts_hold_audio(folder: Path) -> bool:
+    """Report whether any immediate subfolder holds audio -- a box set's parts.
+
+    This is what tells a numbered box set, whose parts sit one level down,
+    from a numbered category, whose albums are several levels down.
+
+    Args:
+        folder: The folder to test.
+
+    Returns:
+        `True` when a direct subfolder holds a track of its own.
+    """
+    for entry in folder.iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if any(
+            part.is_file() and part.suffix.lower() in AUDIO_EXTENSIONS for part in entry.iterdir()
+        ):
+            return True
+    return False
 
 
 def _holds_audio(folder: Path) -> bool:
