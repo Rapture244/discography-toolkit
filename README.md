@@ -121,7 +121,11 @@ rapt tags year -p "D:\...\Miles Davis - [4 • 2F • 1L • 1M]"
 
 `align-tags` and every `tags` command take `--dry-run` to show what would change without writing. `layout` and `organize` do not: their steps only make sense applied in sequence, so there is a single confirmation instead — `layout` also takes `-y`/`--yes` to skip it.
 
-Point `layout` and `organize` at **fresh, unlabelled** material — they find artists by their audio and write the labels. Once labelled, `align-tags` and the `tags` commands find artists by that label, so they run happily across a whole shelf.
+Point `layout` and `organize` at **fresh, unlabelled** material — they find artists by their audio and write the labels. Once labelled, `align-tags` and the `tags` commands find them by that label. Either way the search walks as deep as your shelf goes: region, genre, even numbered category folders like `01. Countries` are walked straight through to the artists beneath, so you point at the top of a tree rather than each artist in turn.
+
+### 🙈 Ignoring a folder
+
+Any folder or file whose name begins with a dot is skipped entirely — the toolkit never lists it, looks inside it, names it, moves it, or tags it. Renaming a stray folder to `.Documentaries` — a box of live DVDs, artwork, anything that isn't part of the music — is enough to keep it out of the way. The decision is made on the name, not the operating system's hidden flag, so it behaves the same everywhere.
 
 ### 🪟 On Windows
 
