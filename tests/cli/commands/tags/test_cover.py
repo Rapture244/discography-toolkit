@@ -425,9 +425,11 @@ def test_the_closing_line_counts_what_was_done(artist: Callable[..., Path]) -> N
     assert "1 cover file(s) in place" in result.output
     assert "1 duplicate(s) removed" in result.output
     assert "1 track(s) embedded" in result.output
-    # A rename, a delete and an embed: the bar is sized from the plan,
-    # so it has to end full rather than overrun.
-    assert "(3/3 operations)" in result.output
+    # A rename, a delete and an embed: the bar is sized from the plan, so
+    # it ends full at three of three, counted as operations. Checked as
+    # two facts rather than one string, since the columns may wrap.
+    assert "3/3" in result.output
+    assert "operations)" in result.output
 
 
 # ==================================================================================== #

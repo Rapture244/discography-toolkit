@@ -14,7 +14,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, override
 
 from rich.console import Console
-from rich.progress import Progress, ProgressColumn, TaskProgressColumn, TextColumn
+from rich.progress import (
+    Progress,
+    ProgressColumn,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.rule import Rule
 from rich.text import Text
 import typer
@@ -149,18 +156,27 @@ class FileCountColumn(ProgressColumn):
 def make_progress(noun: str = "files") -> Progress:
     """Build a progress display in the toolkit's house style.
 
+    The bar carries a spinner and an elapsed clock as well as the
+    percentage: on a slow disk a single large file can take many seconds
+    to rewrite, and without something ticking the whole bar would look
+    frozen for the length of that one file. The spinner and clock keep
+    moving -- Rich refreshes them from its own thread -- so a long write
+    reads as work in progress, not a hang.
+
     Args:
         noun: Plural name for what the bar counts.
 
     Returns:
-        A `Progress` with a bold description, dashed bar, percentage and
-        counter.
+        A `Progress` with a spinner, bold description, dashed bar,
+        percentage, counter, and elapsed clock.
     """
     return Progress(
+        SpinnerColumn(),
         TextColumn("[bold]{task.description}"),
         DashBarColumn(),
         TaskProgressColumn(),
         FileCountColumn(noun=noun),
+        TimeElapsedColumn(),
     )
 
 
