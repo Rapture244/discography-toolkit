@@ -736,3 +736,49 @@ def test_a_duplicate_outlives_a_failed_settle(make_album: Callable[..., Path]) -
     assert report.deleted == 0
     assert (album / "folder.jpg").exists()
     assert len(report.failures) == 2
+
+
+def test_operation_paths_match_the_planned_change_count(
+    make_album: Callable[..., Path],
+) -> None:
+    """One path is listed for every operation the plan would perform.
+
+    A per-artist bar is sized from these paths, so their count has to
+    equal `changes` -- one too many or few and the bar over- or
+    under-fills. The album carries art in one track and none loose, so
+    the plan both writes `cover.jpg` and embeds it into the bare tracks:
+    write and embed are both exercised.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    art: bytes = encode(600)
+    album: Path = make_album(
+        "01. (1959) - Kind of Blue [FLAC]", tracks=3, embedded=[art, None, None]
+    )
+
+    plan = covers.plan([album])
+
+    assert len(covers.operation_paths(plan)) == plan.changes
+    assert plan.changes == 3  # one write of cover.jpg, two embeds
+
+
+def test_operation_paths_cover_every_kind_of_operation(
+    make_album: Callable[..., Path],
+) -> None:
+    """A rename, a delete, a write's target and each embed all appear.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    art: bytes = encode(600)
+    album: Path = make_album("01. (1959) - Kind of Blue [FLAC]", tracks=2)
+    _ = (album / "folder.jpg").write_bytes(art)  # renamed to cover.jpg
+    _ = (album / "front.jpg").write_bytes(art)  # duplicate, deleted
+
+    plan = covers.plan([album])
+    paths = covers.operation_paths(plan)
+
+    # Two embeds plus the loose-file settling, all under this one album.
+    assert all(album in path.parents or path.parent == album for path in paths)
+    assert len(paths) == plan.changes

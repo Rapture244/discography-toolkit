@@ -318,6 +318,36 @@ def apply(
     )
 
 
+def operation_paths(cover_plan: CoverPlan) -> list[Path]:
+    """List every path `apply` will report, one per operation it performs.
+
+    The same paths `apply` hands to `on_progress`, gathered up front so a
+    caller can size a per-artist bar before the work starts. Order does
+    not matter -- the caller groups by artist, not by sequence -- but the
+    count matches `changes` exactly, so a bar built from it fills to the
+    brim and no further. This mirrors the operations `apply` runs, so the
+    two are changed together.
+
+    Args:
+        cover_plan: A plan produced by `plan`.
+
+    Returns:
+        A path for each rename, write, deletion and embed to come.
+    """
+    paths: list[Path] = []
+    for album in cover_plan.pending:
+        settlement: Settlement | None = album.settlement
+        if settlement is None:
+            continue
+        if settlement.rename_from is not None:
+            paths.append(settlement.rename_from)
+        if settlement.write:
+            paths.append(settlement.target)
+        paths.extend(settlement.delete)
+        paths.extend(settlement.embed)
+    return paths
+
+
 # ==================================================================================== #
 #                                       PLANNING                                       #
 # ==================================================================================== #

@@ -156,7 +156,7 @@ def run(
     Returns:
         What the cover pass and the tag pass each did.
     """
-    cover_report: covers.CoverReport = _run_covers(albums)
+    cover_report: covers.CoverReport = _run_covers(albums, artists)
     tag_report: tagging.WriteReport = _run_tags(tracks, albums, artists)
     return cover_report, tag_report
 
@@ -210,19 +210,25 @@ def _wants(albums: Sequence[Path], artists: Sequence[Path]) -> tagging.Desired:
 # ==================================================================================== #
 #                                       PASSES                                         #
 # ==================================================================================== #
-def _run_covers(albums: Sequence[Path]) -> covers.CoverReport:
+def _run_covers(albums: Sequence[Path], artists: Sequence[Path]) -> covers.CoverReport:
     """Settle the covers, showing a bar for the scan and one for the work.
 
     Args:
         albums: The album folders in scope.
+        artists: The artist folders, for the per-artist sub-bars.
 
     Returns:
         What the cover pass did.
     """
     with make_progress(noun="albums") as progress:
         plan = covers.plan(albums, on_progress=_bar(progress, "Covers: scanning", len(albums)))
-    with make_progress(noun="changes") as progress:
-        report = covers.apply(plan, on_progress=_bar(progress, "Covers: settling", plan.changes))
+    with make_progress() as progress:
+        # Settling embeds the cover into every track -- the heaviest pass,
+        # a full rewrite per file -- so it settles behind a per-artist
+        # breakdown like the tag passes, not one flat bar that barely
+        # moves across hundreds of files.
+        advance = make_advancer(progress, "Covers: settling", covers.operation_paths(plan), artists)
+        report = covers.apply(plan, on_progress=advance)
 
     settled: int = report.written + report.renamed + report.embedded
     _echo_result("Covers", settled, "settled", report.failures)
