@@ -1004,3 +1004,40 @@ def test_find_artists_finds_an_artist_of_only_placeholders(tmp_path: Path) -> No
     (artist / "02. MISSING (1972) - B").mkdir()
 
     assert find_artists(tmp_path) == [artist]
+
+
+def test_find_artists_reads_a_labelled_folder_as_an_artist(tmp_path: Path) -> None:
+    """A labelled artist holding a loose tape is an artist, not an album.
+
+    Without the label a folder with audio loose inside it reads as an
+    album, which would turn the shelf above it into the artist and every
+    real artist into its albums. The label settles it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "Memphis Rap"
+    _track(shelf / "1-Fo - [1 on 1]" / "00. (1996) - Its On")  # album in a subfolder
+    loose: Path = shelf / "Lower Level - [1 on 1]"
+    loose.mkdir(parents=True)
+    _ = (loose / "track.mp3").write_bytes(b"x")  # a tape loose in the artist folder
+
+    found = find_artists(shelf)
+
+    assert shelf not in found
+    assert set(found) == {shelf / "1-Fo - [1 on 1]", loose}
+
+
+def test_find_artists_labelled_child_does_not_flag_its_parent(tmp_path: Path) -> None:
+    """A shelf of labelled artists is walked, not mistaken for one artist.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "Memphis Rap"
+    first: Path = shelf / "Al Kapone - [1 on 1]"
+    first.mkdir(parents=True)
+    _ = (first / "track.mp3").write_bytes(b"x")  # loose, would look like an album
+    _track(shelf / "8Ball & MJG - [2 on 2]" / "01. (1993) - Comin Out Hard")
+
+    assert shelf not in find_artists(shelf)

@@ -405,17 +405,30 @@ def find_artists(root: Path) -> list[Path]:
 def _collect_artists(folder: Path, found: list[Path]) -> None:
     """Descend a folder, adding the artists found and not stepping past them.
 
+    A folder wearing an artist label is an artist outright, whatever it
+    holds -- a single tape loose inside it does not make it an album. On
+    fresh material, with no labels yet, an artist is instead recognised
+    by its children being albums; but a labelled child there is another
+    artist, not this folder's album, and so does not make this folder the
+    one above a shelf's worth of them.
+
     Args:
         folder: The folder to examine.
         found: The list to append artists to, in place.
     """
+    if is_artist_folder(folder):
+        found.append(folder)  # the label settles it, contents notwithstanding
+        return
     if is_flac_container(folder) or _is_album(folder):
         return  # a container or an album holds no artists
 
     children: list[Path] = [
         entry for entry in folder.iterdir() if entry.is_dir() and not entry.name.startswith(".")
     ]
-    if any(is_flac_container(child) or _is_album(child) for child in children):
+    if any(
+        (is_flac_container(child) or _is_album(child)) and not is_artist_folder(child)
+        for child in children
+    ):
         found.append(folder)  # its children are albums, so it is an artist
         return  # an album is a dead end; never step inside one
 
