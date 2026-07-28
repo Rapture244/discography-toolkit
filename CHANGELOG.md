@@ -6,7 +6,37 @@ This format takes inspiration from [Keep a Changelog](https://keepachangelog.com
 
 ## Unreleased
 
-## 0.0.1 (2026-07-22)
+## v0.0.2 (2026-07-28)
+
+The nine standalone scripts become one installable tool. `rapt` -- a single `typer` CLI -- replaces the `scripts/` pipeline with the same operations behind three verbs (`organize`, `layout`, `align-tags`) plus a `tags` group, and the whole job now runs in one pass.
+
+[:octocat: GitHub release](https://github.com/Rapture244/discography-toolkit/releases/tag/v0.0.2)
+
+### New Features
+
+- `rapt` command-line entry point, wired through `[project.scripts]` to `discography_toolkit.cli.main:app`, so the toolkit is one command on the `PATH` rather than a folder of scripts run by path.
+- `organize` -- the whole job in one pass: `layout` then `align-tags`, in that order, since the folders must be settled before the tags can be read off them.
+- `layout` -- the five folder steps (naming, numbering, track-casing, placement, and the artist label) run per artist as a single command; takes `-y`/`--yes` to skip its one confirmation.
+- `align-tags` -- writes every folder-derived tag (album, album artist, year, title, cover) straight off the settled folders.
+- `tags` group -- each derived tag as its own command for one-off fixes: `tags album`, `tags album-artist`, `tags year`, `tags title`, `tags cover`, and `tags genre` (the one tag given by hand, at any scope from a single album to a whole shelf).
+- All-lossless artists now sit flat, skipping the `FLAC` container entirely -- the container earns its place only when there is something to separate.
+- Dot-prefixed folders and files are ignored everywhere: never listed, walked, named, moved, or tagged. The decision is made on the name, not the operating system's hidden flag, so it behaves the same on every platform.
+- Discovery walks a shelf as deep as it goes -- region, genre, and numbered category folders like `01. Countries` are walked straight through to the artists beneath, so you point at the top of a tree rather than each artist in turn.
+
+### Changes
+
+- The nine numbered scripts were reorganized into a proper package split by concern -- `cli/`, `core/`, and `operations/` -- separating what the toolkit does to folders from what it writes inside the files.
+- `layout` and `organize` no longer take `--dry-run`: their steps only make sense applied in sequence, so there is a single confirmation instead. `align-tags` and every `tags` command keep `--dry-run`.
+
+### Removed
+
+- The nine standalone scripts under `scripts/` -- folded into the `discography_toolkit` package and deleted.
+
+### Breaking Changes
+
+- The `uv run scripts/NN--*.py --path ...` invocation is gone. Migrate to the `rapt` commands: the `01`–`02.2` folder scripts are now `rapt layout`, the `03`–`07` metadata scripts are `rapt align-tags` (or an individual `rapt tags <name>`), and the two together are `rapt organize`.
+
+## v0.0.1 (2026-07-22)
 
 [:octocat: GitHub release](https://github.com/Rapture244/discography-toolkit/releases/tag/v0.0.1)
 

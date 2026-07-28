@@ -102,7 +102,7 @@ rapt organize -p "D:\MUSIC\DISCOGRAPHY\Jazz"
 Or either half on its own:
 
 ```bash
-rapt layout -p "D:\MUSIC\DISCOGRAPHY\Jazz" # folders only
+rapt layout -p "D:\MUSIC\DISCOGRAPHY\Jazz"     # folders only
 rapt align-tags -p "D:\MUSIC\DISCOGRAPHY\Jazz" # tags only, read off the folders
 ```
 
