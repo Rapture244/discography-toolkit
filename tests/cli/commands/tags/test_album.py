@@ -83,11 +83,11 @@ def only_track(root: Path) -> Path:
 # ==================================================================================== #
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
-def test_writes_the_folder_name_verbatim(artist: Callable[..., Path]) -> None:
-    """Index, year and quality marker are part of the name, by design.
+def test_writes_only_the_album_title(artist: Callable[..., Path]) -> None:
+    """Index, year and quality word describe the shelf, not the album.
 
-    The folder name is the canonical form of an album here, so a player
-    sorting on Album matches the shelf.
+    The discography is shared, so what leaves here says what the album
+    is and nothing about where it sat or how it was ripped.
 
     Args:
         artist: Factory building an artist folder.
@@ -97,11 +97,11 @@ def test_writes_the_folder_name_verbatim(artist: Callable[..., Path]) -> None:
     result = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
 
     assert result.exit_code == 0
-    assert album_of(only_track(root)) == "01. (1959) - Kind of Blue [FLAC]"
+    assert album_of(only_track(root)) == "Kind of Blue"
 
 
-def test_a_favourite_mark_is_kept(artist: Callable[..., Path]) -> None:
-    """The "©" is part of the name and is written with it.
+def test_a_favourite_mark_is_dropped(artist: Callable[..., Path]) -> None:
+    """The "©" floats a favourite on this shelf and means nothing off it.
 
     Args:
         artist: Factory building an artist folder.
@@ -110,7 +110,23 @@ def test_a_favourite_mark_is_kept(artist: Callable[..., Path]) -> None:
 
     _ = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
 
-    assert album_of(only_track(root)) == "©27. (1959) - Kind of Blue [FLAC]"
+    assert album_of(only_track(root)) == "Kind of Blue"
+
+
+def test_an_opus_album_is_named_like_any_other(artist: Callable[..., Path]) -> None:
+    """Either quality word comes off, so an Opus-only album reads the same.
+
+    An Opus album reaching the tags is one with no lossless twin --
+    pruning deletes the ones that have one -- so it is simply an album.
+
+    Args:
+        artist: Factory building an artist folder.
+    """
+    root: Path = artist("04. (1972) - On the Corner [OPUS]")
+
+    _ = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
+
+    assert album_of(only_track(root)) == "On the Corner"
 
 
 def test_every_disc_shares_the_album_name(artist: Callable[..., Path]) -> None:
@@ -126,7 +142,7 @@ def test_every_disc_shares_the_album_name(artist: Callable[..., Path]) -> None:
 
     _ = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
 
-    assert album_of(folder / "CD 2" / "01.flac") == "01. (1970) - Bitches Brew [FLAC]"
+    assert album_of(folder / "CD 2" / "01.flac") == "Bitches Brew"
 
 
 def test_each_album_gets_its_own_name(artist: Callable[..., Path]) -> None:
@@ -140,7 +156,7 @@ def test_each_album_gets_its_own_name(artist: Callable[..., Path]) -> None:
     _ = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
 
     stored: set[str] = {album_of(track) for track in root.rglob("*.flac")}
-    assert stored == {"01. (1959) - Alpha [FLAC]", "02. (1970) - Bravo [FLAC]"}
+    assert stored == {"Alpha", "Bravo"}
 
 
 # ==================================================================================== #

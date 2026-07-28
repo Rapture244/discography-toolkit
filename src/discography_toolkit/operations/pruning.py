@@ -159,10 +159,10 @@ def _identity(name: str) -> tuple[str | None, str]:
     """Read an album's identity: its year and title, and nothing else.
 
     Everything that a copy might differ by -- the pin, the index, the
-    availability marker, the quality tag -- is set aside, so a FLAC album
-    and its Opus conversion resolve to the same pair however they are
-    dressed. The title is casefolded so case alone never tells them
-    apart.
+    availability marker, the quality tag -- is what `album_title` peels
+    off, so a FLAC album and its Opus conversion resolve to the same pair
+    however they are dressed. The title is casefolded so case alone never
+    tells them apart.
 
     Args:
         name: The album folder's name.
@@ -171,12 +171,7 @@ def _identity(name: str) -> tuple[str | None, str]:
         A `(year, title)` pair, the year `None` when the name carries
         none.
     """
-    _, rest = names.split_pin_mark(name)
-    _, rest = names.split_index(rest)
-    year, rest = names.split_year(rest)
-    _, rest = names.split_missing_marker(rest)
-    title: str = names.clean_name(names.strip_quality_tag(rest)).casefold()
-    return year, title
+    return names.extract_year(name), names.album_title(name).casefold()
 
 
 def _delete(album: Path) -> str | None:

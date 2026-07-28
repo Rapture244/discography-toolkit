@@ -85,7 +85,7 @@ def test_fresh_material_is_laid_out_and_tagged(fresh_shelf: Callable[[], Path]) 
     # Tags: written off those folders.
     track: Path = next(album.glob("*.flac"))
     tags = metadata.read(track, [Tag.ALBUM, Tag.ALBUM_ARTIST, Tag.DATE, Tag.TITLE])
-    assert tags[Tag.ALBUM] == "01. (1959) - Kind of Blue [FLAC]"
+    assert tags[Tag.ALBUM] == "Kind of Blue"
     assert tags[Tag.ALBUM_ARTIST] == "Miles Davis"
     assert tags[Tag.DATE] == "1959"
     assert tags[Tag.TITLE] == "So What"

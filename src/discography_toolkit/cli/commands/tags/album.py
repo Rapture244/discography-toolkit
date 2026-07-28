@@ -1,11 +1,20 @@
 # src/discography_toolkit/cli/commands/tags/album.py
 """The `rapt tags album` command.
 
-Writes the Album tag from the album folder's name, exactly as it stands
--- index, year and quality marker included. The folder name is the
-canonical form of an album in this collection, so the tag matching it is
-the point rather than a side effect: a player sorting on Album then
-matches the shelf.
+Writes the Album tag from the album folder's name, keeping only the
+album's title.
+
+Everything else the folder carries is left out, because the discography
+is shared: an album leaving here for someone else's library should say
+what it is and nothing more. The pin mark floats a favourite on this
+shelf, the index is a position in this numbering, the year is already in
+Date, the availability marker describes an empty placeholder, and the
+quality word describes how this copy was made. None of that is the
+album, and none of it means anything to whoever receives it.
+
+The folder name stays the source of truth, so nothing is lost by leaving
+those out: the tag is derived afresh on every run, and a folder renamed
+today is picked up by the next one.
 
 A track under no album folder is left alone and reported. Albums are
 recognized through their artist, so a path the layout pass has not
@@ -38,6 +47,7 @@ from discography_toolkit.core.layout import (
     owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
+from discography_toolkit.core.names import album_title
 from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
@@ -65,7 +75,7 @@ def album(
         typer.Option("--dry-run", help="Show what would change without writing."),
     ] = False,
 ) -> None:
-    """Write each track's Album tag from its album folder's name.
+    """Write each track's Album tag from its album folder's title.
 
     Args:
         path: Folder to work beneath; prompted for if omitted.
@@ -135,7 +145,7 @@ def album(
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
 def _wants(albums: Sequence[Path]) -> tagging.Desired:
-    """Build the value function: each track named for its album folder.
+    """Build the value function: each track named for its album's title.
 
     Args:
         albums: The album folders in scope.
@@ -147,7 +157,7 @@ def _wants(albums: Sequence[Path]) -> tagging.Desired:
 
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
         folder: Path | None = owning_folder(track, albums)
-        return {} if folder is None else {Tag.ALBUM: folder.name}
+        return {} if folder is None else {Tag.ALBUM: album_title(folder.name)}
 
     return desired
 

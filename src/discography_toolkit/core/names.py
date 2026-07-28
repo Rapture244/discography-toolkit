@@ -513,6 +513,37 @@ def clean_name(name: str) -> str:
 
 
 # ==================================================================================== #
+#                                     ALBUM TITLES                                     #
+# ==================================================================================== #
+def album_title(name: str) -> str:
+    """Read the bare title out of an album folder's name.
+
+    The whole convention comes off -- the pin mark, the numbering index,
+    the year, the availability marker, the quality word -- leaving what
+    the album is actually called. Everything removed describes where the
+    album sits on this shelf or how this copy of it was ripped, and none
+    of that means anything to anyone else's library.
+
+    The same sequence `naming` walks when it rebuilds a folder name,
+    named here for the callers that want only its end. Casing is not
+    applied: a folder the layout pass has settled already carries a cased
+    title, and re-casing one it has not would invent a name the folder
+    does not have.
+
+    Args:
+        name: The album folder's name.
+
+    Returns:
+        The title alone, its spacing tidied.
+    """
+    _, rest = split_pin_mark(name)
+    _, rest = split_index(rest)
+    _, rest = split_year(rest)
+    _, rest = split_missing_marker(rest)
+    return clean_name(strip_quality_tag(rest))
+
+
+# ==================================================================================== #
 #                                     TITLE CASING                                     #
 # ==================================================================================== #
 def title_case(text: str) -> str:

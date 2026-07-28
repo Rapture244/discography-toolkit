@@ -83,7 +83,7 @@ def test_the_folder_derived_tags_are_written(shelf: Callable[..., Path]) -> None
 
     assert result.exit_code == 0
     tags = tags_of(track)
-    assert tags[Tag.ALBUM] == "01. (1959) - Kind of Blue [FLAC]"
+    assert tags[Tag.ALBUM] == "Kind of Blue"
     assert tags[Tag.ALBUM_ARTIST] == "Miles Davis"
     assert tags[Tag.DATE] == "1959"
 
@@ -206,7 +206,7 @@ def test_the_breakdown_counts_only_the_tags_that_change(tmp_path: Path) -> None:
     metadata.write(
         track,
         {
-            Tag.ALBUM: "01. (1959) - Kind of Blue [FLAC]",
+            Tag.ALBUM: "Kind of Blue",
             Tag.ALBUM_ARTIST: "Miles Davis",
             Tag.DATE: "1959",
             Tag.TITLE: "so what",  # the one field that needs a change
@@ -300,5 +300,5 @@ def test_a_forced_album_artist_overrides_the_folder(shelf: Callable[..., Path]) 
     assert result.exit_code == 0
     tags = tags_of(track)
     assert tags[Tag.ALBUM_ARTIST] == "DJ Screw"
-    assert tags[Tag.ALBUM] == "01. (1959) - Kind of Blue [FLAC]"  # still folder-derived
+    assert tags[Tag.ALBUM] == "Kind of Blue"  # still folder-derived
     assert "DJ Screw" in result.stdout  # named in the confirmation

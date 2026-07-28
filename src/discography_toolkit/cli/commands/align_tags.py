@@ -46,6 +46,7 @@ from discography_toolkit.core.layout import (
 )
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import (
+    album_title,
     extract_year,
     is_approximate_year,
     strip_artist_label,
@@ -189,7 +190,7 @@ def _wants(
     """Build the value function reading all four text tags off the folders.
 
     Each tag is derived exactly as its own command derives it: the Album
-    from the album folder's name, the Album Artist from the artist
+    from the album folder's title, the Album Artist from the artist
     folder's name without its label, the Date from the year in the album
     name -- cleared when approximate -- and the Title recased from the one
     already there. A tag with nothing to derive is left out, which leaves
@@ -214,7 +215,7 @@ def _wants(
 
         album: Path | None = owning_folder(track, albums)
         if album is not None:
-            wanted[Tag.ALBUM] = album.name
+            wanted[Tag.ALBUM] = album_title(album.name)
             token: str | None = extract_year(album.name)
             if token is not None:
                 wanted[Tag.DATE] = "" if is_approximate_year(token) else token

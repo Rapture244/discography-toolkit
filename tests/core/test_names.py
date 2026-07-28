@@ -9,6 +9,7 @@ untouched.
 from __future__ import annotations
 
 from discography_toolkit.core.names import (
+    album_title,
     clean_name,
     extract_year,
     format_artist_label,
@@ -599,6 +600,55 @@ def test_clean_name(name: str, expected: str) -> None:
         expected: How it should read once tidied.
     """
     assert clean_name(name) == expected
+
+
+# ==================================================================================== #
+#                                     ALBUM TITLES                                     #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("01. (1959) - Kind of Blue [FLAC]", "Kind of Blue"),
+        # Either quality word comes off, so an Opus-only album -- one with
+        # no lossless twin for pruning to have deleted it against -- reads
+        # like any other.
+        ("04. (1972) - On the Corner [OPUS]", "On the Corner"),
+        # The pin floats a favourite on this shelf and travels nowhere.
+        ("©27. (1977) - October [FLAC]", "October"),
+        # Both spellings of the availability marker.
+        ("05. (1980) - M - Lost Record", "Lost Record"),
+        ("12. (1980) - ⚠ - Decoy", "Decoy"),
+        # The yearless exception.
+        ("00. Singles [FLAC]", "Singles"),
+        # A bracket that is part of the title survives the quality cut.
+        ("03. (1963) - Live at Birdland [Live] [FLAC]", "Live at Birdland [Live]"),
+        # Nothing to peel.
+        ("Kind of Blue", "Kind of Blue"),
+        ("", ""),
+    ],
+)
+def test_album_title_peels_everything_but_the_title(name: str, expected: str) -> None:
+    """Pin, index, year, marker and quality word all come off.
+
+    What survives is what the album is called -- the part that does not
+    change when it is renumbered, re-ripped, or found at last.
+
+    Args:
+        name: The album folder's name.
+        expected: The title that should remain.
+    """
+    assert album_title(name) == expected
+
+
+def test_album_title_is_stable_across_renumbering() -> None:
+    """Inserting an album ahead of another must not rename it.
+
+    This is what lets the Album tag stand for identity: the numbering
+    pass rewrites the folder, and the title read off it does not move.
+    """
+    assert album_title("01. (1959) - Kind of Blue [FLAC]") == album_title(
+        "04. (1959) - Kind of Blue [FLAC]"
+    )
 
 
 # ==================================================================================== #
