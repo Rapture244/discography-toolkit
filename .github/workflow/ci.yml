@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # lets you trigger it by hand from the Actions tab
+
+# Cancel an in-progress run when you push again to the same branch/PR — saves minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint · type-check · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true          # caches the uv cache, keyed on uv.lock
+
+      - name: Sync environment
+        run: uv sync --frozen          # --frozen fails if uv.lock is out of date — a free extra check
+
+      - name: Run every quality gate (ruff, basedpyright, pytest)
+        run: uv run prek run --all-files --show-diff-on-failure
+
+  build:
+    name: Build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0              # hatch-vcs derives the version from git history + tags
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: Validate package metadata
+        run: uvx twine check dist/*
