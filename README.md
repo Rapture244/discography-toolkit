@@ -3,6 +3,17 @@
 > *"Without music, life would be a mistake."*  
 > — Friedrich Nietzsche
 
+
+[![CI](https://github.com/Rapture244/discography-toolkit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Rapture244/discography-toolkit/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![basedpyright](https://img.shields.io/badge/type%20checked-basedpyright-brightgreen)](https://docs.basedpyright.com/)
+[![Python](https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![CLI: rapt](https://img.shields.io/badge/CLI-rapt-8A2BE2?logo=gnubash&logoColor=white)](https://github.com/Rapture244/discography-toolkit)
+
+
+
+
 `rapt` is short for **Rapture**, the sunken city from *BioShock* — built on the idea of a place where people could create without limits, before it all fell apart. I loved the game, but what stuck with me was the atmosphere: old songs drifting through flooded halls, beauty half-drowned and still playing.
 
 And there's the word itself: Rapture — *a feeling of emotional ecstasy so magical it's almost as if you've been transported to some other world.* That's what music has always done to me.
