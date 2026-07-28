@@ -30,10 +30,21 @@ dependencies = [
 
 
 # ==================================================================================================================== #
+#                                              DEPENDENCY GROUPS                                                       #
+# ==================================================================================================================== #
+# --- uv-native, PEP 735: dev-only, never published or pip-installable ---
+[dependency-groups]
+dev = [
+    "numpy>=2.5.1",
+    "pytest>=9.1.1",
+    "soundfile>=0.14.0",
+]
+
+# ==================================================================================================================== #
 #                                               CLI ENTRY POINT                                                        #
 # ==================================================================================================================== #
 [project.scripts]
-#your-command = "your_project.cli:app"
+rapt = "discography_toolkit.cli.main:app"
 
 # ==================================================================================================================== #
 #                                             BUILD CONFIG                                                             #
@@ -58,14 +69,15 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/your_project"]
+packages = ["src/discography_toolkit"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/your_project/**",
+    "src/discography_toolkit/**",
     "docs/**",
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
     "pyproject.toml",
 ]
+

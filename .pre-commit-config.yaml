@@ -22,3 +22,16 @@ repos:
         name: basedpyright (type checking)
         pass_filenames: true                       # analyze only staged files
         args: ["--project", "pyrightconfig.json"]
+
+
+# ================================================================================================================== #
+  #                                                       PYTEST                                                       #
+  # ================================================================================================================== #
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest (test suite)
+        entry: uv run pytest
+        language: system                           # use the project venv, not an isolated one
+        pass_filenames: false                      # project-scoped: editing one file can break another's test
+        always_run: true                           # run even when no test file is staged

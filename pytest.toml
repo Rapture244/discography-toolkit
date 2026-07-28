@@ -1,0 +1,14 @@
+# ============================================================================================================ #
+#                                                PYTEST CONFIG                                                 #
+# Root-level pytest.toml. Takes precedence over pyproject.toml, even when empty.
+# ============================================================================================================ #
+[pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+
+strict = true # unregistered markers, unknown config keys and passing xfails all error
+
+addopts = [
+    "--import-mode=importlib", # import by path, not name: no test filename collisions
+    "-ra",                     # summarize every non-passing test, not just failures
+]
