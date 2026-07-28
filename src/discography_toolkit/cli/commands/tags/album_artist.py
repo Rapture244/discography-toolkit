@@ -67,12 +67,21 @@ def album_artist(
         bool,
         typer.Option("--dry-run", help="Show what would change without writing."),
     ] = False,
+    credit: Annotated[
+        str | None,
+        typer.Option(
+            "--album-artist",
+            help="Force this Album Artist on every track, in place of the folder's name.",
+        ),
+    ] = None,
 ) -> None:
     """Write each track's Album Artist from the artist folder above it.
 
     Args:
         path: Folder to work beneath; prompted for if omitted.
         dry_run: Report what would change without writing.
+        credit: An Album Artist to force on every track; derived per
+            folder when omitted.
 
     Raises:
         typer.Exit: On an invalid path, no audio found, no artist folder
@@ -82,7 +91,9 @@ def album_artist(
     artists: list[Path] = find_artist_folders(target)
     echo_banner("Metadata: Album Artist", target.name, children=artist_names(target, artists))
 
-    if not artists:
+    # A forced credit needs no artist folders: it names every track alike,
+    # so a discography with none recognised yet is still taggable.
+    if not artists and credit is None:
         typer.secho(
             f"\nNo artist folder found at or beneath {target.name!r}.",
             fg=typer.colors.RED,
@@ -100,13 +111,15 @@ def album_artist(
         typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
-    _echo_artists(artists)
+    _echo_artists(artists, credit)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
-        plan = tagging.plan(tracks, [Tag.ALBUM_ARTIST], _wants(artists), on_progress=advance)
+        plan = tagging.plan(
+            tracks, [Tag.ALBUM_ARTIST], _wants(artists, credit), on_progress=advance
+        )
 
-    _echo_plan(plan, artists)
+    _echo_plan(plan, artists, credit)
 
     if dry_run:
         typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
@@ -140,18 +153,26 @@ def album_artist(
 # ==================================================================================== #
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
-def _wants(artists: Sequence[Path]) -> tagging.Desired:
+def _wants(artists: Sequence[Path], credit: str | None = None) -> tagging.Desired:
     """Build the value function: each track named for the folder above it.
+
+    A `credit` overrides that, forcing the same Album Artist on every
+    track whatever folder it sits under -- for a discography split across
+    collection folders that should read as one artist.
 
     Args:
         artists: The artist folders in scope.
+        credit: An Album Artist to force, or `None` to derive per folder.
 
     Returns:
         A `Desired` callable returning nothing for a track under none of
-        them, which leaves it untouched.
+        them, which leaves it untouched -- unless a credit is forced, when
+        every track takes it.
     """
 
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+        if credit is not None:
+            return {Tag.ALBUM_ARTIST: credit}
         name: str | None = _artist_of(track, artists)
         return {} if name is None else {Tag.ALBUM_ARTIST: name}
 
@@ -178,36 +199,47 @@ def _artist_of(track: Path, artists: Sequence[Path]) -> str | None:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _echo_artists(artists: Sequence[Path]) -> None:
+def _echo_artists(artists: Sequence[Path], credit: str | None = None) -> None:
     """Show the value each artist folder resolves to, before any writing.
 
     The derived name is the one decision this command makes, and it is
     about to go into hundreds of files, so it is shown rather than
-    inferred from the folder name.
+    inferred from the folder name. A forced credit is shown once, since it
+    is the value for every track.
 
     Args:
         artists: The artist folders in scope.
+        credit: The Album Artist being forced, or `None` to derive it.
     """
     label: str = typer.style("Album Artist ->", fg=typer.colors.GREEN, bold=True)
     typer.echo()
+    if credit is not None:
+        typer.echo(f"{label} {credit!r} (forced on every track)")
+        return
     for folder in artists:
         name: str | None = strip_artist_label(folder.name)
         typer.echo(f"{label} {name!r}")
 
 
-def _unresolved(plan: tagging.TagPlan, artists: Sequence[Path]) -> list[tagging.TrackOutcome]:
+def _unresolved(
+    plan: tagging.TagPlan, artists: Sequence[Path], credit: str | None = None
+) -> list[tagging.TrackOutcome]:
     """Find tracks sitting under no artist folder.
 
     They count as clean, since nothing was written, but they are a
-    different thing from a track already correct and worth naming.
+    different thing from a track already correct and worth naming. A
+    forced credit reaches every track, so none is unresolved.
 
     Args:
         plan: The plan to inspect.
         artists: The artist folders in scope.
+        credit: The Album Artist being forced, or `None`.
 
     Returns:
         Outcomes for tracks with no derivable Album Artist.
     """
+    if credit is not None:
+        return []
     return [
         outcome
         for outcome in plan.outcomes
@@ -215,14 +247,15 @@ def _unresolved(plan: tagging.TagPlan, artists: Sequence[Path]) -> list[tagging.
     ]
 
 
-def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path]) -> None:
+def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path], credit: str | None = None) -> None:
     """Render a plan as a summary box, plus anything that needs naming.
 
     Args:
         plan: The plan to summarize.
         artists: The artist folders in scope.
+        credit: The Album Artist being forced, or `None`.
     """
-    unresolved: list[tagging.TrackOutcome] = _unresolved(plan, artists)
+    unresolved: list[tagging.TrackOutcome] = _unresolved(plan, artists, credit)
     counts: list[list[SummaryRow]] = [
         [SummaryRow(label="Total", count=plan.total, indent="", percent=False)],
         [

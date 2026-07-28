@@ -169,3 +169,37 @@ def test_declining_changes_nothing(fresh_shelf: Callable[[], Path]) -> None:
 
     assert result.exit_code == 0
     assert (shelf / "Miles Davis" / "(1959) - kind of blue").is_dir()
+
+
+def test_organize_forces_a_credited_album_artist_across_collections(tmp_path: Path) -> None:
+    """--album-artist credits a whole collection tree to one artist.
+
+    Modelled on DJ Screw: an artist whose albums live inside un-numbered
+    collection folders, so each collection is laid out as its own scope.
+    Without the flag each would tag its own name; the flag makes every
+    track read as the one artist above them.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+
+    def album(collection: str, name: str) -> None:
+        folder: Path = tmp_path / "DJ Screw" / collection / name
+        folder.mkdir(parents=True)
+        sf.write(folder / "01 - track.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
+
+    album("Original CDs", "01. (1994) - bigtyme vol I")
+    album("Tapes", "DJ Screw - dusk 2 dawn (1996)")
+
+    result = runner.invoke(
+        app,
+        ["organize", "--path", str(tmp_path / "DJ Screw"), "--album-artist", "DJ Screw"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert "2 scope(s)" in result.stdout  # both collections named in the confirm
+    from discography_toolkit.core.layout import find_audio_files
+
+    for track in find_audio_files(tmp_path / "DJ Screw"):
+        assert metadata.read(track, [Tag.ALBUM_ARTIST])[Tag.ALBUM_ARTIST] == "DJ Screw"

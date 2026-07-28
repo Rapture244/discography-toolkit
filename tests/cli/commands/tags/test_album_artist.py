@@ -231,3 +231,42 @@ def test_the_per_track_artist_tag_is_untouched(shelf: Path) -> None:
     _ = runner.invoke(app, ["tags", "album-artist", "-p", str(shelf)], input="y\n")
 
     assert metadata.read(track, [Tag.TITLE])[Tag.TITLE] == "So What"
+
+
+def test_a_forced_credit_names_every_track_including_the_unowned(shelf: Path) -> None:
+    """--album-artist writes the same value everywhere, artist folder or not.
+
+    Even the loose track under no artist folder -- normally left alone --
+    takes the forced credit.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(
+        app, ["tags", "album-artist", "-p", str(shelf), "--album-artist", "DJ Screw"], input="y\n"
+    )
+
+    assert result.exit_code == 0
+    for track in shelf.rglob("*.flac"):
+        assert album_artist_of(track) == "DJ Screw"
+
+
+def test_a_forced_credit_needs_no_labelled_artist(tmp_path: Path) -> None:
+    """With a credit, an unlabelled folder is taggable, not an error.
+
+    Without the flag, no artist folder is a hard error; the credit
+    supplies the name the folder cannot, so the run proceeds.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    loose: Path = tmp_path / "Unsorted"
+    loose.mkdir()
+    _write_silence(loose / "track.flac")
+
+    result = runner.invoke(
+        app, ["tags", "album-artist", "-p", str(loose), "--album-artist", "DJ Screw"], input="y\n"
+    )
+
+    assert result.exit_code == 0
+    assert album_artist_of(loose / "track.flac") == "DJ Screw"

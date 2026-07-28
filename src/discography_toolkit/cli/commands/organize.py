@@ -52,11 +52,21 @@ def organize(
             resolve_path=True,
         ),
     ] = None,
+    credit: Annotated[
+        str | None,
+        typer.Option(
+            "--album-artist",
+            help="Force this Album Artist on every track, in place of the folder's name.",
+        ),
+    ] = None,
 ) -> None:
     """Lay out the folders and then write every folder-derived tag.
 
     Args:
         path: Folder to organize; prompted for if omitted.
+        credit: An Album Artist to force on every track; derived per
+            folder when omitted. Meant for a discography split across
+            collection folders that should read as one artist.
 
     Raises:
         typer.Exit: On an invalid path, no artist found, a user abort, or
@@ -80,6 +90,12 @@ def organize(
         raise typer.Exit(code=1)
 
     typer.echo()
+    if credit is not None:
+        scopes: int = len(artists)
+        typer.secho(
+            f"Forcing Album Artist = {credit!r} on every track under {target.name!r} ({scopes} scope(s)).",
+            fg=typer.colors.YELLOW,
+        )
     warning: str = f"This deletes Opus albums that duplicate a FLAC one, lays out {len(artists)} artist(s), and then writes every tag but genre. There is no dry run."
     typer.secho(warning, fg=typer.colors.YELLOW)
     if not typer.confirm("Proceed?"):
@@ -102,7 +118,7 @@ def organize(
         return
 
     typer.secho("\nTags", fg=typer.colors.CYAN, bold=True)
-    cover_report, tag_report = align_tags.run(albums, tracks, labelled)
+    cover_report, tag_report = align_tags.run(albums, tracks, labelled, credit)
 
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
     failures: int = len(cover_report.failures) + len(tag_report.failures)

@@ -90,12 +90,21 @@ def align_tags(
         bool,
         typer.Option("--dry-run", help="Show what would change without writing."),
     ] = False,
+    credit: Annotated[
+        str | None,
+        typer.Option(
+            "--album-artist",
+            help="Force this Album Artist on every track, in place of the folder's name.",
+        ),
+    ] = None,
 ) -> None:
     """Write every folder-derived tag -- covers, album, artist, year, title.
 
     Args:
         path: Folder to align beneath; prompted for if omitted.
         dry_run: Report what would change without writing.
+        credit: An Album Artist to force on every track; derived per
+            folder when omitted.
 
     Raises:
         typer.Exit: On an invalid path, no album found, no audio found, a
@@ -125,10 +134,15 @@ def align_tags(
         raise typer.Exit(code=0)
 
     if dry_run:
-        _preview(albums, tracks, artists)
+        _preview(albums, tracks, artists, credit)
         typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
         raise typer.Exit(code=0)
 
+    if credit is not None:
+        typer.secho(
+            f"\nForcing Album Artist = {credit!r} on every track under {target.name!r}.",
+            fg=typer.colors.YELLOW,
+        )
     if not typer.confirm(
         f"\nAlign tags beneath {target.name!r}? Settles covers, then album, artist, year, title."
     ):
@@ -136,12 +150,15 @@ def align_tags(
         raise typer.Exit(code=0)
 
     typer.echo()
-    cover_report, tag_report = run(albums, tracks, artists)
+    cover_report, tag_report = run(albums, tracks, artists, credit)
     _echo_summary(cover_report, tag_report)
 
 
 def run(
-    albums: Sequence[Path], tracks: Sequence[Path], artists: Sequence[Path]
+    albums: Sequence[Path],
+    tracks: Sequence[Path],
+    artists: Sequence[Path],
+    credit: str | None = None,
 ) -> tuple[covers.CoverReport, tagging.WriteReport]:
     """Settle the covers, then write the tags, each pass in sight.
 
@@ -152,19 +169,23 @@ def run(
         albums: The album folders in scope.
         tracks: Every audio file in scope.
         artists: The artist folders in scope.
+        credit: An Album Artist to force on every track, in place of the
+            one read from the folder above it; `None` derives it as usual.
 
     Returns:
         What the cover pass and the tag pass each did.
     """
     cover_report: covers.CoverReport = _run_covers(albums, artists)
-    tag_report: tagging.WriteReport = _run_tags(tracks, albums, artists)
+    tag_report: tagging.WriteReport = _run_tags(tracks, albums, artists, credit)
     return cover_report, tag_report
 
 
 # ==================================================================================== #
 #                                   VALUE DERIVATION                                   #
 # ==================================================================================== #
-def _wants(albums: Sequence[Path], artists: Sequence[Path]) -> tagging.Desired:
+def _wants(
+    albums: Sequence[Path], artists: Sequence[Path], credit: str | None = None
+) -> tagging.Desired:
     """Build the value function reading all four text tags off the folders.
 
     Each tag is derived exactly as its own command derives it: the Album
@@ -174,9 +195,15 @@ def _wants(albums: Sequence[Path], artists: Sequence[Path]) -> tagging.Desired:
     already there. A tag with nothing to derive is left out, which leaves
     that field untouched.
 
+    A `credit` overrides the Album Artist for every track, whatever folder
+    it sits under -- the one way a track's Album Artist is not read from
+    its own folder, so a discography split across collection folders can
+    still be credited to the one artist above them.
+
     Args:
         albums: The album folders in scope.
         artists: The artist folders in scope.
+        credit: An Album Artist to force, or `None` to derive it.
 
     Returns:
         A `Desired` callable for the combined tagging pass.
@@ -192,11 +219,14 @@ def _wants(albums: Sequence[Path], artists: Sequence[Path]) -> tagging.Desired:
             if token is not None:
                 wanted[Tag.DATE] = "" if is_approximate_year(token) else token
 
-        artist: Path | None = owning_folder(track, artists)
-        if artist is not None:
-            name: str | None = strip_artist_label(artist.name)
-            if name is not None:
-                wanted[Tag.ALBUM_ARTIST] = name
+        if credit is not None:
+            wanted[Tag.ALBUM_ARTIST] = credit
+        else:
+            artist: Path | None = owning_folder(track, artists)
+            if artist is not None:
+                name: str | None = strip_artist_label(artist.name)
+                if name is not None:
+                    wanted[Tag.ALBUM_ARTIST] = name
 
         # Recased in place, exactly as the title command does it: an
         # absent title cases to nothing, compares equal, and is left be.
@@ -236,7 +266,10 @@ def _run_covers(albums: Sequence[Path], artists: Sequence[Path]) -> covers.Cover
 
 
 def _run_tags(
-    tracks: Sequence[Path], albums: Sequence[Path], artists: Sequence[Path]
+    tracks: Sequence[Path],
+    albums: Sequence[Path],
+    artists: Sequence[Path],
+    credit: str | None = None,
 ) -> tagging.WriteReport:
     """Read all four tags in one scan and write them in one save per file.
 
@@ -249,13 +282,16 @@ def _run_tags(
         tracks: Every audio file in scope.
         albums: The album folders in scope.
         artists: The artist folders in scope.
+        credit: An Album Artist to force on every track, or `None`.
 
     Returns:
         What the pass did, counted in files written.
     """
     with make_progress() as progress:
         advance = make_advancer(progress, "Tags: scanning", tracks, artists)
-        plan = tagging.plan(tracks, _TEXT_TAGS, _wants(albums, artists), on_progress=advance)
+        plan = tagging.plan(
+            tracks, _TEXT_TAGS, _wants(albums, artists, credit), on_progress=advance
+        )
 
     breakdown: dict[Tag, int] = _breakdown(plan)
 
@@ -338,13 +374,19 @@ def _echo_breakdown(breakdown: Mapping[Tag, int], failures: Sequence[tuple[Path,
         typer.secho(f"      {str(failed)!r} - {detail}", fg=typer.colors.RED)
 
 
-def _preview(albums: Sequence[Path], tracks: Sequence[Path], artists: Sequence[Path]) -> None:
+def _preview(
+    albums: Sequence[Path],
+    tracks: Sequence[Path],
+    artists: Sequence[Path],
+    credit: str | None = None,
+) -> None:
     """Plan both passes and report their counts, without writing.
 
     Args:
         albums: The album folders in scope.
         tracks: Every audio file in scope.
         artists: The artist folders in scope.
+        credit: An Album Artist to force on every track, or `None`.
     """
     typer.echo()
     with make_progress(noun="albums") as progress:
@@ -355,7 +397,9 @@ def _preview(albums: Sequence[Path], tracks: Sequence[Path], artists: Sequence[P
 
     with make_progress() as progress:
         advance = make_advancer(progress, "Tags: scanning", tracks, artists)
-        plan = tagging.plan(tracks, _TEXT_TAGS, _wants(albums, artists), on_progress=advance)
+        plan = tagging.plan(
+            tracks, _TEXT_TAGS, _wants(albums, artists, credit), on_progress=advance
+        )
 
     breakdown: dict[Tag, int] = _breakdown(plan)
     for tag, name, _verb in _TAG_LABELS:

@@ -278,3 +278,27 @@ def test_genre_is_never_touched(shelf: Callable[..., Path]) -> None:
     _ = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
     assert metadata.read(track, [Tag.GENRE])[Tag.GENRE] == "Jazz"
+
+
+def test_a_forced_album_artist_overrides_the_folder(shelf: Callable[..., Path]) -> None:
+    """--album-artist wins over the name derived from the artist folder.
+
+    The folder says "Miles Davis"; the flag says "DJ Screw", and it is
+    the flag that lands in the file. The other tags are unaffected.
+
+    Args:
+        shelf: Factory building a laid-out artist.
+    """
+    track: Path = shelf(title="So What")
+
+    result = runner.invoke(
+        app,
+        ["align-tags", "--path", str(track.parents[3]), "--album-artist", "DJ Screw"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    tags = tags_of(track)
+    assert tags[Tag.ALBUM_ARTIST] == "DJ Screw"
+    assert tags[Tag.ALBUM] == "01. (1959) - Kind of Blue [FLAC]"  # still folder-derived
+    assert "DJ Screw" in result.stdout  # named in the confirmation
