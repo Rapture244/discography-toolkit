@@ -159,3 +159,89 @@ def test_nothing_to_prune_deletes_nothing(shelf: Callable[..., Path]) -> None:
 
     assert report.deleted == 0
     assert flac.exists()
+
+
+# ==================================================================================== #
+#                                      DUPLICATES                                      #
+# ==================================================================================== #
+def test_duplicates_groups_one_album_held_twice(shelf: Callable[..., Path]) -> None:
+    """Two folders sharing a year and title are one album twice.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    first: Path = shelf("16. (2021) - The World Is Still Chaos [FLAC]")
+    second: Path = shelf("17. (2021) - the world is still chaos [FLAC]")
+
+    groups = pruning.duplicates([first, second])
+
+    assert len(groups) == 1
+    assert set(groups[0]) == {first, second}
+
+
+def test_duplicates_finds_none_among_distinct_albums(shelf: Callable[..., Path]) -> None:
+    """Different records are different, however alike they are indexed.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    first: Path = shelf("01. (1959) - Kind of Blue [FLAC]")
+    second: Path = shelf("02. (1970) - Bitches Brew [FLAC]")
+
+    assert pruning.duplicates([first, second]) == ()
+
+
+def test_duplicates_looks_past_the_index_and_the_ep_marker(
+    shelf: Callable[..., Path],
+) -> None:
+    """Identity is the year and the title, and nothing that dresses them.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    first: Path = shelf("02. (2011) - Old Soul (EP) [FLAC]")
+    second: Path = shelf("09. (2011) - EP Old Soul")
+
+    assert len(pruning.duplicates([first, second])) == 1
+
+
+def test_duplicates_tells_two_years_of_one_title_apart(shelf: Callable[..., Path]) -> None:
+    """A rerecording is its own album, and the year is what says so.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    first: Path = shelf("01. (1959) - Kind of Blue [FLAC]")
+    second: Path = shelf("02. (1997) - Kind of Blue [FLAC]")
+
+    assert pruning.duplicates([first, second]) == ()
+
+
+def test_duplicates_groups_three_copies_together(shelf: Callable[..., Path]) -> None:
+    """One identity, one group, however many folders share it.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    copies: list[Path] = [
+        shelf("01. (1959) - Kind of Blue [FLAC]"),
+        shelf("02. (1959) - Kind of Blue"),
+        shelf("03. (1959) - kind of blue [FLAC]"),
+    ]
+
+    groups = pruning.duplicates(copies)
+
+    assert len(groups) == 1
+    assert len(groups[0]) == 3
+
+
+def test_an_opus_copy_is_a_duplicate_too(shelf: Callable[..., Path]) -> None:
+    """This only groups; excluding what pruning settles is the caller's job.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    opus_copy: Path = shelf("02. (1999) - Mapouka [OPUS]", ".opus")
+    lossless: Path = shelf("01. (1999) - Mapouka [FLAC]", ".flac")
+
+    assert len(pruning.duplicates([opus_copy, lossless])) == 1

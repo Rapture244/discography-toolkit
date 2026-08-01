@@ -14,6 +14,14 @@ it. That is also why there is no dry run: a preview of step two would be
 a preview of a tree that does not exist yet, since step one has not run.
 The single confirmation stands in for it.
 
+An artist is checked before any of it runs, and skipped whole where the
+check fails: two FLAC containers cannot be merged without guessing, and
+an album held twice cannot be numbered into one sequence -- one of the
+copies would take a place that is not its own, and which to keep is not
+the tool's call. Skipping before the first write is what keeps a refused
+artist untouched rather than half laid out, and the run carries on to
+the rest.
+
 Artists are found by their audio rather than a label, since the label is
 what this pass creates -- an artist has none until it has been here. An
 artist whose albums are every one an empty placeholder holds no audio to
@@ -22,7 +30,7 @@ find, and is left for a path pointed straight at it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Runtime import, not a type-checking one: Typer reads a command's
 # annotations at registration, so every name in the signature must exist
@@ -54,8 +62,26 @@ if TYPE_CHECKING:
 
 
 # ==================================================================================== #
-#                                     RESULT TYPE                                      #
+#                                     RESULT TYPES                                     #
 # ==================================================================================== #
+@dataclass(frozen=True, slots=True)
+class Skipped:
+    """An artist the pass refused, and why.
+
+    Attributes:
+        artist: The artist folder, untouched.
+        reason: The short phrase naming the problem, for the line and the
+            closing summary.
+        details: The specifics a person needs to go and fix it -- the
+            colliding folder names, say. Empty where the reason says all
+            there is.
+    """
+
+    artist: Path
+    reason: str
+    details: tuple[str, ...] = field(default=())
+
+
 @dataclass(frozen=True, slots=True)
 class ArtistResult:
     """What laying out one artist changed.
@@ -147,11 +173,11 @@ def layout(
         raise typer.Exit(code=0)
 
     typer.echo()
-    results, blocked = run(artists)
-    _echo_summary(results, blocked)
+    results, skipped = run(artists)
+    _echo_summary(results, skipped)
 
 
-def run(artists: Sequence[Path]) -> tuple[list[ArtistResult], list[Path]]:
+def run(artists: Sequence[Path]) -> tuple[list[ArtistResult], list[Skipped]]:
     """Lay out each artist in turn, printing its line as it finishes.
 
     The loop the command runs after confirming, lifted out so the
@@ -161,25 +187,86 @@ def run(artists: Sequence[Path]) -> tuple[list[ArtistResult], list[Path]]:
         artists: The artist folders to lay out.
 
     Returns:
-        The result for each artist laid out, and the artists skipped for
-        holding more than one container.
+        The result for each artist laid out, and one entry per artist
+        refused before anything was written.
     """
     results: list[ArtistResult] = []
-    blocked: list[Path] = []
+    skipped: list[Skipped] = []
     for artist in artists:
-        if len(find_containers(artist)) > 1:
-            # Two containers cannot be merged without guessing, so the
-            # artist is skipped whole rather than half-laid-out.
-            blocked.append(artist)
-            typer.secho(
-                f"  skipped  {artist.name!r} -- more than one FLAC container", fg=typer.colors.RED
-            )
+        refusal: Skipped | None = _check(artist)
+        if refusal is not None:
+            skipped.append(refusal)
+            _echo_skip(refusal)
             continue
         result: ArtistResult = _lay_out(artist)
         results.append(result)
         _echo_artist(result)
 
-    return results, blocked
+    return results, skipped
+
+
+# ==================================================================================== #
+#                                     THE GUARDS                                       #
+# ==================================================================================== #
+def _check(artist: Path) -> Skipped | None:
+    """Decide whether an artist can be laid out at all.
+
+    Runs before the first write, so an artist that fails is left exactly
+    as it was rather than part-way through the protocol.
+
+    Args:
+        artist: The artist folder to check.
+
+    Returns:
+        The refusal, or `None` when the artist is fit to lay out.
+    """
+    if len(find_containers(artist)) > 1:
+        # Two containers cannot be merged without guessing which is the
+        # real one, so the artist is skipped whole.
+        return Skipped(artist=artist, reason="more than one FLAC container")
+
+    repeats: tuple[tuple[Path, ...], ...] = _unresolved_duplicates(artist)
+    if repeats:
+        return Skipped(
+            artist=artist,
+            reason=f"{len(repeats)} album(s) held more than once",
+            details=tuple(_describe(group) for group in repeats),
+        )
+
+    return None
+
+
+def _unresolved_duplicates(artist: Path) -> tuple[tuple[Path, ...], ...]:
+    """Find albums held twice that pruning will not settle by itself.
+
+    Pruning's own duplicates are excluded, since an Opus copy of a
+    lossless album has an answer and is about to get it. What is left is
+    two copies neither of which can remake the other, and choosing
+    between them means looking at tags, artwork or a mis-ripped track --
+    a judgement, not a rule.
+
+    Args:
+        artist: The artist folder to inspect.
+
+    Returns:
+        One tuple per repeated identity, each holding the folders that
+        share it.
+    """
+    albums: list[Path] = discover_albums(artist)
+    doomed: set[Path] = {prune.album for prune in pruning.plan(albums).prunes}
+    return pruning.duplicates([album for album in albums if album not in doomed])
+
+
+def _describe(group: Sequence[Path]) -> str:
+    """Name one set of duplicate folders, for the refusal's detail line.
+
+    Args:
+        group: Folders sharing one identity.
+
+    Returns:
+        Their names, comma-joined.
+    """
+    return ", ".join(f"{album.name!r}" for album in group)
 
 
 # ==================================================================================== #
@@ -237,6 +324,17 @@ def _lay_out(artist: Path) -> ArtistResult:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
+def _echo_skip(refusal: Skipped) -> None:
+    """Print the line for an artist the pass refused.
+
+    Args:
+        refusal: Why it was refused.
+    """
+    typer.secho(f"  skipped  {refusal.artist.name!r} -- {refusal.reason}", fg=typer.colors.RED)
+    for detail in refusal.details:
+        typer.secho(f"      {detail}", fg=typer.colors.BRIGHT_BLACK)
+
+
 def _echo_artist(result: ArtistResult) -> None:
     """Print one line for an artist as it finishes, plus its changes.
 
@@ -288,12 +386,32 @@ def _phrase(result: ArtistResult) -> str:
     return ", ".join(parts)
 
 
-def _echo_summary(results: list[ArtistResult], blocked: list[Path]) -> None:
+def echo_skipped(skipped: Sequence[Skipped]) -> None:
+    """List every refused artist at the end of a run.
+
+    Named rather than left inline because both this command and organize
+    close on the same list, and a person reading a run of sixty artists
+    needs the refusals gathered where the totals are, not scrolled past.
+
+    Args:
+        skipped: The artists refused, in the order they were met.
+    """
+    if not skipped:
+        return
+
+    typer.secho(f"{len(skipped)} artist(s) skipped -- resolve and rerun:", fg=typer.colors.RED)
+    for refusal in skipped:
+        typer.secho(f"  {refusal.artist.name!r} -- {refusal.reason}", fg=typer.colors.RED)
+        for detail in refusal.details:
+            typer.secho(f"      {detail}", fg=typer.colors.BRIGHT_BLACK)
+
+
+def _echo_summary(results: list[ArtistResult], skipped: list[Skipped]) -> None:
     """Print the closing totals across every artist.
 
     Args:
         results: What each processed artist changed.
-        blocked: Artists skipped for holding two containers.
+        skipped: The artists refused before anything was written.
     """
     changed: int = sum(1 for result in results if result.changed)
     failures: int = sum(result.failures for result in results)
@@ -304,11 +422,7 @@ def _echo_summary(results: list[ArtistResult], blocked: list[Path]) -> None:
         fg=typer.colors.GREEN,
         bold=True,
     )
-    if blocked:
-        typer.secho(
-            f"{len(blocked)} artist(s) skipped -- resolve their containers and rerun.",
-            fg=typer.colors.RED,
-        )
+    echo_skipped(skipped)
     if lowercase_eps:
         typer.secho(
             f'{lowercase_eps} album(s) carry a lower-case "ep" -- capitalise the ones that are markers and rerun.',

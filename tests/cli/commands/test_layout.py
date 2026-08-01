@@ -292,3 +292,73 @@ def test_confirming_the_prompt_proceeds(messy_artist: Callable[[], Path]) -> Non
 
     assert result.exit_code == 0
     assert (parent / "Miles Davis - [4 \u2022 2F \u2022 1L \u2022 1M]").is_dir()
+
+
+def test_one_album_held_twice_skips_the_artist(tmp_path: Path) -> None:
+    """Neither copy can be numbered into the sequence, so nothing runs.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "L'Orange"
+    flac(artist / "16. (2021) - The World Is Still Chaos")
+    flac(artist / "17. (2021) - the world is still chaos")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert result.exit_code == 0
+    assert "held more than once" in result.stdout
+    # Refused before the first write, so both folders stand as they were,
+    # unlabelled and uncased.
+    assert (artist / "16. (2021) - The World Is Still Chaos").is_dir()
+    assert (artist / "17. (2021) - the world is still chaos").is_dir()
+
+
+def test_the_colliding_folders_are_named(tmp_path: Path) -> None:
+    """Knowing which artist is not enough to go and fix it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "L'Orange"
+    flac(artist / "16. (2021) - Chaos")
+    flac(artist / "17. (2021) - chaos")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert "16. (2021) - Chaos" in result.stdout
+    assert "17. (2021) - chaos" in result.stdout
+
+
+def test_a_refusal_is_repeated_in_the_summary(tmp_path: Path) -> None:
+    """A run of sixty needs its refusals gathered where the totals are.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "L'Orange"
+    flac(artist / "16. (2021) - Chaos")
+    flac(artist / "17. (2021) - chaos")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert "artist(s) skipped -- resolve and rerun" in result.stdout
+
+
+def test_an_opus_duplicate_does_not_trip_the_guard(tmp_path: Path) -> None:
+    """Pruning has an answer for that one, so the guard leaves it alone.
+
+    The end-to-end test above proves the Opus is deleted; this proves the
+    pair is not mistaken for a collision on the way there.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "DJ Example"
+    opus(artist / "02. (1999) - mapouka [OPUS]")
+    flac(artist / "FLAC" / "01. (1999) - mapouka [FLAC]")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert result.exit_code == 0
+    assert "held more than once" not in result.stdout

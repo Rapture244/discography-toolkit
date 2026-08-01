@@ -15,10 +15,17 @@ nothing to remake it from, is left exactly where it is.
 
 Planning never deletes. Applying removes the folders the plan named, one
 failure recorded and the run continued rather than the rest abandoned.
+
+That one duplicate is the only one with an answer. Two albums of the
+same tier are a different matter -- neither is derivable from the other,
+and which to keep is a judgement about tags, artwork or a mis-ripped
+track that no rule reaches. `duplicates` finds those and says so; what
+happens next belongs to whoever is looking.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 import shutil
 from typing import TYPE_CHECKING
@@ -150,6 +157,33 @@ def apply(
             on_progress(prune.album)
 
     return PruneReport(deleted=deleted, failures=tuple(failures))
+
+
+def duplicates(albums: Sequence[Path]) -> tuple[tuple[Path, ...], ...]:
+    """Group albums that are the same record held more than once.
+
+    The same identity `plan` prunes on, asked of every album rather than
+    only the Opus ones: two folders sharing a year and title are one
+    album twice however they are indexed, contained or tagged.
+
+    Nothing is proposed. An Opus copy of a lossless album has an obvious
+    resolution and `plan` takes it; anything left over does not, so this
+    only reports. Call it on what pruning would leave behind, or a pair
+    it is about to settle reads as a problem it has already solved.
+
+    Args:
+        albums: One artist's album folders, the container already
+            unwrapped.
+
+    Returns:
+        One tuple per repeated identity, each holding the folders that
+        share it, in the order given. Empty when every album is its own.
+    """
+    grouped: defaultdict[tuple[str | None, str], list[Path]] = defaultdict(list)
+    for album in albums:
+        grouped[_identity(album.name)].append(album)
+
+    return tuple(tuple(group) for group in grouped.values() if len(group) > 1)
 
 
 # ==================================================================================== #

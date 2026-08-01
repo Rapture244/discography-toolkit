@@ -103,7 +103,7 @@ def organize(
         raise typer.Exit(code=0)
 
     typer.secho("\nLayout", fg=typer.colors.CYAN, bold=True)
-    results, blocked = layout.run(artists)
+    results, skipped = layout.run(artists)
 
     # Layout has just labelled the artists, so they are now findable the
     # ordinary way. If the target was itself a lone artist, it was renamed
@@ -114,7 +114,7 @@ def organize(
     tracks: list[Path] = find_audio_files(root)
 
     if not albums:
-        _echo_summary(results, blocked, tagged=0, settled=0, failures=0)
+        _echo_summary(results, skipped, tagged=0, settled=0, failures=0)
         return
 
     typer.secho("\nTags", fg=typer.colors.CYAN, bold=True)
@@ -122,7 +122,7 @@ def organize(
 
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
     failures: int = len(cover_report.failures) + len(tag_report.failures)
-    _echo_summary(results, blocked, tagged=tag_report.written, settled=settled, failures=failures)
+    _echo_summary(results, skipped, tagged=tag_report.written, settled=settled, failures=failures)
 
 
 # ==================================================================================== #
@@ -130,7 +130,7 @@ def organize(
 # ==================================================================================== #
 def _echo_summary(
     results: list[layout.ArtistResult],
-    blocked: list[Path],
+    skipped: list[layout.Skipped],
     *,
     tagged: int,
     settled: int,
@@ -140,7 +140,8 @@ def _echo_summary(
 
     Args:
         results: What each laid-out artist changed.
-        blocked: Artists skipped for holding two containers.
+        skipped: Artists the layout half refused, each carrying its own
+            reason -- two containers, or an album held more than once.
         tagged: How many files the tag pass wrote.
         settled: How many cover changes were settled.
         failures: How many write operations failed across the run.
@@ -149,10 +150,6 @@ def _echo_summary(
 
     summary: str = f"\nDone. {changed} of {len(results)} artist(s) laid out; {settled} cover change(s) settled, {tagged} file(s) tagged."
     typer.secho(summary, fg=typer.colors.GREEN, bold=True)
-    if blocked:
-        typer.secho(
-            f"{len(blocked)} artist(s) skipped -- resolve their containers and rerun.",
-            fg=typer.colors.RED,
-        )
+    layout.echo_skipped(skipped)
     if failures:
         typer.secho(f"{failures} operation(s) failed during writing.", fg=typer.colors.RED)
