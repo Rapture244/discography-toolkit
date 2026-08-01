@@ -102,6 +102,23 @@ _MISSING_MARKER_RE: Final[re.Pattern[str]] = re.compile(r"^(?:⚠|M)\s*-\s*")
 # rest of it survives.
 _ANY_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
 
+# The extended-play marker, in any of the shapes it is typed in: bare
+# "EP", "(EP)" or "[EP]", anywhere in the name. Word-bounded, so it can
+# never eat into a title -- "Epitaph", "Epic", "EPMD" all carry an
+# adjoining letter and so cannot match -- and case-sensitive, so only
+# the all-capital marker counts. The convention writes it in capitals,
+# standing apart with spaces around it, and a lower-case "ep" is as
+# likely to be a word as a marker.
+EP_MARKER: Final[str] = "EP"
+_EP_MARKER_RE: Final[re.Pattern[str]] = re.compile(rf"\b{EP_MARKER}\b")
+
+# A lower- or mixed-case "ep" standing as its own word, which is not
+# taken as a marker but is worth pointing out: it is usually one typed
+# in the wrong case, and only a person can say which. The lookahead
+# excludes the all-capital form, which `_EP_MARKER_RE` has already
+# claimed.
+_EP_LOWERCASE_RE: Final[re.Pattern[str]] = re.compile(rf"\b(?!{EP_MARKER}\b)[Ee][Pp]\b")
+
 # A "FLAC" or "OPUS" word, case-insensitive, bounded so it cannot match
 # inside an unrelated word. Only applied to text already inside a
 # bracket, where a quality word is unambiguous.
@@ -448,6 +465,75 @@ def split_missing_marker(name: str) -> tuple[bool, str]:
 
 
 # ==================================================================================== #
+#                                      EP MARKER                                       #
+# ==================================================================================== #
+def split_ep_marker(name: str) -> tuple[bool, str]:
+    """Take an extended-play marker off a name, reporting it as a flag.
+
+    The marker is typed in every shape and every place -- a bare "EP" at
+    the front, "(EP)" after the title, "[EP]" among other tags -- so it
+    is found wherever it sits and reported as a fact rather than a
+    string. Emitting it in one canonical place is the caller's job, which
+    is what makes the position settled.
+
+    Where the marker shares a bracket with something worth keeping --
+    "[EP, Remastered]" -- only the marker is cut and the rest of the
+    bracket is rebuilt in the same style and place, as the quality word
+    is. A bracket holding only the marker goes entirely.
+
+    Only the all-capital form counts. A lower-case "ep" is as likely to
+    be an ordinary word as a marker, and eating a word of the title is
+    the worse error of the two; `has_lowercase_ep` points those out
+    instead, for a person to settle.
+
+    Args:
+        name: A name, past year extraction.
+
+    Returns:
+        An `(is_ep, remainder)` pair. `remainder` has the marker removed
+        and its surroundings tidied, or is the name unchanged when there
+        is none.
+    """
+    for wrapped in _ANY_WRAPPED_RE.finditer(name):
+        parens, brackets = wrapped.group(1), wrapped.group(2)
+        is_paren: bool = parens is not None
+        content: str = parens if is_paren else brackets
+        opening, closing = ("(", ")") if is_paren else ("[", "]")
+
+        marker: re.Match[str] | None = _EP_MARKER_RE.search(content)
+        if marker is None:
+            continue
+
+        kept: str = content[: marker.start()] + content[marker.end() :]
+        kept = _MULTI_SPACE_RE.sub(" ", kept.strip(" ,")).strip()
+        replacement: str = f"{opening}{kept}{closing}" if kept else ""
+        return True, clean_name(name[: wrapped.start()] + replacement + name[wrapped.end() :])
+
+    bare: re.Match[str] | None = _EP_MARKER_RE.search(name)
+    if bare is None:
+        return False, name
+    # A space bridges the cut, so a marker taken from the middle of a
+    # name does not weld the words either side of it together.
+    return True, clean_name(f"{name[: bare.start()]} {name[bare.end() :]}")
+
+
+def has_lowercase_ep(name: str) -> bool:
+    """Report whether a name carries an "ep" written in the wrong case.
+
+    Not a marker, since only the all-capital form is taken as one, but
+    worth a person's eye: it is usually a marker typed carelessly, and
+    only they can say whether it is that or an ordinary word.
+
+    Args:
+        name: The album folder's name.
+
+    Returns:
+        `True` when a lower- or mixed-case "ep" stands as its own word.
+    """
+    return _EP_LOWERCASE_RE.search(name) is not None
+
+
+# ==================================================================================== #
 #                                     QUALITY TAG                                      #
 # ==================================================================================== #
 def strip_quality_tag(name: str) -> str:
@@ -519,10 +605,10 @@ def album_title(name: str) -> str:
     """Read the bare title out of an album folder's name.
 
     The whole convention comes off -- the pin mark, the numbering index,
-    the year, the availability marker, the quality word -- leaving what
-    the album is actually called. Everything removed describes where the
-    album sits on this shelf or how this copy of it was ripped, and none
-    of that means anything to anyone else's library.
+    the year, the availability marker, the EP marker, the quality word --
+    leaving what the album is actually called. Everything removed
+    describes where the album sits on this shelf or how this copy of it
+    was ripped, and none of that means anything to anyone else's library.
 
     The same sequence `naming` walks when it rebuilds a folder name,
     named here for the callers that want only its end. Casing is not
@@ -540,6 +626,7 @@ def album_title(name: str) -> str:
     _, rest = split_index(rest)
     _, rest = split_year(rest)
     _, rest = split_missing_marker(rest)
+    _, rest = split_ep_marker(rest)
     return clean_name(strip_quality_tag(rest))
 
 

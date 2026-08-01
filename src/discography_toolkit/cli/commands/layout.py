@@ -69,6 +69,8 @@ class ArtistResult:
         moved: Albums moved across the container.
         labelled: Whether the artist folder was renamed.
         failures: How many individual operations failed.
+        lowercase_eps: Albums carrying an "ep" in the wrong case, left
+            alone for a person to settle. Not a change -- a notice.
     """
 
     artist: Path
@@ -79,6 +81,7 @@ class ArtistResult:
     moved: int
     labelled: bool
     failures: int
+    lowercase_eps: int = 0
 
     @property
     def changed(self) -> bool:
@@ -198,7 +201,11 @@ def _lay_out(artist: Path) -> ArtistResult:
         A tally of what changed.
     """
     pruned = pruning.apply(pruning.plan(discover_albums(artist)))
-    named = naming.apply(naming.plan(discover_albums(artist)))
+    # The naming plan is held rather than passed straight through: it
+    # carries what the pass noticed but would not act on, which the
+    # report reads once the renames are done.
+    name_plan = naming.plan(discover_albums(artist))
+    named = naming.apply(name_plan)
     numbered = numbering.apply(numbering.plan(discover_albums(artist)))
     cased = track_naming.apply(track_naming.plan(find_audio_files(artist)))
     placed = placement.apply(placement.plan(artist))
@@ -223,6 +230,7 @@ def _lay_out(artist: Path) -> ArtistResult:
         moved=placed.moved,
         labelled=labelled.renamed,
         failures=failures,
+        lowercase_eps=len(name_plan.lowercase_eps),
     )
 
 
@@ -234,19 +242,25 @@ def _echo_artist(result: ArtistResult) -> None:
 
     The name carries its own outcome -- a fresh label means it was laid
     out -- so it stands alone, green when something changed and dim when
-    nothing did. What changed is listed beneath it.
+    nothing did. What changed is listed beneath it, and beneath that
+    anything the pass noticed but would not act on.
 
     Args:
         result: What laying the artist out changed.
     """
-    if not result.changed:
+    if result.changed:
+        typer.secho(f"  {result.artist.name!r}", fg=typer.colors.GREEN)
+        typer.secho(f"      {_phrase(result)}", fg=typer.colors.BRIGHT_BLACK)
+    else:
         typer.secho(f"  {result.artist.name!r}", fg=typer.colors.BRIGHT_BLACK)
-        return
 
-    typer.secho(f"  {result.artist.name!r}", fg=typer.colors.GREEN)
-    typer.secho(f"      {_phrase(result)}", fg=typer.colors.BRIGHT_BLACK)
     if result.failures:
         typer.secho(f"      {result.failures} operation(s) failed", fg=typer.colors.RED)
+    if result.lowercase_eps:
+        typer.secho(
+            f'      {result.lowercase_eps} album(s) carry a lower-case "ep" -- left as written',
+            fg=typer.colors.YELLOW,
+        )
 
 
 def _phrase(result: ArtistResult) -> str:
@@ -283,6 +297,7 @@ def _echo_summary(results: list[ArtistResult], blocked: list[Path]) -> None:
     """
     changed: int = sum(1 for result in results if result.changed)
     failures: int = sum(result.failures for result in results)
+    lowercase_eps: int = sum(result.lowercase_eps for result in results)
 
     typer.secho(
         f"\nDone. {changed} of {len(results)} artist(s) changed.",
@@ -293,6 +308,11 @@ def _echo_summary(results: list[ArtistResult], blocked: list[Path]) -> None:
         typer.secho(
             f"{len(blocked)} artist(s) skipped -- resolve their containers and rerun.",
             fg=typer.colors.RED,
+        )
+    if lowercase_eps:
+        typer.secho(
+            f'{lowercase_eps} album(s) carry a lower-case "ep" -- capitalise the ones that are markers and rerun.',
+            fg=typer.colors.YELLOW,
         )
     if failures:
         typer.secho(f"{failures} operation(s) failed across the run.", fg=typer.colors.RED)

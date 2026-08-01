@@ -2,10 +2,11 @@
 """Rebuilding an album folder's name from its parts.
 
 A folder name carries an order that the eye reads and a player never
-sees: a "©" pin, a numbering index, the year, a title, and -- for the
-albums held losslessly -- a quality tag. Names drift, get typed in
-different shapes, keep a stale tag after a transcode. This reads a name
-back into its parts and writes them out in one settled form.
+sees: a "©" pin, a numbering index, the year, a title, an "(EP)" marker
+where the release is one, and -- for the albums held losslessly -- a
+quality tag. Names drift, get typed in different shapes, keep a stale tag
+after a transcode. This reads a name back into its parts and writes them
+out in one settled form.
 
 The quality tag is never trusted from the name; it is decided from the
 files, which is where the "M"/"⚠" markers come in. "M" is a claim that
@@ -15,6 +16,13 @@ tool will not settle is a name that claims missing over a folder that
 holds audio -- that could be an album finally acquired, or files that
 strayed in, and those resolve in opposite directions. It gets the "⚠"
 marker and a person makes the call.
+
+The EP marker is trusted from the name, since nothing on disk says
+whether a release is one. It is found wherever it was typed -- a bare
+"EP" at the front, "(EP)" or "[EP]" anywhere -- and re-emitted in one
+place: after the title, ahead of the quality tag, so the eye finds it
+where it expects to. An "ep" in the wrong case is not taken as a marker
+but is reported, since only a person can say whether it was one.
 
 Planning never writes. It reads each name, works out what it should be,
 and records the difference, so the whole rename can be shown before any
@@ -44,6 +52,11 @@ _QUALITY_TAG: Final[Mapping[AudioTier, str]] = {
     AudioTier.LOSSLESS: " [FLAC]",
     AudioTier.OPUS: " [OPUS]",
 }
+
+# The one shape an extended-play marker is written in, wherever it was
+# found. Parenthesised rather than bracketed, so it reads as part of what
+# the release is while the square brackets stay the format's.
+_EP_TAG: Final[str] = f" ({names.EP_MARKER})"
 
 # The name a folder wears mid-rename, for a change that only alters case.
 # On a case-insensitive filesystem the source and target are one folder
@@ -76,6 +89,11 @@ class AlbumName:
             holds audio.
         newly_missing: An "M" this run added, where the name had none --
             worth surfacing, since it is the tool declaring an album lost.
+        is_ep: The name carried an extended-play marker, in some shape.
+        lowercase_ep: The name carried an "ep" in the wrong case, which
+            was left alone -- worth surfacing, since it is as likely a
+            miscased marker as an ordinary word and only a person can
+            say which.
     """
 
     album: Path
@@ -85,6 +103,8 @@ class AlbumName:
     missing: bool = False
     conflict: bool = False
     newly_missing: bool = False
+    is_ep: bool = False
+    lowercase_ep: bool = False
 
     @property
     def skipped(self) -> bool:
@@ -158,6 +178,11 @@ class NamePlan:
     def newly_missing(self) -> tuple[AlbumName, ...]:
         """Albums this run newly declared missing, worth a person's eye."""
         return tuple(outcome for outcome in self.outcomes if outcome.newly_missing)
+
+    @property
+    def lowercase_eps(self) -> tuple[AlbumName, ...]:
+        """Albums carrying a miscased "ep", left alone and worth an eye."""
+        return tuple(outcome for outcome in self.outcomes if outcome.lowercase_ep)
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,7 +269,8 @@ def _examine(album: Path) -> AlbumName:
     The year is the pivot: without one there is nothing to anchor a name
     around, so the album is skipped. With one, the marker and quality tag
     are decided from the files rather than the name, which is what lets a
-    stale tag be dropped and a lost album be flagged.
+    stale tag be dropped and a lost album be flagged. The EP marker is
+    the exception, read from the name because nothing on disk carries it.
 
     Args:
         album: The album folder to examine.
@@ -259,12 +285,14 @@ def _examine(album: Path) -> AlbumName:
         return AlbumName(album=album, new_name="", year=None, tier=AudioTier.NONE)
 
     claims_missing, rest = names.split_missing_marker(rest)
+    is_ep, rest = names.split_ep_marker(rest)
     title: str = names.title_case(names.strip_quality_tag(rest))
     tier: AudioTier = detect_tier(album)
 
     marker, tag, missing, conflict, newly_missing = _resolve(tier, claimed=claims_missing)
     marker_prefix: str = f"{marker} - " if marker else ""
-    new_name: str = f"{pin}{index}({year}) - {marker_prefix}{title}{tag}"
+    ep_tag: str = _EP_TAG if is_ep else ""
+    new_name: str = f"{pin}{index}({year}) - {marker_prefix}{title}{ep_tag}{tag}"
 
     return AlbumName(
         album=album,
@@ -274,6 +302,8 @@ def _examine(album: Path) -> AlbumName:
         missing=missing,
         conflict=conflict,
         newly_missing=newly_missing,
+        is_ep=is_ep,
+        lowercase_ep=names.has_lowercase_ep(album.name),
     )
 
 

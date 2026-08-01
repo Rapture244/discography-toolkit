@@ -226,6 +226,127 @@ def test_a_conflict_carries_no_quality_tag(make_album: Callable[..., Path]) -> N
 
 
 # ==================================================================================== #
+#                                      EP MARKER                                       #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "01. (1994) - Zomba EP",
+        "01. (1994) - EP Zomba",
+        "01. (1994) - Zomba (EP)",
+        "01. (1994) - Zomba [EP]",
+    ],
+)
+def test_every_ep_shape_settles_in_one_place(make_album: Callable[..., Path], typed: str) -> None:
+    """However it was typed, the marker ends up after the title.
+
+    Args:
+        make_album: Factory building an album folder.
+        typed: The folder name as found.
+    """
+    album: Path = make_album(typed)
+
+    outcome: naming.AlbumName = named(album)
+
+    assert outcome.new_name == "01. (1994) - Zomba (EP) [FLAC]"
+    assert outcome.is_ep
+
+
+def test_the_ep_marker_sits_before_the_quality_tag(make_album: Callable[..., Path]) -> None:
+    """The release is what it is; the tag says how this copy was made.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - Zomba [EP]")
+
+    new_name: str = named(album).new_name
+
+    assert new_name.index("(EP)") < new_name.index("[FLAC]")
+
+
+def test_an_ep_name_is_already_settled(make_album: Callable[..., Path]) -> None:
+    """Naming twice is naming once.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - Zomba (EP) [FLAC]")
+
+    assert not named(album).needs_rename
+
+
+def test_a_shared_bracket_keeps_what_is_not_the_marker(
+    make_album: Callable[..., Path],
+) -> None:
+    """Only the marker is cut; the rest of the bracket survives.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - Zomba [EP, Remastered]")
+
+    assert named(album).new_name == "01. (1994) - Zomba [Remastered] (EP) [FLAC]"
+
+
+def test_a_missing_ep_keeps_both_markers(make_album: Callable[..., Path]) -> None:
+    """The two markers are unrelated and both survive, each in its place.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - M - Zomba EP", tier="none")
+
+    outcome: naming.AlbumName = named(album)
+
+    assert outcome.new_name == "01. (1994) - M - Zomba (EP)"
+    assert outcome.missing
+    assert outcome.is_ep
+
+
+def test_an_opus_ep_keeps_the_order(make_album: Callable[..., Path]) -> None:
+    """The slot is the same whatever tier the copy is.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - EP Zomba", tier="opus")
+
+    assert named(album).new_name == "01. (1994) - Zomba (EP) [OPUS]"
+
+
+def test_a_lowercase_ep_is_reported_not_acted_on(make_album: Callable[..., Path]) -> None:
+    """It is as likely an ordinary word as a marker, so a person decides.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - Zomba ep")
+
+    plan: naming.NamePlan = naming.plan([album])
+    outcome: naming.AlbumName = plan.outcomes[0]
+
+    assert not outcome.is_ep
+    assert outcome.lowercase_ep
+    assert len(plan.lowercase_eps) == 1
+    assert "(EP)" not in outcome.new_name
+
+
+def test_a_title_starting_with_ep_is_left_alone(make_album: Callable[..., Path]) -> None:
+    """Word bounds keep the marker out of the title.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    album: Path = make_album("01. (1994) - Epitaph")
+
+    outcome: naming.AlbumName = named(album)
+
+    assert outcome.new_name == "01. (1994) - Epitaph [FLAC]"
+    assert not outcome.is_ep
+
+
+# ==================================================================================== #
 #                                     THE WHOLE PLAN                                   #
 # ==================================================================================== #
 def test_the_counts_partition_the_albums(make_album: Callable[..., Path]) -> None:

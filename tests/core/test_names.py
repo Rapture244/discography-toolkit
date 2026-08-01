@@ -13,9 +13,11 @@ from discography_toolkit.core.names import (
     clean_name,
     extract_year,
     format_artist_label,
+    has_lowercase_ep,
     is_approximate_year,
     is_singles,
     sort_key,
+    split_ep_marker,
     split_index,
     split_missing_marker,
     split_pin_mark,
@@ -502,6 +504,117 @@ def test_split_missing_marker_swallows_a_hyphenated_title() -> None:
 
     assert is_missing is True
     assert rest == "Base"
+
+
+# ==================================================================================== #
+#                                      EP MARKER                                       #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("name", "remainder"),
+    [
+        # Every shape, wherever it sits.
+        ("Zomba EP", "Zomba"),
+        ("EP Zomba", "Zomba"),
+        ("Zomba (EP)", "Zomba"),
+        ("Zomba [EP]", "Zomba"),
+        ("(EP) Zomba", "Zomba"),
+        # Mid-name, the shape the collection actually carries.
+        ("EP KILL YOUR$ELF Part V", "KILL YOUR$ELF Part V"),
+        ("Kill Your$elf EP Part V", "Kill Your$elf Part V"),
+        # A tag sharing the bracket is kept, as the quality word's is.
+        ("Zomba [EP, Remastered]", "Zomba [Remastered]"),
+        ("Zomba (EP, Live)", "Zomba (Live)"),
+        # Alongside a quality tag, which this leaves for its own step.
+        ("Zomba [EP] [FLAC]", "Zomba [FLAC]"),
+    ],
+)
+def test_split_ep_marker_finds_it_anywhere(name: str, remainder: str) -> None:
+    """The marker is taken wherever and however it was typed.
+
+    Args:
+        name: A name past year extraction.
+        remainder: What should be left once the marker is gone.
+    """
+    is_ep, rest = split_ep_marker(name)
+
+    assert is_ep
+    assert rest == remainder
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Word-bounded, so it cannot eat into a title.
+        "Epitaph",
+        "Epic",
+        "Epilogue",
+        "EPMD",
+        # Case-sensitive: only the all-capital marker counts.
+        "Zomba ep",
+        "Zomba Ep",
+        "Zomba [ep]",
+        # Ignored, as agreed.
+        "Zomba E.P.",
+        "Kind of Blue",
+        "",
+    ],
+)
+def test_split_ep_marker_leaves_the_rest_alone(name: str) -> None:
+    """No marker means the name is handed back whole.
+
+    Args:
+        name: A name carrying no all-capital marker.
+    """
+    is_ep, rest = split_ep_marker(name)
+
+    assert not is_ep
+    assert rest == name
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Zomba ep", True),
+        ("Zomba Ep", True),
+        ("Zomba eP", True),
+        ("Zomba [ep]", True),
+        # The all-capital form is a marker, not a miscasing.
+        ("Zomba EP", False),
+        # Word-bounded here too.
+        ("Epitaph", False),
+        ("Sleep", False),
+        ("Kind of Blue", False),
+    ],
+)
+def test_has_lowercase_ep(name: str, expected: bool) -> None:
+    """A miscased "ep" is reported without being acted on.
+
+    Args:
+        name: The album folder's name.
+        expected: Whether one should be found.
+    """
+    assert has_lowercase_ep(name) is expected
+
+
+# --- 1c. into the existing ALBUM TITLES section, alongside the tests
+#         already there
+
+
+def test_album_title_peels_the_ep_marker() -> None:
+    """The marker is shelf convention, so it does not reach the tag."""
+    assert album_title("01. (1994) - Zomba (EP) [FLAC]") == "Zomba"
+    assert album_title("01. (1994) - EP Zomba [FLAC]") == "Zomba"
+
+
+def test_album_title_is_the_same_however_the_ep_was_typed() -> None:
+    """Every shape resolves to one identity, which pruning matches on."""
+    shapes: list[str] = [
+        "01. (1994) - Zomba (EP) [FLAC]",
+        "01. (1994) - Zomba [EP] [FLAC]",
+        "01. (1994) - Zomba EP [FLAC]",
+        "01. (1994) - EP Zomba [FLAC]",
+    ]
+    assert {album_title(shape) for shape in shapes} == {"Zomba"}
 
 
 # ==================================================================================== #
