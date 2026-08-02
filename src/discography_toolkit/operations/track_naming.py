@@ -23,7 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from discography_toolkit.core import files, names
+from discography_toolkit.core import names
+from discography_toolkit.core.layout import rename
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -158,9 +159,7 @@ def apply(
     failures: list[tuple[Path, str]] = []
 
     for outcome in case_plan.pending:
-        detail: str | None = files.rename(
-            outcome.track, outcome.target, staging_prefix=_STAGING_PREFIX
-        )
+        detail: str | None = rename(outcome.track, outcome.target, staging_prefix=_STAGING_PREFIX)
         if detail is None:
             renamed += 1
         else:

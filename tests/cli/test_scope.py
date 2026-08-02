@@ -1,5 +1,5 @@
-# tests/cli/test_parameters.py
-"""Tests for the option handling every command shares."""
+# tests/cli/test_scope.py
+"""Tests for what a run covers, and what it refuses when it covers nothing."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from discography_toolkit.cli.parameters import clean_input, resolve_path
+from discography_toolkit.cli.scope import clean_input, resolve_path
 
 import pytest
 

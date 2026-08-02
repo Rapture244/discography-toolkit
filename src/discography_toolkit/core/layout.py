@@ -1,9 +1,13 @@
 # src/discography_toolkit/core/layout.py
-"""How a discography is arranged on disk, and how to walk it.
+"""How a discography is arranged on disk, how to walk it, and how to move it.
 
 An artist folder holds album folders plus one lossless container; an
 album may hold disc subfolders. This is the only module that knows that
 convention, so everything above it asks questions instead of walking.
+
+The one thing here that writes is `rename`, which belongs beside the
+walking rather than with the string work: what makes a rename awkward is
+the filesystem, not the name.
 """
 
 from __future__ import annotations
@@ -516,3 +520,49 @@ def _holds_audio(folder: Path) -> bool:
         ):
             return True
     return False
+
+
+# ==================================================================================== #
+#                                        MOVING                                        #
+# ==================================================================================== #
+def rename(source: Path, target: Path, *, staging_prefix: str) -> str | None:
+    """Rename a file or folder, safely for a change of case alone.
+
+    A change that alters more than case is a plain rename. One that
+    alters only case goes via a staging name first: on a case-insensitive
+    filesystem the source and the target are one file, and a direct
+    rename is refused or silently does nothing depending on the platform.
+    Windows and macOS are both case-insensitive by default, and recasing
+    folder and track names is half of what this toolkit does -- so the
+    awkward case is the common one, not an edge.
+
+    Case is compared with `casefold` rather than `lower`, since lowering
+    is not one-to-one everywhere -- German "STRASSE" and "straße" are the
+    same word cased two ways, and `lower` alone would call that a plain
+    rename and skip the staging the filesystem needs.
+
+    Nothing is checked before the move: a target that must not be
+    overwritten is the caller's to guard, and the two callers guard it
+    differently -- one at apply time, one at plan time.
+
+    Args:
+        source: The file or folder to move.
+        target: Where it should go.
+        staging_prefix: What the intermediate name starts with, for a
+            case-only change. Distinct per step, so a run interrupted
+            between the two moves leaves behind a name that says which
+            step left it.
+
+    Returns:
+        The failure's detail, or `None` on success.
+    """
+    try:
+        if source.name.casefold() == target.name.casefold():
+            staging: Path = source.with_name(f"{staging_prefix}{target.name}")
+            _ = source.rename(staging)
+            _ = staging.rename(target)
+        else:
+            _ = source.rename(target)
+    except OSError as exc:
+        return str(exc)
+    return None

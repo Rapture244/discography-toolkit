@@ -47,8 +47,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from discography_toolkit.core import files, names
-from discography_toolkit.core.layout import AudioTier, detect_tier
+from discography_toolkit.core import names
+from discography_toolkit.core.layout import AudioTier, detect_tier, rename
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -348,4 +348,4 @@ def _rename(album: Path, target: Path) -> str | None:
     """
     if target.exists() and not target.samefile(album):
         return f"a folder named {target.name!r} is already there"
-    return files.rename(album, target, staging_prefix=_STAGING_PREFIX)
+    return rename(album, target, staging_prefix=_STAGING_PREFIX)

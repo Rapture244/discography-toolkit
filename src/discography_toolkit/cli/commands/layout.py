@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import Notice, echo_banner, echo_notices
-from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.cli.scope import resolve_path
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
     discover_albums,

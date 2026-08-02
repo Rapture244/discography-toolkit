@@ -39,8 +39,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.cli.scope import artists_in, require_albums
+from discography_toolkit.cli.scope import artists_in, require_albums, resolve_path
 from discography_toolkit.operations import covers
 
 if TYPE_CHECKING:

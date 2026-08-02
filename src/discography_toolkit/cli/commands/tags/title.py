@@ -29,8 +29,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.cli.scope import artists_in, require_tracks
+from discography_toolkit.cli.scope import artists_in, require_tracks, resolve_path
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import title_case
 from discography_toolkit.operations import tagging

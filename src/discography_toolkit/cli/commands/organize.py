@@ -27,7 +27,7 @@ import typer
 
 from discography_toolkit.cli.commands import align_tags, layout
 from discography_toolkit.cli.console import echo_banner
-from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.cli.scope import resolve_path
 from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,

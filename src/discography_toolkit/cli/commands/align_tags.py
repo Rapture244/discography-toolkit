@@ -38,8 +38,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.cli.scope import require_albums, require_tracks
+from discography_toolkit.cli.scope import require_albums, require_tracks, resolve_path
 from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import find_artist_folders
 from discography_toolkit.core.metadata import Tag

@@ -1,11 +1,14 @@
 # src/discography_toolkit/cli/scope.py
 """What a run covers, and what it refuses when it covers nothing.
 
-Every command resolves the same three things out of the path it is
-given -- which artists it spans, which albums, which tracks -- and
-refuses in the same words when the answer is empty. Written per command
-those refusals drift: one says "run the layout pass first" and the next
-forgets to say it at all.
+One question in two halves. First the path itself: every command takes
+one, so every command should validate it the same way and ask for it the
+same way when it is omitted. Then what lies beneath it -- which artists
+the run spans, which albums, which tracks -- and the refusal, in the same
+words each time, when the answer is empty.
+
+Written per command those refusals drift: one says "run the layout pass
+first" and the next forgets to say it at all.
 
 Nothing here decides what to do with what it finds. That is the
 command's, and so is the banner it prints above.
@@ -13,7 +16,8 @@ command's, and so is the banner it prints above.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import cast
 
 import typer
 
@@ -24,12 +28,54 @@ from discography_toolkit.core.layout import (
     is_artist_folder,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
+
+# ==================================================================================== #
+#                                        THE PATH                                      #
+# ==================================================================================== #
+def clean_input(raw: str) -> str:
+    """Clean up a path typed at an interactive prompt.
+
+    A shell strips surrounding quotes before the program sees an
+    argument; a prompt does not, so a quoted path would otherwise keep
+    the quote characters.
+
+    Args:
+        raw: The raw text as typed.
+
+    Returns:
+        The input with surrounding whitespace and quotes removed. Quotes
+        are stripped greedily rather than one layer deep -- Windows
+        forbids them in a filename, so there is no path this can damage.
+    """
+    return raw.strip().strip("'\"")
+
+
+def resolve_path(path: Path | None, prompt: str) -> Path:
+    """Settle on a folder to work in, asking for one if none was given.
+
+    Args:
+        path: The path passed on the command line, or `None`.
+        prompt: What to ask when it was not.
+
+    Returns:
+        An absolute, resolved directory.
+
+    Raises:
+        typer.Exit: If the path is not a directory.
+    """
+    if path is None:
+        raw: str = cast("str", typer.prompt(prompt))
+        path = Path(clean_input(raw)).expanduser().resolve()
+
+    if not path.is_dir():
+        typer.secho(f"Not a directory: {path}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    return path
 
 
 # ==================================================================================== #
-#                                      PUBLIC API                                      #
+#                                     WHAT IS UNDER IT                                 #
 # ==================================================================================== #
 def artists_in(target: Path) -> list[Path]:
     """Find the artists a run should show separately, for display only.
