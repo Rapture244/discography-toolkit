@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from discography_toolkit.core import names
-from discography_toolkit.core.layout import AudioTier
 from discography_toolkit.operations import naming
 
 import pytest
@@ -608,14 +607,3 @@ def test_progress_is_reported_for_every_rename(make_album: Callable[..., Path]) 
     _ = naming.apply(plan, on_progress=seen.append)
 
     assert seen == [outcome.album for outcome in plan.pending]
-
-
-def test_the_tier_is_carried_on_the_outcome(make_album: Callable[..., Path]) -> None:
-    """A caller reporting quality reads it off the plan, not the files again.
-
-    Args:
-        make_album: Factory building an album folder.
-    """
-    album: Path = make_album("01. (1970) - Bitches Brew", tier="opus")
-
-    assert named(album).tier is AudioTier.OPUS

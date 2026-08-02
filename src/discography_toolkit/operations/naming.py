@@ -95,7 +95,6 @@ class AlbumName:
         new_name: The name it should carry, empty when there is nothing
             to build one around.
         year: The year token, or `None` when the name carries none.
-        tier: The quality decided from the files.
         singles: The album is the artist's singles collection -- named
             without a year, since it has none to carry.
         missing: Marked "M": the folder holds no audio.
@@ -113,7 +112,6 @@ class AlbumName:
     album: Path
     new_name: str
     year: str | None
-    tier: AudioTier
     singles: bool = False
     missing: bool = False
     conflict: bool = False
@@ -276,13 +274,12 @@ def _examine(album: Path) -> AlbumName:
             album=album,
             new_name=f"{pin}{index}{names.SINGLES_TITLE}",
             year=None,
-            tier=detect_tier(album),
             singles=True,
         )
 
     year, rest = names.split_year(rest)
     if year is None:
-        return AlbumName(album=album, new_name="", year=None, tier=AudioTier.NONE)
+        return AlbumName(album=album, new_name="", year=None)
 
     claims_missing, rest = names.split_missing_marker(rest)
     is_ep, rest = names.split_ep_marker(rest)
@@ -298,7 +295,6 @@ def _examine(album: Path) -> AlbumName:
         album=album,
         new_name=new_name,
         year=year,
-        tier=tier,
         missing=missing,
         conflict=conflict,
         newly_missing=newly_missing,

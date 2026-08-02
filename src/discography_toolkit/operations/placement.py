@@ -94,7 +94,6 @@ class Placement:
 
     Attributes:
         album: The album folder as it stands.
-        tier: What its files say it is.
         side: The move it needs -- in, out, or keep.
         destination: Where it would end up, or `None` when it keeps its
             place.
@@ -104,7 +103,6 @@ class Placement:
     """
 
     album: Path
-    tier: AudioTier
     side: Side
     destination: Path | None = None
     collision: bool = False
@@ -317,22 +315,22 @@ def _place(
     if names.is_singles(album.name):
         if in_container:
             singles_home: Path = artist / album.name
-            return Placement(album, tier, Side.OUT, singles_home, collision=singles_home.exists())
-        return Placement(album, tier, Side.KEEP)
+            return Placement(album, Side.OUT, singles_home, collision=singles_home.exists())
+        return Placement(album, Side.KEEP)
 
     if not wanted:
         if in_container:
             destination: Path = artist / album.name
-            return Placement(album, tier, Side.OUT, destination, collision=destination.exists())
-        return Placement(album, tier, Side.KEEP)
+            return Placement(album, Side.OUT, destination, collision=destination.exists())
+        return Placement(album, Side.KEEP)
 
     if tier is AudioTier.LOSSLESS and not in_container:
         destination = working_container / album.name
-        return Placement(album, tier, Side.IN, destination, collision=destination.exists())
+        return Placement(album, Side.IN, destination, collision=destination.exists())
     if tier is not AudioTier.LOSSLESS and in_container:
         destination = artist / album.name
-        return Placement(album, tier, Side.OUT, destination, collision=destination.exists())
-    return Placement(album, tier, Side.KEEP)
+        return Placement(album, Side.OUT, destination, collision=destination.exists())
+    return Placement(album, Side.KEEP)
 
 
 def _container_change(container: Path | None, wanted: bool) -> ContainerChange | None:

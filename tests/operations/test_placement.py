@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from discography_toolkit.core.layout import AudioTier
 from discography_toolkit.operations import placement
 from discography_toolkit.operations.placement import ContainerChange, Side, TooManyContainersError
 
@@ -83,7 +82,6 @@ def test_an_opus_album_is_treated_as_not_lossless(artist: Path) -> None:
 
     moved = next(p for p in placement.plan(artist).placements if p.album == album)
 
-    assert moved.tier is AudioTier.OPUS
     assert moved.side is Side.OUT
 
 
@@ -98,7 +96,6 @@ def test_a_missing_placeholder_stays_in_the_root(artist: Path) -> None:
 
     moved = next(p for p in placement.plan(artist).placements if p.album == album)
 
-    assert moved.tier is AudioTier.NONE
     assert moved.side is Side.KEEP
 
 
