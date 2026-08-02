@@ -15,12 +15,16 @@ a preview of a tree that does not exist yet, since step one has not run.
 The single confirmation stands in for it.
 
 An artist is checked before any of it runs, and skipped whole where the
-check fails: two FLAC containers cannot be merged without guessing, and
-an album held twice cannot be numbered into one sequence -- one of the
-copies would take a place that is not its own, and which to keep is not
-the tool's call. Skipping before the first write is what keeps a refused
-artist untouched rather than half laid out, and the run carries on to
-the rest.
+check fails. Two FLAC containers cannot be merged without guessing. An
+album held twice cannot be numbered into one sequence -- one copy would
+take a place that is not its own, and which to keep is not the tool's
+call. And a name the rebuild would not settle into the convention is
+worth a person's eye rather than a shelf that quietly reads wrong:
+naming plans without writing, so what it would produce can be held to
+the pattern before a single folder moves.
+
+Skipping before the first write is what keeps a refused artist untouched
+rather than half laid out, and the run carries on to the rest.
 
 Artists are found by their audio rather than a label, since the label is
 what this pass creates -- an artist has none until it has been here. An
@@ -42,6 +46,7 @@ import typer
 
 from discography_toolkit.cli.console import echo_banner
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
     discover_albums,
     find_artists,
@@ -73,8 +78,8 @@ class Skipped:
         reason: The short phrase naming the problem, for the line and the
             closing summary.
         details: The specifics a person needs to go and fix it -- the
-            colliding folder names, say. Empty where the reason says all
-            there is.
+            colliding folder names, the album that would not settle.
+            Empty where the reason says all there is.
     """
 
     artist: Path
@@ -233,6 +238,14 @@ def _check(artist: Path) -> Skipped | None:
             details=tuple(_describe(group) for group in repeats),
         )
 
+    unsettled: tuple[str, ...] = _unsettled_names(artist)
+    if unsettled:
+        return Skipped(
+            artist=artist,
+            reason=f"{len(unsettled)} album(s) would not settle into the pattern",
+            details=unsettled,
+        )
+
     return None
 
 
@@ -255,6 +268,33 @@ def _unresolved_duplicates(artist: Path) -> tuple[tuple[Path, ...], ...]:
     albums: list[Path] = discover_albums(artist)
     doomed: set[Path] = {prune.album for prune in pruning.plan(albums).prunes}
     return pruning.duplicates([album for album in albums if album not in doomed])
+
+
+def _unsettled_names(artist: Path) -> tuple[str, ...]:
+    """Find albums the rebuild would not bring into the pattern.
+
+    Naming plans without writing, and numbering only replaces the index
+    ahead of what naming produces, so what a folder would end up called
+    is known before anything moves. Anything that would still read wrong
+    -- an orphan bracket the peel left behind, a folder with no year to
+    build a name around -- is reported here rather than written to disk
+    and found later by eye.
+
+    Args:
+        artist: The artist folder to inspect.
+
+    Returns:
+        One line per album that would not settle, naming it and saying
+        what it would have become.
+    """
+    unsettled: list[str] = []
+    for outcome in naming.plan(discover_albums(artist)).outcomes:
+        if outcome.skipped:
+            unsettled.append(f"{outcome.album.name!r} -- no year to build a name around")
+        elif not names.conforms_unnumbered(outcome.new_name):
+            unsettled.append(f"{outcome.album.name!r} -- would become {outcome.new_name!r}")
+
+    return tuple(unsettled)
 
 
 def _describe(group: Sequence[Path]) -> str:

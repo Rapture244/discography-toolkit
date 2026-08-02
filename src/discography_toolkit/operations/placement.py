@@ -7,6 +7,12 @@ decides each album's side from its actual files -- never from the
 "[FLAC]" text in a name, so it stays right when run on its own -- and
 moves the ones that are on the wrong side.
 
+A singles collection is the exception on both counts. It sits in the
+root whatever it holds, since it is one pile of loose tracks rather than
+a release of a format, and it is left out of the question of whether the
+container is wanted at all -- an artist whose albums are every one
+lossless, bar its singles, has nothing to separate and stays flat.
+
 The container follows the albums. It is created the moment a lossless
 album exists, normalised to a bare "FLAC" from any older "FLAC -
 (56 on 65)" spelling, and removed once nothing lossless is left, so the
@@ -27,6 +33,7 @@ from enum import StrEnum
 import shutil
 from typing import TYPE_CHECKING
 
+from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
     CONTAINER_NAME,
     AudioTier,
@@ -282,12 +289,12 @@ def _container_wanted(flac_count: int, total: int) -> bool:
     one never had a container to begin with.
 
     Args:
-        flac_count: How many albums are lossless.
-        total: How many albums there are in all.
+        flac_count: How many releases are lossless.
+        total: How many releases there are in all, singles excluded.
 
     Returns:
         `True` when the artist holds both lossless and non-lossless
-        albums.
+        releases.
     """
     return 0 < flac_count < total
 
@@ -318,6 +325,15 @@ def _place(
         The album's tier and the move it needs, if any.
     """
     in_container: bool = album.parent != artist
+
+    # A singles pile is not a release of a format, so the tier that would
+    # otherwise file it says nothing. It belongs in the root, and is
+    # lifted out of a container it was put in before this was settled.
+    if names.is_singles(album.name):
+        if in_container:
+            singles_home: Path = artist / album.name
+            return Placement(album, tier, Side.OUT, singles_home, collision=singles_home.exists())
+        return Placement(album, tier, Side.KEEP)
 
     if not wanted:
         if in_container:

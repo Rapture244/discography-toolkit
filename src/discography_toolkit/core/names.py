@@ -142,6 +142,35 @@ _EDGE_SEPARATORS_RE: Final[re.Pattern[str]] = re.compile(r"^[\s._-]+|[\s._-]+$")
 # of a name rather than an edge.
 _MULTI_SPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s{2,}")
 
+# The canonical album folder name, past its index: what every album on a
+# settled shelf reads as. Written here as one pattern rather than left
+# implicit in the f-string that builds it, so the shape is something the
+# code knows and can hold an album to.
+#
+# The year and the separator are required; everything else is a fact
+# about the album that may or may not hold. The title is non-greedy so
+# the optional groups behind it win a trailing "(EP)" or "[FLAC]" rather
+# than the title swallowing them.
+ALBUM_BODY_RE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    ^
+    \((?P<year>\d{2}[\dx]{2})\)[ ]-[ ]        # (1994) -
+    (?:(?P<marker>⚠|M)[ ]-[ ])?               # M -
+    (?P<title>.+?)                            # Album Name
+    (?:[ ]\(EP\))?                            # (EP)
+    (?:[ ]\[(?:FLAC|OPUS)\])?                 # [FLAC]
+    $
+    """,
+    re.VERBOSE,
+)
+
+# The index a settled album carries, and the pin that may sit ahead of
+# it. Two digits at least, matching what numbering pads to, and widening
+# with a run past ninety-nine.
+ALBUM_INDEXED_RE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<pin>©?)(?P<index>\d{2,})\.[ ](?P<body>\S.*)$"
+)
+
 # Words kept in capitals against the title-caser, which would otherwise
 # read them as shouting and lower them. Formats, media and rip types,
 # a few country codes, roles and labels -- ambiguous ones a real word
@@ -598,6 +627,48 @@ def clean_name(name: str) -> str:
     return _EDGE_SEPARATORS_RE.sub("", collapsed).strip()
 
 
+def drop_unpaired_brackets(text: str) -> str:
+    """Remove brackets with no partner, keeping every pair intact.
+
+    A name arrives past the peel carrying the odd orphan: a "]" whose "["
+    a step ahead took away with the token it wrapped, a "(" whose close
+    never made it into the folder name. Balance is the test rather than
+    absence, because a bracket that pairs is part of the title and the
+    title's to keep -- "[40th Anniversary]" survives, "] the Mad Writer"
+    loses its orphan and reads as the album it always was.
+
+    Nothing here needs a person's judgement, which is why it repairs
+    rather than reports: an orphan says nothing on its own, so there is
+    no question of what was meant by it.
+
+    Openers are matched to closers as they are met, so a nested pair
+    counts as balanced and a crossed one -- "(a]" -- counts as two
+    orphans, both removed.
+
+    Args:
+        text: A name, past the peel and before casing.
+
+    Returns:
+        The text with every unpaired bracket gone and its spacing tidied.
+    """
+    closers: dict[str, str] = {")": "(", "]": "["}
+    open_at: list[int] = []
+    orphans: set[int] = set()
+
+    for position, char in enumerate(text):
+        if char in {"(", "["}:
+            open_at.append(position)
+        elif char in closers:
+            if open_at and text[open_at[-1]] == closers[char]:
+                _ = open_at.pop()
+            else:
+                orphans.add(position)
+
+    orphans.update(open_at)
+    kept: str = "".join(char for position, char in enumerate(text) if position not in orphans)
+    return clean_name(kept)
+
+
 # ==================================================================================== #
 #                                     ALBUM TITLES                                     #
 # ==================================================================================== #
@@ -609,6 +680,11 @@ def album_title(name: str) -> str:
     leaving what the album is actually called. Everything removed
     describes where the album sits on this shelf or how this copy of it
     was ripped, and none of that means anything to anyone else's library.
+
+    A bracket left without its partner comes off too. Dropping it here as
+    well as in `naming` is what keeps one album's identity the same
+    before and after the shelf is laid out, so a folder awaiting repair
+    is not mistaken for a different album than the one it will become.
 
     The same sequence `naming` walks when it rebuilds a folder name,
     named here for the callers that want only its end. Casing is not
@@ -627,7 +703,124 @@ def album_title(name: str) -> str:
     _, rest = split_year(rest)
     _, rest = split_missing_marker(rest)
     _, rest = split_ep_marker(rest)
-    return clean_name(strip_quality_tag(rest))
+    return drop_unpaired_brackets(strip_quality_tag(rest))
+
+
+# ==================================================================================== #
+#                                     CONFORMANCE                                      #
+# ==================================================================================== #
+def conforms(name: str) -> bool:
+    """Report whether a folder name is a settled album's, in full.
+
+    The whole shape, index included: what a shelf reads as once every
+    step has run. `conforms_unnumbered` is the one to ask before
+    numbering has had its say.
+
+    Args:
+        name: The album folder's name.
+
+    Returns:
+        `True` when the name is canonical.
+    """
+    match: re.Match[str] | None = ALBUM_INDEXED_RE.match(name)
+    return match is not None and conforms_body(match.group("body"))
+
+
+def conforms_unnumbered(name: str) -> bool:
+    """Report whether a name is canonical from the year onward.
+
+    The index is left out of the judgement because numbering owns it and
+    rewrites it wholesale: whatever shape it is in now -- "(01) ", "5. ",
+    none at all -- it comes out as "01. " regardless. What matters before
+    then is everything after it, which no later step touches.
+
+    Args:
+        name: An album folder's name, or one naming proposes.
+
+    Returns:
+        `True` when everything past the index is canonical.
+    """
+    _, rest = split_pin_mark(name)
+    _, rest = split_index(rest)
+    return conforms_body(rest)
+
+
+def conforms_body(body: str) -> bool:
+    """Report whether a name past its index is canonical.
+
+    Two shapes are canonical. A dated album carries its year, an optional
+    availability marker, a title, and then whatever it happens to be --
+    an EP, a lossless or Opus copy. A singles collection is the bare
+    word: no year to date it, no tag, since one artist keeps one such
+    pile whatever it is made of.
+
+    This is the net rather than the mechanism. The rebuild is what brings
+    a name into the pattern, and it repairs the drift it can -- an orphan
+    bracket, a stale tag, a marker in the wrong place. What this catches
+    is whatever the rebuild could not settle, which is the sort of thing
+    a person has to look at.
+
+    Matching the skeleton is not enough on its own -- the title is
+    `.+?`, which swallows an orphan bracket as happily as a letter -- so
+    what lands in it is judged too.
+
+    Args:
+        body: A name with its pin and index already removed.
+
+    Returns:
+        `True` when the body is canonical.
+    """
+    if body == SINGLES_TITLE:
+        return True
+
+    match: re.Match[str] | None = ALBUM_BODY_RE.match(body)
+    return match is not None and _title_is_wellformed(match.group("title"))
+
+
+def _title_is_wellformed(title: str) -> bool:
+    """Report whether a title is something a rebuild could have produced.
+
+    Three things a settled title never has: nothing at all, a bracket
+    without its partner, or spacing a rebuild would have closed. What it
+    may have is anything else -- a full stop, an ampersand, a bracket
+    that pairs -- since those are the title's own and not the
+    convention's to judge.
+
+    Args:
+        title: The title read out of a canonical body.
+
+    Returns:
+        `True` when the title is wellformed.
+    """
+    if not title:
+        return False
+    if title != _MULTI_SPACE_RE.sub(" ", title).strip():
+        return False
+    return brackets_balanced(title)
+
+
+def brackets_balanced(text: str) -> bool:
+    """Report whether every bracket in a name has its partner.
+
+    The question `drop_unpaired_brackets` answers by acting; asked here
+    without acting, for a caller checking that it did.
+
+    Args:
+        text: Any name or part of one.
+
+    Returns:
+        `True` when every opener meets its closer, in order.
+    """
+    closers: dict[str, str] = {")": "(", "]": "["}
+    stack: list[str] = []
+
+    for char in text:
+        if char in {"(", "["}:
+            stack.append(char)
+        elif char in closers and (not stack or stack.pop() != closers[char]):
+            return False
+
+    return not stack
 
 
 # ==================================================================================== #

@@ -24,6 +24,19 @@ place: after the title, ahead of the quality tag, so the eye finds it
 where it expects to. An "ep" in the wrong case is not taken as a marker
 but is reported, since only a person can say whether it was one.
 
+A singles collection is the one album named without a year, because it
+has none: it gathers loose tracks belonging to no release. It comes out
+as the bare word, carrying no quality tag either -- one artist keeps one
+such pile, whatever mix of formats it is made of, so there is nothing
+for a tag to tell apart and a stale one is simply dropped.
+
+What the peel leaves behind is repaired rather than raised over. A
+bracket whose partner went with the token that wrapped it says nothing
+on its own, so there is nothing for a person to decide and it is
+dropped; a bracket that pairs is part of the title and stays. The point
+of settling every album into one shape is to correct that drift, not to
+collect it.
+
 Planning never writes. It reads each name, works out what it should be,
 and records the difference, so the whole rename can be shown before any
 of it happens and a folder already right is left alone.
@@ -79,11 +92,12 @@ class AlbumName:
 
     Attributes:
         album: The album folder as it stands.
-        new_name: The name it should carry, empty when it has no year.
-        year: The year token, or `None` when the name carries none -- in
-            which case the album is skipped, since there is nothing to
-            build a name around.
+        new_name: The name it should carry, empty when there is nothing
+            to build one around.
+        year: The year token, or `None` when the name carries none.
         tier: The quality decided from the files.
+        singles: The album is the artist's singles collection -- named
+            without a year, since it has none to carry.
         missing: Marked "M": the folder holds no audio.
         conflict: Marked "⚠": the name claimed missing over a folder that
             holds audio.
@@ -100,6 +114,7 @@ class AlbumName:
     new_name: str
     year: str | None
     tier: AudioTier
+    singles: bool = False
     missing: bool = False
     conflict: bool = False
     newly_missing: bool = False
@@ -108,18 +123,18 @@ class AlbumName:
 
     @property
     def skipped(self) -> bool:
-        """Whether the album was passed over for having no year."""
-        return self.year is None
+        """Whether the album was passed over for having nothing to name it by."""
+        return self.year is None and not self.singles
 
     @property
     def needs_rename(self) -> bool:
         """Whether applying this would change the folder on disk."""
-        return self.year is not None and self.new_name != self.album.name
+        return not self.skipped and self.new_name != self.album.name
 
     @property
     def held(self) -> bool:
         """Whether the album is held in some real format, unconflicted."""
-        return self.year is not None and not self.missing and not self.conflict
+        return not self.skipped and not self.missing and not self.conflict
 
     @property
     def target(self) -> Path:
@@ -139,7 +154,7 @@ class NamePlan:
 
     @property
     def total(self) -> int:
-        """How many albums carried a year and so could be named."""
+        """How many albums could be named at all."""
         return sum(1 for outcome in self.outcomes if not outcome.skipped)
 
     @property
@@ -149,14 +164,14 @@ class NamePlan:
 
     @property
     def clean(self) -> int:
-        """Albums with a year whose name is already right."""
+        """Albums that can be named and whose name is already right."""
         return sum(
             1 for outcome in self.outcomes if not outcome.skipped and not outcome.needs_rename
         )
 
     @property
     def skipped(self) -> tuple[AlbumName, ...]:
-        """Albums passed over for having no year to build a name around."""
+        """Albums passed over for having nothing to build a name around."""
         return tuple(outcome for outcome in self.outcomes if outcome.skipped)
 
     @property
@@ -266,11 +281,18 @@ def apply(
 def _examine(album: Path) -> AlbumName:
     """Read one folder's name into parts and rebuild it.
 
-    The year is the pivot: without one there is nothing to anchor a name
-    around, so the album is skipped. With one, the marker and quality tag
-    are decided from the files rather than the name, which is what lets a
-    stale tag be dropped and a lost album be flagged. The EP marker is
-    the exception, read from the name because nothing on disk carries it.
+    A singles collection is settled first, since it is recognised by
+    having no year and would otherwise fall to the skip below. Past it,
+    the year is the pivot: without one there is nothing to anchor a name
+    around. With one, the marker and quality tag are decided from the
+    files rather than the name, which is what lets a stale tag be dropped
+    and a lost album be flagged. The EP marker is the exception, read
+    from the name because nothing on disk carries it.
+
+    The title is repaired before it is cased: the quality word is cut
+    while its bracket is still whole, then whatever bracket the peel
+    orphaned is dropped, and only then is the result cased, on a title
+    that has stopped changing shape.
 
     Args:
         album: The album folder to examine.
@@ -280,13 +302,23 @@ def _examine(album: Path) -> AlbumName:
     """
     pin, rest = names.split_pin_mark(album.name)
     index, rest = names.split_index(rest)
+
+    if names.is_singles(album.name):
+        return AlbumName(
+            album=album,
+            new_name=f"{pin}{index}{names.SINGLES_TITLE}",
+            year=None,
+            tier=detect_tier(album),
+            singles=True,
+        )
+
     year, rest = names.split_year(rest)
     if year is None:
         return AlbumName(album=album, new_name="", year=None, tier=AudioTier.NONE)
 
     claims_missing, rest = names.split_missing_marker(rest)
     is_ep, rest = names.split_ep_marker(rest)
-    title: str = names.title_case(names.strip_quality_tag(rest))
+    title: str = names.title_case(names.drop_unpaired_brackets(names.strip_quality_tag(rest)))
     tier: AudioTier = detect_tier(album)
 
     marker, tag, missing, conflict, newly_missing = _resolve(tier, claimed=claims_missing)
