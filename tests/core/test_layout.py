@@ -586,6 +586,34 @@ def test_the_tier_is_read_across_disc_subfolders(tmp_path: Path) -> None:
     assert detect_tier(album) is AudioTier.LOSSLESS
 
 
+def test_the_tier_ignores_a_dotted_folder(tmp_path: Path) -> None:
+    """A dotted folder is not the toolkit's to look inside, here either.
+
+    A placeholder holding a stray ".trash/old.flac" is still a missing
+    album: counting it would earn the folder a "[FLAC]" tag it does not
+    hold and file it into the lossless container.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = tmp_path / "01. (1980) - M - Missing"
+    (album / ".trash").mkdir(parents=True)
+    (album / ".trash" / "old.flac").touch()
+
+    assert detect_tier(album) is AudioTier.NONE
+
+
+def test_the_tier_ignores_a_dotted_file(tmp_path: Path) -> None:
+    """A macOS "._track.flac" stub carries the extension without the audio.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = _album_with(tmp_path, "._01.flac", "01.mp3")
+
+    assert detect_tier(album) is AudioTier.LOSSY
+
+
 def test_an_alac_m4a_counts_as_lossless(tmp_path: Path) -> None:
     """The one extension the suffix cannot decide is probed and believed.
 

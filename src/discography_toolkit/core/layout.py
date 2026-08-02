@@ -106,16 +106,30 @@ def detect_tier(album: Path) -> AudioTier:
     has_opus: bool = False
     has_lossy: bool = False
 
-    for entry in album.rglob("*"):
-        if not entry.is_file():
-            continue
-        suffix: str = entry.suffix.lower()
-        if suffix in LOSSLESS_EXTENSIONS or (suffix == ".m4a" and metadata.is_lossless_m4a(entry)):
-            return AudioTier.LOSSLESS
-        if suffix in OPUS_EXTENSIONS:
-            has_opus = True
-        elif suffix in LOSSY_EXTENSIONS:
-            has_lossy = True
+    # `walk` rather than `rglob`: the extension is in the filename, and
+    # rglob hands back paths whose `is_file` costs a stat apiece. Four
+    # steps of the layout pass ask this of every album, so those stats
+    # were most of what a run spent its time on.
+    for folder, subfolders, filenames in album.walk():
+        # Pruned in place, which is why the walk is top-down: a dotted
+        # folder is not the toolkit's to look inside, and a stray
+        # ".trash/old.flac" would otherwise make a missing album lossless.
+        subfolders[:] = [name for name in subfolders if not name.startswith(".")]
+
+        for name in filenames:
+            if name.startswith("."):
+                continue
+            _, dot, extension = name.rpartition(".")
+            suffix: str = f".{extension.lower()}" if dot else ""
+
+            if suffix in LOSSLESS_EXTENSIONS or (
+                suffix == ".m4a" and metadata.is_lossless_m4a(folder / name)
+            ):
+                return AudioTier.LOSSLESS
+            if suffix in OPUS_EXTENSIONS:
+                has_opus = True
+            elif suffix in LOSSY_EXTENSIONS:
+                has_lossy = True
 
     if has_opus:
         return AudioTier.OPUS
