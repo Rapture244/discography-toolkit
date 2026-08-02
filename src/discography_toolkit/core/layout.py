@@ -17,7 +17,7 @@ from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 from discography_toolkit.core.names import ALBUM_INDEX_RE, ARTIST_LABEL_RE
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
     from pathlib import Path
 
 # ==================================================================================== #
@@ -84,6 +84,36 @@ class AudioTier(StrEnum):
 # ==================================================================================== #
 #                                    IDENTIFICATION                                    #
 # ==================================================================================== #
+def _visible_files(root: Path) -> Iterator[tuple[Path, str]]:
+    """Walk a folder, yielding each visible file and its extension.
+
+    `walk` rather than `rglob`: the extension is in the filename, and
+    rglob hands back paths whose `is_file` costs a stat apiece. On a
+    shelf of a few thousand tracks those stats are most of what a scan
+    spends its time on.
+
+    Dotted folders are pruned in place, which is why the walk is
+    top-down, and dotted files skipped -- neither is the toolkit's to
+    look at, and a macOS "._track.flac" stub carries an audio extension
+    without being audio.
+
+    Args:
+        root: The folder to walk.
+
+    Returns:
+        Each visible file's path and its lowercased extension, the
+        extension empty when the name carries none.
+    """
+    for folder, subfolders, filenames in root.walk():
+        subfolders[:] = [name for name in subfolders if not name.startswith(".")]
+
+        for name in filenames:
+            if name.startswith("."):
+                continue
+            _, dot, extension = name.rpartition(".")
+            yield folder / name, f".{extension.lower()}" if dot else ""
+
+
 def detect_tier(album: Path) -> AudioTier:
     """Decide an album's audio tier from the files it actually holds.
 
@@ -106,30 +136,13 @@ def detect_tier(album: Path) -> AudioTier:
     has_opus: bool = False
     has_lossy: bool = False
 
-    # `walk` rather than `rglob`: the extension is in the filename, and
-    # rglob hands back paths whose `is_file` costs a stat apiece. Four
-    # steps of the layout pass ask this of every album, so those stats
-    # were most of what a run spent its time on.
-    for folder, subfolders, filenames in album.walk():
-        # Pruned in place, which is why the walk is top-down: a dotted
-        # folder is not the toolkit's to look inside, and a stray
-        # ".trash/old.flac" would otherwise make a missing album lossless.
-        subfolders[:] = [name for name in subfolders if not name.startswith(".")]
-
-        for name in filenames:
-            if name.startswith("."):
-                continue
-            _, dot, extension = name.rpartition(".")
-            suffix: str = f".{extension.lower()}" if dot else ""
-
-            if suffix in LOSSLESS_EXTENSIONS or (
-                suffix == ".m4a" and metadata.is_lossless_m4a(folder / name)
-            ):
-                return AudioTier.LOSSLESS
-            if suffix in OPUS_EXTENSIONS:
-                has_opus = True
-            elif suffix in LOSSY_EXTENSIONS:
-                has_lossy = True
+    for track, suffix in _visible_files(album):
+        if suffix in LOSSLESS_EXTENSIONS or (suffix == ".m4a" and metadata.is_lossless_m4a(track)):
+            return AudioTier.LOSSLESS
+        if suffix in OPUS_EXTENSIONS:
+            has_opus = True
+        elif suffix in LOSSY_EXTENSIONS:
+            has_lossy = True
 
     if has_opus:
         return AudioTier.OPUS
@@ -167,23 +180,6 @@ def is_artist_folder(folder: Path) -> bool:
     )
 
 
-def is_hidden(path: Path, relative_to: Path) -> bool:
-    """Report whether a path lies inside a hidden folder, or is hidden itself.
-
-    Checks every component below `relative_to` rather than only the final
-    name, since the caller may well have pointed at a path containing a
-    dotted directory of their own.
-
-    Args:
-        path: The path to test.
-        relative_to: The root the check starts from.
-
-    Returns:
-        `True` if any component below the root starts with a dot.
-    """
-    return any(part.startswith(".") for part in path.relative_to(relative_to).parts)
-
-
 # ==================================================================================== #
 #                                      DISCOVERY                                       #
 # ==================================================================================== #
@@ -194,8 +190,8 @@ def find_audio_files(root: Path) -> list[Path]:
     album's tracks, given an artist folder it returns the whole
     discography, including audio loose in the root.
 
-    Hidden files are skipped -- a macOS "._track.flac" stub carries an
-    audio extension without being audio.
+    Hidden files and folders are skipped, which `_visible_files` does by
+    pruning rather than by testing each path against the root.
 
     Args:
         root: The folder to scan.
@@ -203,13 +199,7 @@ def find_audio_files(root: Path) -> list[Path]:
     Returns:
         Audio files beneath `root`, sorted by path.
     """
-    return sorted(
-        entry
-        for entry in root.rglob("*")
-        if entry.is_file()
-        and entry.suffix.lower() in AUDIO_EXTENSIONS
-        and not is_hidden(entry, root)
-    )
+    return sorted(track for track, suffix in _visible_files(root) if suffix in AUDIO_EXTENSIONS)
 
 
 def discover_albums(artist: Path) -> list[Path]:
