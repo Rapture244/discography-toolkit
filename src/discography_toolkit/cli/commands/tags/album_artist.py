@@ -34,11 +34,9 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.cli.scope import require_tracks
 from discography_toolkit.core import derivation
-from discography_toolkit.core.layout import (
-    find_artist_folders,
-    find_audio_files,
-)
+from discography_toolkit.core.layout import find_artist_folders
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import strip_artist_label
 from discography_toolkit.operations import tagging
@@ -88,6 +86,10 @@ def album_artist(
             recognized, a user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
+    # Not `scope.artists_in`: this command reads the Album Artist off
+    # these folders rather than only showing them, and that one returns
+    # nothing for a target that is itself an artist. Handed that, every
+    # track would find no folder to take a name from.
     artists: list[Path] = find_artist_folders(target)
     echo_banner("Metadata: Album Artist", target.name, children=artist_names(target, artists))
 
@@ -106,10 +108,7 @@ def album_artist(
         )
         raise typer.Exit(code=1)
 
-    tracks: list[Path] = find_audio_files(target)
-    if not tracks:
-        typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    tracks: list[Path] = require_tracks(target)
 
     _echo_artists(artists, credit)
 

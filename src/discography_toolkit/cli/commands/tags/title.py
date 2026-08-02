@@ -30,7 +30,7 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.core.layout import find_artist_folders, find_audio_files, is_artist_folder
+from discography_toolkit.cli.scope import artists_in, require_tracks
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import title_case
 from discography_toolkit.operations import tagging
@@ -71,13 +71,10 @@ def title(
             a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    artists: list[Path] = [] if is_artist_folder(target) else find_artist_folders(target)
+    artists: list[Path] = artists_in(target)
     echo_banner("Metadata: Title", target.name, children=artist_names(target, artists))
 
-    tracks: list[Path] = find_audio_files(target)
-    if not tracks:
-        typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    tracks: list[Path] = require_tracks(target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)

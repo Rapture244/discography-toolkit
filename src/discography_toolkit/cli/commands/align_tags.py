@@ -39,12 +39,9 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.cli.scope import require_albums, require_tracks
 from discography_toolkit.core import derivation
-from discography_toolkit.core.layout import (
-    find_albums,
-    find_artist_folders,
-    find_audio_files,
-)
+from discography_toolkit.core.layout import find_artist_folders
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import title_case
 from discography_toolkit.operations import covers, tagging
@@ -107,27 +104,14 @@ def align_tags(
             user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to align beneath")
+    # Not `scope.artists_in`: the Album Artist is read off these folders
+    # rather than only shown, and that one returns nothing for a target
+    # that is itself an artist.
     artists: list[Path] = find_artist_folders(target)
     echo_banner("Align Tags", target.name, children=artist_names(target, artists))
 
-    albums: list[Path] = find_albums(target)
-    if not albums:
-        typer.secho(
-            f"\nNo album folder found at or beneath {target.name!r}.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        typer.secho(
-            "Run the layout pass first -- align-tags reads the tags off the folders it settles.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    tracks: list[Path] = find_audio_files(target)
-    if not tracks:
-        typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    albums: list[Path] = require_albums(target)
+    tracks: list[Path] = require_tracks(target)
 
     if dry_run:
         _preview(albums, tracks, artists, credit)

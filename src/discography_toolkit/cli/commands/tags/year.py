@@ -35,12 +35,8 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.cli.scope import artists_in, require_albums, require_tracks
 from discography_toolkit.core import derivation
-from discography_toolkit.core.layout import (
-    find_albums,
-    find_artist_folders,
-    find_audio_files,
-)
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.operations import tagging
 
@@ -80,27 +76,11 @@ def year(
             user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    artists: list[Path] = find_artist_folders(target)
+    artists: list[Path] = artists_in(target)
     echo_banner("Metadata: Year", target.name, children=artist_names(target, artists))
 
-    albums: list[Path] = find_albums(target)
-    if not albums:
-        typer.secho(
-            f"\nNo album folder found at or beneath {target.name!r}.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        typer.secho(
-            "Run the layout pass first -- albums are recognized through their artist.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    tracks: list[Path] = find_audio_files(target)
-    if not tracks:
-        typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    albums: list[Path] = require_albums(target)
+    tracks: list[Path] = require_tracks(target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)

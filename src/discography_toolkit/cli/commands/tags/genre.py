@@ -35,7 +35,7 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.core.layout import find_artist_folders, find_audio_files, is_artist_folder
+from discography_toolkit.cli.scope import artists_in, require_tracks
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.operations import tagging
 
@@ -85,7 +85,7 @@ def genre(
     # whether or not it sits under a recognized artist -- the path is a
     # scope, and filtering here would mean pointing at one album and
     # tagging nothing.
-    artists: list[Path] = [] if is_artist_folder(target) else find_artist_folders(target)
+    artists: list[Path] = artists_in(target)
     echo_banner("Metadata: Genre", target.name, children=artist_names(target, artists))
 
     if value is None:
@@ -96,10 +96,7 @@ def genre(
         typer.secho("\nGenre cannot be empty.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
-    tracks: list[Path] = find_audio_files(target)
-    if not tracks:
-        typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    tracks: list[Path] = require_tracks(target)
 
     label: str = typer.style("Genre ->", fg=typer.colors.GREEN, bold=True)
     typer.echo(f"\n{label} {value!r}")

@@ -40,7 +40,7 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
-from discography_toolkit.core.layout import find_albums, find_artist_folders
+from discography_toolkit.cli.scope import artists_in, require_albums
 from discography_toolkit.operations import covers
 
 if TYPE_CHECKING:
@@ -79,22 +79,10 @@ def cover(
             user abort, or a completed run.
     """
     target: Path = resolve_path(path, "Enter the absolute path to work beneath")
-    artists: list[Path] = find_artist_folders(target)
+    artists: list[Path] = artists_in(target)
     echo_banner("Metadata: Album Cover", target.name, children=artist_names(target, artists))
 
-    albums: list[Path] = find_albums(target)
-    if not albums:
-        typer.secho(
-            f"\nNo album folder found at or beneath {target.name!r}.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        typer.secho(
-            "Run the layout pass first -- albums are recognized through their artist.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
+    albums: list[Path] = require_albums(target)
 
     with make_progress(noun="albums") as progress:
         advance = make_advancer(progress, target.name, albums, artists)
