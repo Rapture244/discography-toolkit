@@ -57,10 +57,13 @@ CONTAINER_NAME: Final[str] = "FLAC"
 # A multi-disc album keeps its tracks in "CD 1"/"Disc 2" subfolders.
 # Recognising them by name is what lets artist discovery tell a disc from
 # an album on fresh material, where both simply hold audio: an album's
-# parent is the artist, a disc's parent is the album. Heuristic by
-# nature -- an album genuinely titled "Disc 9" would be misread -- but
-# the shape is near-universal and the cost is one misplaced folder in a
-# preview, not silent loss.
+# parent is the artist, a disc's parent is the album.
+#
+# ponytail: a name-shape heuristic, so an album genuinely titled "Disc 9"
+# reads as a disc of the folder above it. Upgrade by deciding from the
+# tree instead -- a disc sits beside other discs under a folder holding
+# no audio of its own. Left as it is because the shape is near-universal
+# and the cost is one misplaced folder in a preview, not silent loss.
 _DISC_FOLDER_RE: Final[re.Pattern[str]] = re.compile(r"^(?:cd|disc|disk)\s*_?\s*\d", re.IGNORECASE)
 
 
@@ -442,6 +445,12 @@ def _is_album(folder: Path) -> bool:
         return True
     if ALBUM_INDEX_RE.match(folder.name) is None:
         return False
+    # ponytail: a numbered category is told from a numbered box set only
+    # by whether its immediate children hold audio, so a category with
+    # one stray audio-bearing folder directly inside it reads as a box
+    # set and stops the walk short of the artists beneath. Upgrade by
+    # requiring a count label on the folder above, once every shelf has
+    # been through the layout pass at least once.
     return _is_empty(folder) or _parts_hold_audio(folder)
 
 

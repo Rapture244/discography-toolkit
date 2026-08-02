@@ -93,6 +93,12 @@ _TRAILING_TAG_RE: Final[re.Pattern[str]] = re.compile(r"\s*[\[(][^\[\]()]*[\])]\
 # hyphen is required: a title merely starting with M -- "Mirror", "Miles
 # Smiles" -- cannot match, and an album titled "M" carries no hyphen, so
 # it stays a title.
+#
+# ponytail: a title genuinely written "M - Something", or the hyphenated
+# genre "M-Base", reads as a marker and loses its first word. Upgrade by
+# requiring spaces around the hyphen, which the older unseparated
+# spelling above currently forbids -- so only once that spelling is gone
+# from the shelf.
 _MISSING_MARKER_RE: Final[re.Pattern[str]] = re.compile(r"^(?:⚠|M)\s*-\s*")
 
 # A single "(...)" or "[...]" wrapper, captured whole so its inner text
@@ -170,9 +176,13 @@ _QUALITY_BRACKETED_RE: Final[re.Pattern[str]] = re.compile(
 # are ordinary words ("Magnum Opus"). Two guards make the mistake
 # impossible -- anchored to the end, the only place a stale marker sits,
 # and case-sensitive, since the convention writes the codec in caps
-# while a title writes the word normally. The trade is deliberate: a
-# lowercase "flac" is left for the eye to catch, where the opposite
-# error would eat a word of the title.
+# while a title writes the word normally.
+#
+# ponytail: the guards are one-sided, so a lowercase trailing "flac"
+# survives into the title and from there into the Album tag. Deliberate:
+# the opposite error eats a word of a real title, which is worse and
+# silent. Upgrade only for a codec that is no English word, where the
+# case guard buys nothing.
 _QUALITY_TRAILING_RE: Final[re.Pattern[str]] = re.compile(rf"\s*\b(?:{_CODEC_ALTERNATION})\s*$")
 
 # Leftover separators (whitespace, hyphen, underscore, dot) at either end
@@ -256,9 +266,13 @@ KEEP_CAPS: Final[frozenset[str]] = frozenset(
 
 # A roman numeral of two letters or more, built only from I, V and X.
 # The restriction is what keeps the common word "MIX" (an M) from being
-# read as one, at the cost of numbers past thirty-eight, which albums do
-# not reach. A lone "I" or "V" is left to the caser, being as often a
+# read as one. A lone "I" or "V" is left to the caser, being as often a
 # word as a number.
+#
+# ponytail: no numeral past XXXVIII, since L, C, D and M are excluded to
+# save "MIX", and nothing checks that what matches is well formed --
+# "XIVX" would pass. Upgrade to a real numeral check with a word
+# blacklist, once an album needs a number past thirty-eight.
 _ROMAN_RE: Final[re.Pattern[str]] = re.compile(r"[IVX]{2,}")
 
 # Splits a token into its punctuation edges and alphanumeric core, so
@@ -867,6 +881,12 @@ def title_case(text: str) -> str:
     Returns:
         The text in title case, its acronyms and codes left in caps.
     """
+    # ponytail: English rules whatever the language, so a German or
+    # French title comes out capitalised rather than correct -- "Warum
+    # Bist Du Traurig" for a sentence that capitalises only its nouns.
+    # Upgrade needs a language per album, which nothing on the shelf
+    # carries and no library can guess from four words.
+    #
     # titlecase only reads a title as shouting, and normalises it, when
     # every word is capital; one lower-case letter anywhere -- the "b" of
     # "[24bVFLAC]", the "s" of "1970's" -- and it leaves the rest of the

@@ -105,7 +105,7 @@ unfixable = [
 
 
 dummy-variable-rgx = "^(_|unused_).*"   # Treat underscore / unused_* as intentionally unused.
-task-tags = ["TODO", "FIXME"]           # Keep the tags recognized as task comments.
+task-tags = ["TODO", "FIXME", "ponytail"] # Keep the tags recognized as task comments.
 future-annotations = true               # Allow Ruff to add `from __future__ import annotations` when it enables safer fixes.
 
 # ============================================================================================================ #
