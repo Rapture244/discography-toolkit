@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from discography_toolkit.cli.console import echo_banner
+from discography_toolkit.cli.console import Notice, echo_banner, echo_notices
 from discography_toolkit.cli.parameters import resolve_path
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
@@ -100,10 +100,11 @@ class ArtistResult:
         moved: Albums moved across the container.
         labelled: Whether the artist folder was renamed.
         failures: How many individual operations failed.
-        notices: What the pass saw but would not act on, each already
-            phrased and counted. Not changes -- things a person has to
-            look at, gathered into one list so a new kind of notice
-            costs a line here rather than a field, a render and a tally.
+        notices: What the pass saw but would not act on, each phrased,
+            counted, and naming the folders it means. Not changes --
+            things a person has to look at, gathered into one list so a
+            new kind of notice costs a line here rather than a field, a
+            render and a tally.
     """
 
     artist: Path
@@ -114,7 +115,7 @@ class ArtistResult:
     moved: int
     labelled: bool
     failures: int
-    notices: tuple[str, ...] = ()
+    notices: tuple[Notice, ...] = ()
 
     @property
     def changed(self) -> bool:
@@ -369,7 +370,7 @@ def _notices(
     name_plan: naming.NamePlan,
     case_plan: track_naming.CasePlan,
     place_plan: placement.PlacementPlan,
-) -> tuple[str, ...]:
+) -> tuple[Notice, ...]:
     """Phrase everything the pass saw but would not act on.
 
     Five things resolve to a person rather than a rule: a name claiming
@@ -380,23 +381,50 @@ def _notices(
     the shelf in a state only a person can settle, and saying nothing
     would let it pass silently.
 
+    Each names what it means. "3 album(s) marked ⚠" across sixty artists
+    is not something anyone can act on; the three folder names are.
+    Names rather than paths, since the artist is printed on the line
+    above and the rest of the path would be noise.
+
     Args:
         name_plan: What naming worked out.
         case_plan: What track casing worked out.
         place_plan: What placement worked out.
 
     Returns:
-        One phrased line per kind of notice there was, empty when there
-        was none.
+        One notice per kind there was, empty when there was none.
     """
-    counted: tuple[tuple[int, str], ...] = (
-        (len(name_plan.conflicts), 'album(s) marked "⚠" -- named missing while holding audio'),
-        (len(name_plan.newly_missing), 'album(s) newly marked "M" -- no audio found in them'),
-        (len(name_plan.lowercase_eps), 'album(s) carry a lower-case "ep" -- left as written'),
-        (len(case_plan.collisions), "track(s) not recased -- the cased name is already taken"),
-        (len(place_plan.collisions), "album(s) not filed -- a folder of that name is in the way"),
+    found: tuple[tuple[tuple[str, ...], str], ...] = (
+        (
+            tuple(outcome.album.name for outcome in name_plan.conflicts),
+            'album(s) marked "⚠" -- named missing while holding audio',
+        ),
+        (
+            tuple(outcome.album.name for outcome in name_plan.newly_missing),
+            'album(s) newly marked "M" -- no audio found in them',
+        ),
+        (
+            tuple(outcome.album.name for outcome in name_plan.lowercase_eps),
+            'album(s) carry a lower-case "ep" -- left as written',
+        ),
+        (
+            tuple(outcome.track.name for outcome in case_plan.collisions),
+            "track(s) not recased -- the cased name is already taken",
+        ),
+        (
+            tuple(outcome.album.name for outcome in place_plan.collisions),
+            "album(s) not filed -- a folder of that name is in the way",
+        ),
     )
-    return tuple(f"{count} {phrase}" for count, phrase in counted if count)
+
+    return tuple(
+        Notice(
+            summary=f"{len(names)} {phrase}",
+            details=tuple(f"{name!r}" for name in names),
+        )
+        for names, phrase in found
+        if names
+    )
 
 
 # ==================================================================================== #
@@ -432,8 +460,7 @@ def _echo_artist(result: ArtistResult) -> None:
 
     if result.failures:
         typer.secho(f"      {result.failures} operation(s) failed", fg=typer.colors.RED)
-    for notice in result.notices:
-        typer.secho(f"      {notice}", fg=typer.colors.YELLOW)
+    echo_notices(result.notices)
 
 
 def _phrase(result: ArtistResult) -> str:

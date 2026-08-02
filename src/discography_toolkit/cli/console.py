@@ -310,6 +310,22 @@ class Notice:
     details: tuple[str, ...] = ()
 
 
+def echo_notices(notices: Sequence[Notice]) -> None:
+    """Print what a pass saw but would not act on, nested under its line.
+
+    Three levels: the result above, the notice, and the things it names.
+    Shared with `layout`, which reports per artist rather than per pass
+    and so has no result line of its own to hang them from.
+
+    Args:
+        notices: What the pass saw, already phrased and counted.
+    """
+    for notice in notices:
+        typer.secho(f"      {notice.summary}", fg=typer.colors.YELLOW)
+        for detail in notice.details:
+            typer.secho(f"          {detail}", fg=typer.colors.BRIGHT_BLACK)
+
+
 def echo_result(
     name: str,
     count: int,
@@ -333,10 +349,7 @@ def echo_result(
     colour: str = typer.colors.GREEN if count else typer.colors.BRIGHT_BLACK
     typer.secho(f"  {name:<{RESULT_LABEL_WIDTH}} {count} {verb}", fg=colour)
 
-    for notice in notices:
-        typer.secho(f"      {notice.summary}", fg=typer.colors.YELLOW)
-        for detail in notice.details:
-            typer.secho(f"          {detail}", fg=typer.colors.BRIGHT_BLACK)
+    echo_notices(notices)
 
     for failed, reason in failures:
         typer.secho(f"      {str(failed)!r} - {reason}", fg=typer.colors.RED)

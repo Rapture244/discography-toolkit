@@ -319,6 +319,26 @@ def test_the_colliding_folders_are_named(tmp_path: Path) -> None:
     assert "17. (2021) - chaos" in result.stdout
 
 
+def test_a_notice_names_the_albums_it_means(tmp_path: Path) -> None:
+    """A count alone is not something anyone can act on; the names are.
+
+    An album whose name claims it is missing while the folder holds
+    audio is a conflict only a person can settle -- so the run says
+    which album, not merely that there was one.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
+    flac(artist / "(1985) - M - Decoy")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert result.exit_code == 0
+    assert '1 album(s) marked "\u26a0"' in result.stdout
+    assert "'(1985) - M - Decoy'" in result.stdout
+
+
 def test_a_refusal_is_repeated_in_the_summary(tmp_path: Path) -> None:
     """A run of sixty needs its refusals gathered where the totals are.
 
