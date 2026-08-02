@@ -10,12 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
-
 from discography_toolkit.operations import artist_label
 
 import pytest
+from tests.helpers import fill
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,26 +35,6 @@ def artist(tmp_path: Path) -> Path:
     folder: Path = tmp_path / "Charlie Mariano"
     folder.mkdir()
     return folder
-
-
-def fill(album: Path, tier: str) -> Path:
-    """Build an album folder holding files of the given tier.
-
-    Args:
-        album: Where to make the folder.
-        tier: "lossless", "opus", "lossy", or "none".
-
-    Returns:
-        The album folder.
-    """
-    album.mkdir(parents=True, exist_ok=True)
-    if tier == "lossless":
-        sf.write(album / "01.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
-    elif tier == "opus":
-        _ = (album / "01.opus").write_bytes(b"x")
-    elif tier == "lossy":
-        _ = (album / "01.mp3").write_bytes(b"x")
-    return album
 
 
 # ==================================================================================== #

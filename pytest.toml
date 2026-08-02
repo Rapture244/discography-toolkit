@@ -6,6 +6,12 @@
 minversion = "9.0"
 testpaths = ["tests"]
 
+# Repository root on sys.path, so `from tests.helpers import ...` resolves.
+# --import-mode=importlib deliberately leaves sys.path alone, so without
+# this the shared builders would have to be fixtures -- a parameter and a
+# docstring line at every one of their call sites.
+pythonpath = ["."]
+
 strict = true # unregistered markers, unknown config keys and passing xfails all error
 
 addopts = [
