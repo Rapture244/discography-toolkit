@@ -119,20 +119,61 @@ _EP_MARKER_RE: Final[re.Pattern[str]] = re.compile(rf"\b{EP_MARKER}\b")
 # claimed.
 _EP_LOWERCASE_RE: Final[re.Pattern[str]] = re.compile(rf"\b(?!{EP_MARKER}\b)[Ee][Pp]\b")
 
-# A "FLAC" or "OPUS" word, case-insensitive, bounded so it cannot match
-# inside an unrelated word. Only applied to text already inside a
-# bracket, where a quality word is unambiguous.
-_QUALITY_BRACKETED_RE: Final[re.Pattern[str]] = re.compile(r"\b(?:FLAC|OPUS)\b", re.IGNORECASE)
+# Every codec word a folder name might carry, whatever the album was
+# ripped from or transcoded to. FLAC and OPUS are in the list like the
+# rest: a tag is never trusted from a name, so all of them come off and
+# the rebuild re-emits one from what the files actually are. Those two
+# are simply the only ones a tier can produce -- an album held in APE or
+# WAV is lossless, and reads as "[FLAC]" because the tag names the tier
+# rather than the container.
+_CODEC_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "AAC",
+        "AC3",
+        "AIF",
+        "AIFF",
+        "ALAC",
+        "APE",
+        "DFF",
+        "DSD",
+        "DSF",
+        "DTS",
+        "FLAC",
+        "M4A",
+        "MP3",
+        "MQA",
+        "OGG",
+        "OPUS",
+        "PCM",
+        "TTA",
+        "VORBIS",
+        "WAV",
+        "WAVPACK",
+        "WMA",
+        "WV",
+    }
+)
 
-# An unbracketed quality word left over from before the convention, e.g.
-# "Some Album FLAC". Loose matching here is dangerous: "Opus" is an
-# ordinary title word ("Magnum Opus", "Opus One"). Two guards make the
-# mistake impossible -- anchored to the end, the only place a stale
-# marker sits, and case-sensitive, since the convention writes the codec
-# in caps while a title writes the word normally. The trade is
-# deliberate: a lowercase "flac" is left for the eye to catch, where the
-# opposite error would eat a word of the title.
-_QUALITY_TRAILING_RE: Final[re.Pattern[str]] = re.compile(r"\s*\b(?:FLAC|OPUS)\s*$")
+_CODEC_ALTERNATION: Final[str] = "|".join(sorted(_CODEC_WORDS))
+
+# A codec word inside a bracket, where it is unambiguous: nothing but a
+# rip tag is written that way. Case-insensitive and applied to bracket
+# contents only, so "[flac]" and "[Mp3]" both go. The cost is that a
+# bracket naming something else -- a label called "[Ape Records]" --
+# loses the word; the same trade the codebase already made for "Opus".
+_QUALITY_BRACKETED_RE: Final[re.Pattern[str]] = re.compile(
+    rf"\b(?:{_CODEC_ALTERNATION})\b", re.IGNORECASE
+)
+
+# An unbracketed codec word left over from before the convention, e.g.
+# "Some Album FLAC". Loose matching here is dangerous: "Opus" and "Ape"
+# are ordinary words ("Magnum Opus"). Two guards make the mistake
+# impossible -- anchored to the end, the only place a stale marker sits,
+# and case-sensitive, since the convention writes the codec in caps
+# while a title writes the word normally. The trade is deliberate: a
+# lowercase "flac" is left for the eye to catch, where the opposite
+# error would eat a word of the title.
+_QUALITY_TRAILING_RE: Final[re.Pattern[str]] = re.compile(rf"\s*\b(?:{_CODEC_ALTERNATION})\s*$")
 
 # Leftover separators (whitespace, hyphen, underscore, dot) at either end
 # of a name once a token has been cut out.
@@ -559,25 +600,28 @@ def has_lowercase_ep(name: str) -> bool:
 #                                     QUALITY TAG                                      #
 # ==================================================================================== #
 def strip_quality_tag(name: str) -> str:
-    """Remove a stale "FLAC"/"OPUS" quality word from a name.
+    """Remove a stale codec word from a name.
 
     Only cleans up; it never decides a tier, which is the job of whatever
     reads the album's actual files. A folder easily carries a word from
     before its contents last changed -- a FLAC master transcoded to Opus
-    keeps the old "[FLAC]" until this strips it -- so either word goes
-    regardless of which is present.
+    keeps the old "[FLAC]" until this strips it -- so every codec word
+    goes, not just the two a settled name can end up carrying. What the
+    album is held in is a fact about the files, and a name that claims
+    otherwise is claiming something it cannot know.
 
     Where the word shares a bracket with another tag worth keeping --
-    "[FLAC, 40th Anniversary]", "(FLAC, Live)", "[FLAC m4a]" -- only the
-    word itself is cut and the rest of the bracket is rebuilt in the same
-    style and place. A bracket holding only the word is removed entirely.
-    Failing any bracketed match, a bare trailing word is taken instead.
+    "[FLAC, 40th Anniversary]", "(FLAC, Live)" -- only the codec words
+    are cut and the rest of the bracket is rebuilt in the same style and
+    place. A bracket holding nothing but codecs -- "[FLAC m4a]" -- is
+    removed entirely. Failing any bracketed match, a bare trailing word
+    is taken instead.
 
     Args:
         name: A name, past year extraction.
 
     Returns:
-        The name with a stale quality word removed and its surroundings
+        The name with stale codec words removed and its surroundings
         tidied, or unchanged when there is no such word.
     """
     for wrapped in _ANY_WRAPPED_RE.finditer(name):
@@ -586,11 +630,12 @@ def strip_quality_tag(name: str) -> str:
         content: str = parens if is_paren else brackets
         opening, closing = ("(", ")") if is_paren else ("[", "]")
 
-        quality: re.Match[str] | None = _QUALITY_BRACKETED_RE.search(content)
-        if quality is None:
+        if _QUALITY_BRACKETED_RE.search(content) is None:
             continue
 
-        kept: str = content[: quality.start()] + content[quality.end() :]
+        # Every codec in the bracket, not just the first: "[FLAC m4a]"
+        # names one album twice and should leave nothing behind.
+        kept: str = _QUALITY_BRACKETED_RE.sub("", content)
         kept = _MULTI_SPACE_RE.sub(" ", kept.strip(" ,")).strip()
         replacement: str = f"{opening}{kept}{closing}" if kept else ""
         return clean_name(name[: wrapped.start()] + replacement + name[wrapped.end() :])

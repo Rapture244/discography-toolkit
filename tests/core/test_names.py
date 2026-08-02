@@ -631,15 +631,23 @@ def test_album_title_is_the_same_however_the_ep_was_typed() -> None:
         ("So What (OPUS)", "So What"),
         # Case-insensitive inside a bracket, where the word is unambiguous.
         ("Milestones [flac]", "Milestones"),
+        # Every codec goes, not only the two a settled name can carry:
+        # what an album is held in is a fact about its files.
+        ("Kind of Blue [MP3]", "Kind of Blue"),
+        ("Kind of Blue [AAC]", "Kind of Blue"),
+        ("Kind of Blue (WavPack)", "Kind of Blue"),
+        ("Kind of Blue [ape]", "Kind of Blue"),
         # A second bracket that is part of the title survives.
         ("Bird [Live] [FLAC]", "Bird [Live]"),
+        ("Bird [Live] [MP3]", "Bird [Live]"),
         # A bare trailing word, when nothing is bracketed.
         ("Some Album FLAC", "Some Album"),
         ("Some Album OPUS", "Some Album"),
+        ("Some Album MP3", "Some Album"),
     ],
 )
 def test_strip_quality_tag_removes_the_word(name: str, expected: str) -> None:
-    """A stale quality word goes, whichever of the two it is.
+    """A stale codec word goes, whichever of them is present.
 
     Args:
         name: A name past year extraction.
@@ -653,15 +661,35 @@ def test_strip_quality_tag_removes_the_word(name: str, expected: str) -> None:
     [
         ("Milestones [FLAC, 40th Anniversary]", "Milestones [40th Anniversary]"),
         ("Live (FLAC, Live)", "Live (Live)"),
-        ("Nefertiti [FLAC m4a]", "Nefertiti [m4a]"),
+        ("Nefertiti [MP3, Remastered]", "Nefertiti [Remastered]"),
     ],
 )
 def test_strip_quality_tag_keeps_a_shared_bracket(name: str, expected: str) -> None:
-    """Only the word is cut; a tag sharing its bracket is kept, in style.
+    """Only the codec is cut; a tag sharing its bracket is kept, in style.
 
     Args:
-        name: A name whose bracket holds the word and something else.
-        expected: The name with just the word removed.
+        name: A name whose bracket holds a codec and something else.
+        expected: The name with just the codec removed.
+    """
+    assert strip_quality_tag(name) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Nefertiti [FLAC m4a]", "Nefertiti"),
+        ("Nefertiti [FLAC, ALAC]", "Nefertiti"),
+    ],
+)
+def test_strip_quality_tag_empties_a_bracket_of_only_codecs(name: str, expected: str) -> None:
+    """A bracket naming one album twice leaves nothing behind.
+
+    Every codec in the bracket is cut, not just the first, so the bracket
+    goes rather than surviving with the leftovers of a rip tag in it.
+
+    Args:
+        name: A name whose bracket holds nothing but codecs.
+        expected: The name once the whole bracket is gone.
     """
     assert strip_quality_tag(name) == expected
 
@@ -669,14 +697,17 @@ def test_strip_quality_tag_keeps_a_shared_bracket(name: str, expected: str) -> N
 @pytest.mark.parametrize(
     "name",
     [
-        # "Opus" is an ordinary title word, and only an all-caps trailing
-        # word is treated as a marker.
+        # "Opus" and "Ape" are ordinary title words, and only an
+        # all-caps trailing word is treated as a marker.
         "Magnum Opus",
         "Opus One",
         "Opus de Jazz",
+        "Planet of the Ape",
         # Lowercase "flac" outside a bracket is left for the eye, since
         # eating a title word is the worse mistake.
         "Miles Ahead flac",
+        # A code gluing the codec to something else is not a rip tag.
+        "Music of the Bahnar [24bVFLAC]",
         # No quality word at all.
         "Sketches of Spain",
         "",
@@ -863,8 +894,10 @@ def test_drop_unpaired_wrappers_leaves_a_balanced_name_alone() -> None:
         # A title may hold " - " of its own: the marker group takes only
         # "M" or "\u26a0", so anything else after the year is simply title.
         "(1959) - X - Kind of Blue",
-        # FLAC and OPUS are the only tags this writes, so any other
-        # trailing bracket is the title's own and cannot be told from one.
+        # The pattern cannot tell a codec bracket from one the title
+        # owns -- "[Live]" and "[MP3]" are the same shape. It does not
+        # have to: the rebuild strips every codec before a name is judged,
+        # so this leniency is never reached by a name the pass produced.
         "(1959) - Kind of Blue [MP3]",
         "Singles",  # the yearless exception, bare
     ],
