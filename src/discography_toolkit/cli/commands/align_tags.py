@@ -38,20 +38,14 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
     find_audio_files,
-    owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
-from discography_toolkit.core.names import (
-    album_title,
-    extract_year,
-    is_approximate_year,
-    strip_artist_label,
-    title_case,
-)
+from discography_toolkit.core.names import title_case
 from discography_toolkit.operations import covers, tagging
 
 if TYPE_CHECKING:
@@ -189,12 +183,13 @@ def _wants(
 ) -> tagging.Desired:
     """Build the value function reading all four text tags off the folders.
 
-    Each tag is derived exactly as its own command derives it: the Album
-    from the album folder's title, the Album Artist from the artist
-    folder's name without its label, the Date from the year in the album
-    name -- cleared when approximate -- and the Title recased from the one
-    already there. A tag with nothing to derive is left out, which leaves
-    that field untouched.
+    Each tag comes from `core.derivation`, which is the single reading of
+    it -- the same one the matching `tags` sub-command uses, so the two
+    doors onto the same work cannot disagree. The Title is the exception,
+    recased from the tag already there rather than read off a folder.
+
+    A tag with nothing to derive is left out, which leaves that field
+    untouched.
 
     A `credit` overrides the Album Artist for every track, whatever folder
     it sits under -- the one way a track's Album Artist is not read from
@@ -213,21 +208,20 @@ def _wants(
     def desired(track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
         wanted: dict[Tag, str] = {}
 
-        album: Path | None = owning_folder(track, albums)
+        album: str | None = derivation.album_of(track, albums)
         if album is not None:
-            wanted[Tag.ALBUM] = album_title(album.name)
-            token: str | None = extract_year(album.name)
-            if token is not None:
-                wanted[Tag.DATE] = "" if is_approximate_year(token) else token
+            wanted[Tag.ALBUM] = album
+
+        date: str | None = derivation.date_of(track, albums)
+        if date is not None:
+            wanted[Tag.DATE] = date
 
         if credit is not None:
             wanted[Tag.ALBUM_ARTIST] = credit
         else:
-            artist: Path | None = owning_folder(track, artists)
+            artist: str | None = derivation.album_artist_of(track, artists)
             if artist is not None:
-                name: str | None = strip_artist_label(artist.name)
-                if name is not None:
-                    wanted[Tag.ALBUM_ARTIST] = name
+                wanted[Tag.ALBUM_ARTIST] = artist
 
         # Recased in place, exactly as the title command does it: an
         # absent title cases to nothing, compares equal, and is left be.

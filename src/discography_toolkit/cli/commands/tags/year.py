@@ -35,14 +35,13 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
     find_audio_files,
-    owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
-from discography_toolkit.core.names import extract_year, is_approximate_year
 from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
@@ -151,35 +150,10 @@ def _wants(albums: Sequence[Path]) -> tagging.Desired:
     """
 
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        value: str | None = _year_of(track, albums)
+        value: str | None = derivation.date_of(track, albums)
         return {} if value is None else {Tag.DATE: value}
 
     return desired
-
-
-def _year_of(track: Path, albums: Sequence[Path]) -> str | None:
-    """Find the Date a track should carry.
-
-    An approximate year resolves to an empty string, which clears the
-    tag: "199x" is not a date, and a date field holding a non-date is
-    worse than an empty one.
-
-    Args:
-        track: The track to place.
-        albums: The album folders in scope.
-
-    Returns:
-        The year, an empty string for an approximation, or `None` when
-        the track sits under no album folder.
-    """
-    album: Path | None = owning_folder(track, albums)
-    if album is None:
-        return None
-
-    token: str | None = extract_year(album.name)
-    if token is None:
-        return None
-    return "" if is_approximate_year(token) else token
 
 
 # ==================================================================================== #
@@ -202,7 +176,7 @@ def _undated(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.Trac
     return [
         outcome
         for outcome in plan.outcomes
-        if outcome.status == "already_correct" and _year_of(outcome.path, albums) is None
+        if outcome.status == "already_correct" and derivation.date_of(outcome.path, albums) is None
     ]
 
 

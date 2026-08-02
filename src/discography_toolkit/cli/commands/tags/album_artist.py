@@ -34,10 +34,10 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import (
     find_artist_folders,
     find_audio_files,
-    owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import strip_artist_label
@@ -173,27 +173,10 @@ def _wants(artists: Sequence[Path], credit: str | None = None) -> tagging.Desire
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
         if credit is not None:
             return {Tag.ALBUM_ARTIST: credit}
-        name: str | None = _artist_of(track, artists)
+        name: str | None = derivation.album_artist_of(track, artists)
         return {} if name is None else {Tag.ALBUM_ARTIST: name}
 
     return desired
-
-
-def _artist_of(track: Path, artists: Sequence[Path]) -> str | None:
-    """Find the Album Artist a track should carry.
-
-    Args:
-        track: The track to place.
-        artists: The artist folders in scope.
-
-    Returns:
-        The owning folder's name without its count label, or `None` when
-        the track sits under no artist folder.
-    """
-    folder: Path | None = owning_folder(track, artists)
-    if folder is None:
-        return None
-    return strip_artist_label(folder.name)
 
 
 # ==================================================================================== #
@@ -243,7 +226,8 @@ def _unresolved(
     return [
         outcome
         for outcome in plan.outcomes
-        if outcome.status == "already_correct" and _artist_of(outcome.path, artists) is None
+        if outcome.status == "already_correct"
+        and derivation.album_artist_of(outcome.path, artists) is None
     ]
 
 

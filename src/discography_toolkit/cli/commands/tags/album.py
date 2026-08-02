@@ -40,14 +40,13 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.parameters import resolve_path
+from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
     find_audio_files,
-    owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
-from discography_toolkit.core.names import album_title
 from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
@@ -156,8 +155,8 @@ def _wants(albums: Sequence[Path]) -> tagging.Desired:
     """
 
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        folder: Path | None = owning_folder(track, albums)
-        return {} if folder is None else {Tag.ALBUM: album_title(folder.name)}
+        title: str | None = derivation.album_of(track, albums)
+        return {} if title is None else {Tag.ALBUM: title}
 
     return desired
 
@@ -181,7 +180,7 @@ def _orphans(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.Trac
     return [
         outcome
         for outcome in plan.outcomes
-        if outcome.status == "already_correct" and owning_folder(outcome.path, albums) is None
+        if outcome.status == "already_correct" and derivation.album_of(outcome.path, albums) is None
     ]
 
 
