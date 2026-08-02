@@ -108,7 +108,9 @@ def organize(
     # Layout has just labelled the artists, so they are now findable the
     # ordinary way. If the target was itself a lone artist, it was renamed
     # under it -- follow it to its new path rather than the stale one.
-    root: Path = target if target.exists() else results[0].artist if results else target
+    root: Path = target
+    if not target.exists() and results:
+        root = results[0].artist
     labelled: list[Path] = find_artist_folders(root)
     albums: list[Path] = find_albums(root)
     tracks: list[Path] = find_audio_files(root)

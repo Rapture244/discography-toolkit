@@ -27,7 +27,7 @@ from __future__ import annotations
 # with get_type_hints() when it builds the command, so every name used in
 # a signature has to exist in module globals.
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Final
 
 import typer
 
@@ -54,13 +54,13 @@ if TYPE_CHECKING:
 # The text tags read off the folders, each with its display name and how
 # its count reads. Genre is not here -- it cannot be derived -- and the
 # cover is settled by its own pass, not written as a text tag.
-_TAG_LABELS: list[tuple[Tag, str, str]] = [
+_TAG_LABELS: Final[tuple[tuple[Tag, str, str], ...]] = (
     (Tag.ALBUM, "Album", "tagged"),
     (Tag.ALBUM_ARTIST, "Album Artist", "tagged"),
     (Tag.DATE, "Year", "dated"),
     (Tag.TITLE, "Title", "recased"),
-]
-_TEXT_TAGS: list[Tag] = [tag for tag, _, _ in _TAG_LABELS]
+)
+_TEXT_TAGS: Final[tuple[Tag, ...]] = tuple(tag for tag, _, _ in _TAG_LABELS)
 
 
 # ==================================================================================== #
