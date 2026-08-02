@@ -258,7 +258,7 @@ def _run_covers(albums: Sequence[Path], artists: Sequence[Path]) -> covers.Cover
         # a full rewrite per file -- so it settles behind a per-artist
         # breakdown like the tag passes, not one flat bar that barely
         # moves across hundreds of files.
-        advance = make_advancer(progress, "Covers: settling", covers.operation_paths(plan), artists)
+        advance = make_advancer(progress, "Covers: settling", plan.touched, artists)
         report = covers.apply(plan, on_progress=advance)
 
     settled: int = report.written + report.renamed + report.embedded

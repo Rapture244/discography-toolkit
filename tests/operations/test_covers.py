@@ -737,7 +737,7 @@ def test_a_duplicate_outlives_a_failed_settle(make_album: Callable[..., Path]) -
     assert len(report.failures) == 2
 
 
-def test_operation_paths_match_the_planned_change_count(
+def test_touched_matches_the_planned_change_count(
     make_album: Callable[..., Path],
 ) -> None:
     """One path is listed for every operation the plan would perform.
@@ -758,11 +758,11 @@ def test_operation_paths_match_the_planned_change_count(
 
     plan = covers.plan([album])
 
-    assert len(covers.operation_paths(plan)) == plan.changes
+    assert len(plan.touched) == plan.changes
     assert plan.changes == 3  # one write of cover.jpg, two embeds
 
 
-def test_operation_paths_cover_every_kind_of_operation(
+def test_touched_covers_every_kind_of_operation(
     make_album: Callable[..., Path],
 ) -> None:
     """A rename, a delete, a write's target and each embed all appear.
@@ -776,7 +776,7 @@ def test_operation_paths_cover_every_kind_of_operation(
     _ = (album / "front.jpg").write_bytes(art)  # duplicate, deleted
 
     plan = covers.plan([album])
-    paths = covers.operation_paths(plan)
+    paths = plan.touched
 
     # Two embeds plus the loose-file settling, all under this one album.
     assert all(album in path.parents or path.parent == album for path in paths)
