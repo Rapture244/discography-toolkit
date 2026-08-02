@@ -6,9 +6,7 @@ from __future__ import annotations
 import io
 from typing import TYPE_CHECKING
 
-import numpy as np
 from PIL import Image, ImageDraw
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -16,6 +14,7 @@ from discography_toolkit.core import artwork, metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -67,12 +66,7 @@ def artist(tmp_path: Path) -> Callable[..., Path]:
             folder: Path = root / "FLAC" / name
             folder.mkdir(parents=True)
             for index in range(tracks):
-                sf.write(
-                    folder / f"{index + 1:02d}.flac",
-                    np.zeros(4410, dtype="float32"),
-                    44100,
-                    format="FLAC",
-                )
+                silence(folder / f"{index + 1:02d}.flac")
         return root
 
     return build
@@ -409,7 +403,7 @@ def test_the_prompt_names_the_work_before_asking(artist: Callable[..., Path]) ->
     loose: Path = root / "FLAC" / "02. (1970) - Loose [FLAC]"
     loose.mkdir()
     for index in (1, 2):
-        sf.write(loose / f"{index:02d}.flac", np.zeros(4410, dtype="float32"), 44100, format="FLAC")
+        silence(loose / f"{index:02d}.flac")
     art: bytes = image(600, seed=2)
     _ = (loose / "folder.jpg").write_bytes(art)
     _ = (loose / "front.jpg").write_bytes(art)
@@ -457,7 +451,7 @@ def test_refuses_a_path_with_no_album(tmp_path: Path) -> None:
     """
     loose: Path = tmp_path / "Unsorted"
     loose.mkdir()
-    sf.write(loose / "01.flac", np.zeros(4410, dtype="float32"), 44100, format="FLAC")
+    silence(loose / "01.flac")
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(tmp_path)])
 
