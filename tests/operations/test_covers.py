@@ -124,7 +124,6 @@ def test_the_cover_the_tracks_agree_on_wins(make_album: Callable[..., Path]) -> 
 
     settlement = settlement_of(album)
 
-    assert settlement.source == "tags"
     assert settlement.cover.data == art
 
 
@@ -144,7 +143,6 @@ def test_a_larger_loose_file_beats_the_tags(make_album: Callable[..., Path]) -> 
 
     settlement = settlement_of(album)
 
-    assert settlement.source == "disk"
     assert settlement.cover.data == large
 
 
@@ -160,7 +158,6 @@ def test_a_smaller_loose_file_does_not_beat_the_tags(make_album: Callable[..., P
 
     settlement = settlement_of(album)
 
-    assert settlement.source == "tags"
     assert settlement.cover.data == large
 
 
@@ -407,7 +404,6 @@ def test_tracks_without_the_cover_are_queued(make_album: Callable[..., Path]) ->
     settlement = settlement_of(album)
 
     assert settlement.embed == (album / "03 - Track.flac",)
-    assert settlement.correct == 2
 
 
 def test_a_track_carrying_the_capped_copy_is_left_alone(
@@ -432,7 +428,6 @@ def test_a_track_carrying_the_capped_copy_is_left_alone(
     settlement = settlement_of(album)
 
     assert settlement.embed == ()
-    assert settlement.correct == 2
 
 
 def test_a_track_carrying_different_art_is_queued(make_album: Callable[..., Path]) -> None:
@@ -464,7 +459,6 @@ def test_albums_are_planned_in_the_order_given(make_album: Callable[..., Path]) 
     result = covers.plan([second, first])
 
     assert [album.album for album in result.albums] == [second, first]
-    assert result.total == 2
 
 
 def test_progress_is_reported_for_every_album(make_album: Callable[..., Path]) -> None:

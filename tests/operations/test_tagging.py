@@ -76,7 +76,7 @@ def test_plan_marks_a_track_needing_a_change(make_track: Callable[..., Path]) ->
 
     result = tagging.plan([track], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
 
-    assert result.total == 1
+    assert len(result.outcomes) == 1
     assert len(result.pending) == 1
     assert result.pending[0].values == {Tag.GENRE: "Jazz"}
 
@@ -92,7 +92,7 @@ def test_plan_leaves_a_correct_track_alone(make_track: Callable[..., Path]) -> N
     result = tagging.plan([track], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
 
     assert result.pending == ()
-    assert result.clean == 1
+    assert result.outcomes[0].status == "already_correct"
 
 
 def test_plan_queues_only_the_tags_that_differ(make_track: Callable[..., Path]) -> None:
@@ -173,7 +173,7 @@ def test_plan_keeps_going_after_a_bad_file(tmp_path: Path, make_track: Callable[
 
     result = tagging.plan([cover, track], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
 
-    assert result.total == 2
+    assert len(result.outcomes) == 2
     assert len(result.errors) == 1
     assert len(result.pending) == 1
 
@@ -191,7 +191,8 @@ def test_an_error_is_not_counted_as_clean(tmp_path: Path, make_track: Callable[.
 
     result = tagging.plan([cover, correct], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
 
-    assert result.clean == 1
+    statuses: list[str] = [outcome.status for outcome in result.outcomes]
+    assert statuses.count("already_correct") == 1
     assert len(result.errors) == 1
 
 
@@ -339,4 +340,4 @@ def test_a_second_run_finds_nothing_to_do(make_track: Callable[..., Path]) -> No
     again = tagging.plan([track], [Tag.GENRE], constant({Tag.GENRE: "Jazz"}))
 
     assert again.pending == ()
-    assert again.clean == 1
+    assert again.outcomes[0].status == "already_correct"

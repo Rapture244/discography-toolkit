@@ -82,19 +82,9 @@ class TagPlan:
     outcomes: tuple[TrackOutcome, ...]
 
     @property
-    def total(self) -> int:
-        """How many tracks were examined."""
-        return len(self.outcomes)
-
-    @property
     def pending(self) -> tuple[TrackOutcome, ...]:
         """Tracks whose tags need changing."""
         return tuple(o for o in self.outcomes if o.status == "updated")
-
-    @property
-    def clean(self) -> int:
-        """How many tracks already hold the right values."""
-        return sum(1 for o in self.outcomes if o.status == "already_correct")
 
     @property
     def errors(self) -> tuple[TrackOutcome, ...]:

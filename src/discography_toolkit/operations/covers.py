@@ -21,7 +21,7 @@ rather than rewritten.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final
 
 from discography_toolkit.core import artwork, layout, metadata
 
@@ -34,12 +34,6 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
-type Source = Literal["tags", "disk"]
-"""Where an album's chosen cover was found.
-
-There is no "none": an album with no artwork has no settlement at all.
-"""
-
 _HELD: Final[str] = "kept: the album's cover file could not be settled"
 """Why a duplicate outlived a run -- reported rather than silently skipped."""
 
@@ -58,7 +52,6 @@ class Settlement:
     Attributes:
         cover: The image the album settled on, at full resolution.
         payload: The capped copy each track gets.
-        source: Where the cover was found.
         target: What the loose file ends up called, set even when it
             already is, so a report can name it.
         write: `True` when `target` must be written from `cover`.
@@ -67,18 +60,15 @@ class Settlement:
         delete: Loose images left over once `target` is in place --
             duplicates of the same artwork under names nothing reads.
         embed: Tracks whose front cover needs writing.
-        correct: Tracks already carrying `payload`.
     """
 
     cover: Cover
     payload: Cover
-    source: Source
     target: Path
     write: bool = False
     rename_from: Path | None = None
     delete: tuple[Path, ...] = ()
     embed: tuple[Path, ...] = ()
-    correct: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,11 +112,6 @@ class CoverPlan:
     """
 
     albums: tuple[AlbumPlan, ...]
-
-    @property
-    def total(self) -> int:
-        """How many albums were examined."""
-        return len(self.albums)
 
     @property
     def pending(self) -> tuple[AlbumPlan, ...]:
@@ -344,7 +329,7 @@ def _plan_album(album: Path) -> AlbumPlan:
     found: dict[Path, Cover | None] = {track: _front_cover(track) for track in taggable}
     loose: dict[Path, Cover] = _loose_covers(album)
 
-    chosen, source = _best(found, loose)
+    chosen: Cover | None = _best(found, loose)
     if chosen is None:
         return AlbumPlan(album=album, tracks=len(tracks), unsupported=len(tracks) - len(taggable))
 
@@ -357,13 +342,11 @@ def _plan_album(album: Path) -> AlbumPlan:
         album=album,
         tracks=len(tracks),
         unsupported=len(tracks) - len(taggable),
-        settlement=_settle(album, chosen, payload, source, loose, embed, len(found) - len(embed)),
+        settlement=_settle(album, chosen, payload, loose, embed),
     )
 
 
-def _best(
-    embedded: dict[Path, Cover | None], loose: dict[Path, Cover]
-) -> tuple[Cover | None, Source]:
+def _best(embedded: dict[Path, Cover | None], loose: dict[Path, Cover]) -> Cover | None:
     """Pick the album's cover from everything it carries.
 
     The tracks vote first, so a stray scan on one file cannot win. The
@@ -376,8 +359,7 @@ def _best(
         loose: Images sitting in the album folder, canonical name first.
 
     Returns:
-        The winner and where it came from. `None` when the album has no
-        artwork at all, and the source alongside it means nothing.
+        The winner, or `None` when the album has no artwork at all.
     """
     chosen: Cover | None = artwork.choose([cover for cover in embedded.values() if cover])
 
@@ -386,19 +368,17 @@ def _best(
         # names first, so "cover.jpg" beats an identical "folder.jpg".
         best: Cover = max(loose.values(), key=artwork.longest_edge)
         if chosen is None or artwork.longest_edge(best) > artwork.longest_edge(chosen):
-            return best, "disk"
+            return best
 
-    return chosen, "tags"
+    return chosen
 
 
 def _settle(
     album: Path,
     chosen: Cover,
     payload: Cover,
-    source: Source,
     loose: dict[Path, Cover],
     embed: tuple[Path, ...],
-    correct: int,
 ) -> Settlement:
     """Decide how the loose file reaches its canonical name.
 
@@ -412,10 +392,8 @@ def _settle(
         album: The album folder.
         chosen: The cover it settled on.
         payload: The capped copy for its tracks.
-        source: Where `chosen` came from.
         loose: Images sitting in the album folder.
         embed: Tracks needing the cover written.
-        correct: Tracks already carrying it.
 
     Returns:
         The settlement for this album.
@@ -438,13 +416,11 @@ def _settle(
     return Settlement(
         cover=chosen,
         payload=payload,
-        source=source,
         target=target,
         write=write,
         rename_from=rename_from,
         delete=tuple(path for path in loose if path not in {target, rename_from}),
         embed=embed,
-        correct=correct,
     )
 
 
