@@ -21,7 +21,7 @@ from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 from discography_toolkit.core.names import ALBUM_INDEX_RE, ARTIST_LABEL_RE
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
     from pathlib import Path
 
 # ==================================================================================== #
@@ -83,6 +83,17 @@ class AudioTier(StrEnum):
     OPUS = "opus"
     LOSSY = "lossy"
     NONE = "none"
+
+
+# The tag each held tier earns in a folder name. Lossy earns none -- it
+# is held, but there is nothing about the format worth announcing -- and
+# NONE earns none either, a folder with no audio being marked missing
+# instead. Keyed on the enum and kept beside it, since the discography
+# and the playlist both write these and must agree.
+QUALITY_TAG: Final[Mapping[AudioTier, str]] = {
+    AudioTier.LOSSLESS: " [FLAC]",
+    AudioTier.OPUS: " [OPUS]",
+}
 
 
 # ==================================================================================== #

@@ -225,6 +225,29 @@ def make_advancer(
     return advance
 
 
+def make_bar(progress: Progress, label: str, total: int) -> Callable[[Path], None]:
+    """Build a one-bar callback, for a pass with no per-artist breakdown.
+
+    The counterpart to `make_advancer`, for work that is not grouped
+    under artists -- a playlist folds one artist's albums, so there is
+    nothing to break down by.
+
+    Args:
+        progress: The live progress display.
+        label: The bar's description.
+        total: How many advances fill it.
+
+    Returns:
+        A callback advancing the bar once per item.
+    """
+    task: TaskID = progress.add_task(label, total=total)
+
+    def advance(_item: Path) -> None:
+        progress.advance(task)
+
+    return advance
+
+
 # ==================================================================================== #
 #                                       BANNER                                         #
 # ==================================================================================== #

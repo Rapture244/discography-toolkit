@@ -48,24 +48,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from discography_toolkit.core import names
-from discography_toolkit.core.layout import AudioTier, detect_tier, rename
+from discography_toolkit.core.layout import QUALITY_TAG, AudioTier, detect_tier, rename
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
-# The tag each held tier earns in the name. Lossy earns none -- it is
-# held, but there is nothing about the format worth announcing -- and
-# NONE never reaches here, since a folder with no audio is marked
-# missing instead.
-_QUALITY_TAG: Final[Mapping[AudioTier, str]] = {
-    AudioTier.LOSSLESS: " [FLAC]",
-    AudioTier.OPUS: " [OPUS]",
-}
-
 # The one shape an extended-play marker is written in, wherever it was
 # found. Parenthesised rather than bracketed, so it reads as part of what
 # the release is while the square brackets stay the format's.
@@ -323,7 +314,7 @@ def _resolve(tier: AudioTier, *, claimed: bool) -> tuple[str, str, bool, bool, b
         return names.MISSING_MARKER, "", True, False, not claimed
     if claimed:
         return names.MISSING_CONFLICT_MARKER, "", False, True, False
-    return "", _QUALITY_TAG.get(tier, ""), False, False, False
+    return "", QUALITY_TAG.get(tier, ""), False, False, False
 
 
 # ==================================================================================== #

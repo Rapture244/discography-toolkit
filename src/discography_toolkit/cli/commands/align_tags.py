@@ -36,6 +36,7 @@ from discography_toolkit.cli.console import (
     echo_banner,
     echo_result,
     make_advancer,
+    make_bar,
     make_progress,
 )
 from discography_toolkit.cli.scope import require_albums, require_tracks, resolve_path
@@ -46,9 +47,7 @@ from discography_toolkit.core.names import title_case
 from discography_toolkit.operations import covers, tagging
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
-
-    from rich.progress import Progress, TaskID
+    from collections.abc import Mapping, Sequence
 
 # The text tags read off the folders, each with its display name and how
 # its count reads. Genre is not here -- it cannot be derived -- and the
@@ -230,7 +229,7 @@ def _run_covers(albums: Sequence[Path], artists: Sequence[Path]) -> covers.Cover
         What the cover pass did.
     """
     with make_progress(noun="albums") as progress:
-        plan = covers.plan(albums, on_progress=_bar(progress, "Covers: scanning", len(albums)))
+        plan = covers.plan(albums, on_progress=make_bar(progress, "Covers: scanning", len(albums)))
     with make_progress() as progress:
         # Settling embeds the cover into every track -- the heaviest pass,
         # a full rewrite per file -- so it settles behind a per-artist
@@ -306,25 +305,6 @@ def _breakdown(plan: tagging.TagPlan) -> dict[Tag, int]:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _bar(progress: Progress, label: str, total: int) -> Callable[[Path], None]:
-    """Build a one-bar callback, for a pass with no per-artist breakdown.
-
-    Args:
-        progress: The live progress display.
-        label: The bar's description.
-        total: How many advances fill it.
-
-    Returns:
-        A callback advancing the bar once per item.
-    """
-    task: TaskID = progress.add_task(label, total=total)
-
-    def advance(_item: Path) -> None:
-        progress.advance(task)
-
-    return advance
-
-
 def _echo_breakdown(breakdown: Mapping[Tag, int], failures: Sequence[tuple[Path, str]]) -> None:
     """Print one line per tag, from the combined plan's counts.
 
@@ -355,7 +335,7 @@ def _preview(
     typer.echo()
     with make_progress(noun="albums") as progress:
         cover_plan = covers.plan(
-            albums, on_progress=_bar(progress, "Covers: scanning", len(albums))
+            albums, on_progress=make_bar(progress, "Covers: scanning", len(albums))
         )
     echo_result("Covers", cover_plan.changes, "to settle")
 

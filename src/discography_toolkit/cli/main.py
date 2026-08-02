@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import align_tags, layout, organize, tags
+from discography_toolkit.cli.commands import align_tags, layout, organize, playlist, tags
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -71,6 +71,15 @@ _ = app.command(
     name="organize",
     help="Lay out the folders and then write every folder-derived tag.",
 )(organize.organize)
+
+# The other half of the collection: albums converted out of the
+# discography, folded back into a playlist that reads the way it does.
+# Not under `tags`, since it settles folders as well as writing a tag,
+# and its scope is one artist rather than any path.
+_ = app.command(
+    name="playlist",
+    help="Fold converted albums into a playlist mirroring the discography.",
+)(playlist.playlist)
 
 
 if __name__ == "__main__":
