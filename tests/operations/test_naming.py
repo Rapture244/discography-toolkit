@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from discography_toolkit.core import names
 from discography_toolkit.core.layout import AudioTier
 from discography_toolkit.operations import naming
 
@@ -374,6 +375,38 @@ def test_a_correct_name_is_not_pending(make_album: Callable[..., Path]) -> None:
 
     assert result.pending == ()
     assert not result.outcomes[0].needs_rename
+
+
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "(1959) kind of blue",  # no separator, uncased
+        "01. \u00a9 (1959) - KIND OF BLUE [flac]",  # pin mid-name, shouting, stale tag
+        "(1959) - kind of blue [FLAC, 40th Anniversary]",  # a tag sharing the bracket
+        "EP zomba (1994)",  # marker at the front, year at the end
+        "(1980) - M - lost record",  # a missing claim over a folder holding audio
+    ],
+)
+def test_a_rebuilt_name_conforms(make_album: Callable[..., Path], typed: str) -> None:
+    """Whatever the rebuild produces is a name the convention accepts.
+
+    This is the contract the layout pass leans on: it plans without
+    writing, holds each proposed name to `conforms_unnumbered`, and skips
+    the artist whole if one would not settle. Were the rebuild able to
+    emit a name its own pattern rejects, that guard would refuse work it
+    had just done correctly.
+
+    Args:
+        make_album: Factory building an album folder.
+        typed: The folder name as found, in one of the shapes a real
+            shelf carries.
+    """
+    album: Path = make_album(typed)
+
+    outcome: naming.AlbumName = named(album)
+
+    assert not outcome.skipped
+    assert names.conforms_unnumbered(outcome.new_name)
 
 
 def test_albums_are_planned_in_the_order_given(make_album: Callable[..., Path]) -> None:

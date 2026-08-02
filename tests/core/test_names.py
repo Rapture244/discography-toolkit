@@ -11,6 +11,9 @@ from __future__ import annotations
 from discography_toolkit.core.names import (
     album_title,
     clean_name,
+    conforms_body,
+    conforms_unnumbered,
+    drop_unpaired_wrappers,
     extract_year,
     format_artist_label,
     has_lowercase_ep,
@@ -27,6 +30,7 @@ from discography_toolkit.core.names import (
     title_case,
     title_case_filename,
     with_artist_label,
+    wrappers_balanced,
 )
 
 import pytest
@@ -762,6 +766,200 @@ def test_album_title_is_stable_across_renumbering() -> None:
     assert album_title("01. (1959) - Kind of Blue [FLAC]") == album_title(
         "04. (1959) - Kind of Blue [FLAC]"
     )
+
+
+# ==================================================================================== #
+#                                      WRAPPERS                                        #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Kind of Blue",
+        "Live at Birdland [Live]",
+        "Bitches Brew (Remastered)",
+        "Nefertiti [40th Anniversary] (Live)",
+        "((nested))",
+        "",
+    ],
+)
+def test_wrappers_balanced_accepts_a_paired_name(text: str) -> None:
+    """A wrapper that meets its partner is part of the title and stays.
+
+    Args:
+        text: A name whose brackets all pair.
+    """
+    assert wrappers_balanced(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "] the Mad Writer",  # a closer whose opener went with a peeled token
+        "Kind of Blue (Remastered",  # an opener whose closer never arrived
+        "[40th Anniversary",
+        "(a]",  # crossed: two orphans, not a pair
+        ")Kind of Blue(",  # right glyphs, wrong order
+    ],
+)
+def test_wrappers_balanced_rejects_an_orphan(text: str) -> None:
+    """Balance is the test, not absence: an unpaired wrapper fails it.
+
+    Args:
+        text: A name carrying an orphan.
+    """
+    assert not wrappers_balanced(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("] the Mad Writer", "the Mad Writer"),
+        ("Kind of Blue (Remastered", "Kind of Blue Remastered"),
+        ("(a]", "a"),
+        # A pair is the title's own and survives, orphan or not beside it.
+        ("Live at Birdland [Live]", "Live at Birdland [Live]"),
+        ("] Bird [Live]", "Bird [Live]"),
+        ("Kind of Blue", "Kind of Blue"),
+    ],
+)
+def test_drop_unpaired_wrappers(text: str, expected: str) -> None:
+    """Orphans go and pairs stay, with the spacing left behind tidied.
+
+    An orphan says nothing on its own -- there is no question of what was
+    meant by it -- so this repairs rather than reports.
+
+    Args:
+        text: A name past the peel.
+        expected: How it should read once repaired.
+    """
+    assert drop_unpaired_wrappers(text) == expected
+
+
+def test_drop_unpaired_wrappers_leaves_a_balanced_name_alone() -> None:
+    """What it repairs, `wrappers_balanced` then agrees is repaired.
+
+    The two answer one question, one by acting and one by asking, so the
+    output of the first has to satisfy the second.
+    """
+    for text in ("] Bird [Live]", "(a]", "Kind of Blue (Remastered"):
+        assert wrappers_balanced(drop_unpaired_wrappers(text))
+
+
+# ==================================================================================== #
+#                                     CONFORMANCE                                      #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    "body",
+    [
+        "(1959) - Kind of Blue [FLAC]",
+        "(1972) - On the Corner [OPUS]",
+        "(1951) - Modern Jazz Trumpets",  # lossy earns no tag
+        "(1980) - M - Lost Record",  # declared missing
+        "(1985) - \u26a0 - Decoy",  # the conflict marker
+        "(1994) - Zomba (EP) [FLAC]",
+        "(1994) - Zomba (EP)",
+        "(199x) - Unknown Decade",  # an approximate year is still a year
+        "(1963) - Live at Birdland [Live] [FLAC]",  # a bracket the title owns
+        # A title may hold " - " of its own: the marker group takes only
+        # "M" or "\u26a0", so anything else after the year is simply title.
+        "(1959) - X - Kind of Blue",
+        # FLAC and OPUS are the only tags this writes, so any other
+        # trailing bracket is the title's own and cannot be told from one.
+        "(1959) - Kind of Blue [MP3]",
+        "Singles",  # the yearless exception, bare
+    ],
+)
+def test_conforms_body_accepts_a_settled_name(body: str) -> None:
+    """What a shelf reads as once every step has run.
+
+    Args:
+        body: A name past its index.
+    """
+    assert conforms_body(body)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Kind of Blue [FLAC]",  # no year to anchor it
+        "(1959) Kind of Blue",  # the separator is required
+        "1959 - Kind of Blue",  # the year must be wrapped
+        "(1959) - ",  # a year and no title
+        "(1959) - M - ",  # a marker and no title
+        "(1959) - Kind  of Blue",  # spacing a rebuild would have closed
+        "(1959) - Kind of Blue ",  # an untrimmed end
+        "(1959) - Kind of Blue]",  # an orphan the peel left behind
+        "Singles [FLAC]",  # one pile per artist, so it carries no tag
+        "singles",  # the title is cased by the time it is judged
+        "",
+    ],
+)
+def test_conforms_body_rejects_everything_else(body: str) -> None:
+    """The net for whatever the rebuild could not settle.
+
+    Matching the skeleton is not enough on its own -- the title pattern
+    swallows an orphan bracket as happily as a letter -- so what lands in
+    it is judged too.
+
+    Args:
+        body: A name past its index.
+    """
+    assert not conforms_body(body)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "01. (1959) - Kind of Blue [FLAC]",
+        "\u00a905. (1959) - Kind of Blue [FLAC]",  # pinned
+        "127. (1970) - Bitches Brew",  # a run past ninety-nine
+        "5. (1959) - Kind of Blue",  # an index numbering has yet to pad
+        "(1959) - Kind of Blue",  # never numbered at all
+        "00. Singles",
+    ],
+)
+def test_conforms_unnumbered_ignores_the_index(name: str) -> None:
+    """Numbering owns the index and rewrites it wholesale, so it is not judged.
+
+    Whatever shape the index is in now -- padded, unpadded, absent -- it
+    comes out as "01. " regardless. What matters before then is
+    everything after it, which no later step touches.
+
+    Args:
+        name: An album folder's name, or one naming proposes.
+    """
+    assert conforms_unnumbered(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "01. kind of blue",  # uncased, and no year
+        "01. (1959) - Kind of Blue] [FLAC]",  # an orphan survives numbering
+        "01. A Folder With No Year",
+        "01. (1959) - Kind  of Blue",  # spacing a rebuild would have closed
+    ],
+)
+def test_conforms_unnumbered_still_judges_the_rest(name: str) -> None:
+    """Past the index, the name is held to the pattern in full.
+
+    Args:
+        name: An album folder's name, or one naming proposes.
+    """
+    assert not conforms_unnumbered(name)
+
+
+def test_conforms_unnumbered_tidies_a_pinned_name_as_it_reads_it() -> None:
+    """A known quirk: lifting the pin also closes the spacing behind it.
+
+    `split_pin_mark` tidies what it leaves, so a doubled space in a
+    pinned name is repaired before the pattern ever sees it, while the
+    same name unpinned is judged as typed. Recorded rather than wished
+    away: naming rebuilds the whole name regardless, so the guard reading
+    a pinned album slightly more leniently costs nothing.
+    """
+    assert conforms_unnumbered("\u00a9 (1959) - Kind  of Blue")
+    assert not conforms_unnumbered("01. (1959) - Kind  of Blue")
 
 
 # ==================================================================================== #
