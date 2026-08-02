@@ -326,6 +326,21 @@ def echo_notices(notices: Sequence[Notice]) -> None:
             typer.secho(f"          {detail}", fg=typer.colors.BRIGHT_BLACK)
 
 
+def echo_failures(failures: Sequence[tuple[Path, str]]) -> None:
+    """Print what was attempted and would not work.
+
+    A failure is not a notice: something was tried, the filesystem or the
+    file refused it, and the reason it gave is the only thing that says
+    what to do next. Counting them without naming them leaves a person
+    with a number and nowhere to start.
+
+    Args:
+        failures: `(path, reason)` for each operation that failed.
+    """
+    for failed, reason in failures:
+        typer.secho(f"      {str(failed)!r} - {reason}", fg=typer.colors.RED)
+
+
 def echo_result(
     name: str,
     count: int,
@@ -350,6 +365,4 @@ def echo_result(
     typer.secho(f"  {name:<{RESULT_LABEL_WIDTH}} {count} {verb}", fg=colour)
 
     echo_notices(notices)
-
-    for failed, reason in failures:
-        typer.secho(f"      {str(failed)!r} - {reason}", fg=typer.colors.RED)
+    echo_failures(failures)

@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from discography_toolkit.cli.console import Notice, echo_banner, echo_notices
+from discography_toolkit.cli.console import Notice, echo_banner, echo_failures, echo_notices
 from discography_toolkit.cli.scope import resolve_path
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
@@ -99,7 +99,9 @@ class ArtistResult:
         cased: Track filenames recased.
         moved: Albums moved across the container.
         labelled: Whether the artist folder was renamed.
-        failures: How many individual operations failed.
+        failures: `(path, reason)` for each operation that failed. The
+            reason is the one thing that says what to do next, so it is
+            carried rather than counted.
         notices: What the pass saw but would not act on, each phrased,
             counted, and naming the folders it means. Not changes --
             things a person has to look at, gathered into one list so a
@@ -114,7 +116,7 @@ class ArtistResult:
     cased: int
     moved: int
     labelled: bool
-    failures: int
+    failures: tuple[tuple[Path, str], ...] = ()
     notices: tuple[Notice, ...] = ()
 
     @property
@@ -343,15 +345,15 @@ def _lay_out(artist: Path) -> ArtistResult:
     placed = placement.apply(place_plan)
     labelled = artist_label.apply(artist_label.plan(artist))
 
-    failures: int = (
-        len(pruned.failures)
-        + len(named.failures)
-        + len(numbered.failures)
-        + len(cased.failures)
-        + len(placed.failures)
-    )
+    failures: list[tuple[Path, str]] = [
+        *pruned.failures,
+        *named.failures,
+        *numbered.failures,
+        *cased.failures,
+        *placed.failures,
+    ]
     if labelled.detail is not None:
-        failures += 1
+        failures.append((labelled.artist, labelled.detail))
 
     return ArtistResult(
         artist=labelled.artist,
@@ -361,7 +363,7 @@ def _lay_out(artist: Path) -> ArtistResult:
         cased=cased.renamed,
         moved=placed.moved,
         labelled=labelled.renamed,
-        failures=failures,
+        failures=tuple(failures),
         notices=_notices(name_plan, case_plan, place_plan),
     )
 
@@ -459,7 +461,8 @@ def _echo_artist(result: ArtistResult) -> None:
         typer.secho(f"  {result.artist.name!r}", fg=typer.colors.BRIGHT_BLACK)
 
     if result.failures:
-        typer.secho(f"      {result.failures} operation(s) failed", fg=typer.colors.RED)
+        typer.secho(f"      {len(result.failures)} operation(s) failed", fg=typer.colors.RED)
+        echo_failures(result.failures)
     echo_notices(result.notices)
 
 
@@ -516,7 +519,7 @@ def _echo_summary(results: list[ArtistResult], skipped: list[Skipped]) -> None:
         skipped: The artists refused before anything was written.
     """
     changed: int = sum(1 for result in results if result.changed)
-    failures: int = sum(result.failures for result in results)
+    failures: int = sum(len(result.failures) for result in results)
     noticed: int = sum(1 for result in results if result.notices)
 
     typer.secho(
