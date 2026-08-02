@@ -341,8 +341,8 @@ def test_a_title_starting_with_ep_is_left_alone(make_album: Callable[..., Path])
 # ==================================================================================== #
 #                                     THE WHOLE PLAN                                   #
 # ==================================================================================== #
-def test_the_counts_partition_the_albums(make_album: Callable[..., Path]) -> None:
-    """Held, missing and conflict are the collection's state, and add up.
+def test_every_album_lands_in_exactly_one_state(make_album: Callable[..., Path]) -> None:
+    """Held, missing, conflicted and skipped are exclusive and cover all.
 
     Args:
         make_album: Factory building an album folder.
@@ -353,16 +353,16 @@ def test_the_counts_partition_the_albums(make_album: Callable[..., Path]) -> Non
     skip: Path = make_album("No Year", tier="lossless")
 
     result = naming.plan([held, gone, clash, skip])
+    outcomes = {outcome.album: outcome for outcome in result.outcomes}
 
-    assert result.total == 3
-    assert result.held == 1
-    assert len(result.missing) == 1
-    assert len(result.conflicts) == 1
-    assert len(result.skipped) == 1
-    assert result.total == result.held + len(result.missing) + len(result.conflicts)
+    assert not any((outcomes[held].skipped, outcomes[held].missing, outcomes[held].conflict))
+    assert outcomes[gone].missing
+    assert outcomes[clash].conflict
+    assert outcomes[skip].skipped
+    assert result.conflicts == (outcomes[clash],)
 
 
-def test_a_correct_name_is_clean_not_pending(make_album: Callable[..., Path]) -> None:
+def test_a_correct_name_is_not_pending(make_album: Callable[..., Path]) -> None:
     """An album already carrying its settled name is not work.
 
     Args:
@@ -373,7 +373,7 @@ def test_a_correct_name_is_clean_not_pending(make_album: Callable[..., Path]) ->
     result = naming.plan([album])
 
     assert result.pending == ()
-    assert result.clean == 1
+    assert not result.outcomes[0].needs_rename
 
 
 def test_albums_are_planned_in_the_order_given(make_album: Callable[..., Path]) -> None:

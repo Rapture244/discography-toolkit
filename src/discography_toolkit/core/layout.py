@@ -46,9 +46,6 @@ COVER_STEMS: Final[tuple[str, ...]] = ("cover", "folder", "front", "albumart", "
 
 IMAGE_EXTENSIONS: Final[frozenset[str]] = frozenset({".jpg", ".jpeg", ".png"})
 
-# Windows writes desktop.ini unasked, so a placeholder holding only these is still empty.
-JUNK_FILENAMES: Final[frozenset[str]] = frozenset({"desktop.ini", "thumbs.db", ".ds_store"})
-
 # "FLAC", or an older "FLAC - (56 on 65)". Any other letter means it is an album, not the container.
 FLAC_CONTAINER_RE: Final[re.Pattern[str]] = re.compile(
     r"^FLAC(?:[\s\-()\[\]0-9]|on)*$", re.IGNORECASE
@@ -168,23 +165,6 @@ def is_hidden(path: Path, relative_to: Path) -> bool:
         `True` if any component below the root starts with a dot.
     """
     return any(part.startswith(".") for part in path.relative_to(relative_to).parts)
-
-
-def is_effectively_empty(album: Path) -> bool:
-    """Report whether an album folder holds nothing but OS bookkeeping.
-
-    Searched recursively, so a placeholder holding only empty subfolders
-    still counts as empty.
-
-    Args:
-        album: The album folder to inspect.
-
-    Returns:
-        `True` if the folder contains no files beyond OS junk.
-    """
-    return not any(
-        entry.is_file() and entry.name.lower() not in JUNK_FILENAMES for entry in album.rglob("*")
-    )
 
 
 # ==================================================================================== #

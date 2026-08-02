@@ -27,7 +27,6 @@ from discography_toolkit.core.layout import (
     find_containers,
     find_cover_images,
     is_artist_folder,
-    is_effectively_empty,
     is_flac_container,
     owning_folder,
 )
@@ -503,55 +502,6 @@ def test_find_cover_images_looks_no_deeper(tmp_path: Path) -> None:
     (tmp_path / "Scans" / "cover.jpg").touch()
 
     assert find_cover_images(tmp_path) == []
-
-
-# ==================================================================================== #
-#                                      EMPTINESS                                       #
-# ==================================================================================== #
-def test_is_effectively_empty_on_a_placeholder(artist: Path) -> None:
-    """A missing album's folder holds nothing at all.
-
-    Args:
-        artist: The fixture artist folder.
-    """
-    assert is_effectively_empty(artist / "04. (1980) - M - Missing")
-
-
-def test_is_effectively_empty_tolerates_os_junk(artist: Path) -> None:
-    """Windows writes desktop.ini unasked; that is not occupancy.
-
-    Args:
-        artist: The fixture artist folder.
-    """
-    placeholder: Path = artist / "04. (1980) - M - Missing"
-    (placeholder / "desktop.ini").touch()
-    (placeholder / "Thumbs.db").touch()
-
-    assert is_effectively_empty(placeholder)
-
-
-def test_is_effectively_empty_counts_real_files(artist: Path) -> None:
-    """Anything the user put there makes the folder occupied.
-
-    Args:
-        artist: The fixture artist folder.
-    """
-    placeholder: Path = artist / "04. (1980) - M - Missing"
-    (placeholder / "notes.txt").touch()
-
-    assert not is_effectively_empty(placeholder)
-
-
-def test_is_effectively_empty_looks_below_subfolders(artist: Path) -> None:
-    """An empty subfolder does not make a placeholder occupied.
-
-    Args:
-        artist: The fixture artist folder.
-    """
-    placeholder: Path = artist / "04. (1980) - M - Missing"
-    (placeholder / "CD 1").mkdir()
-
-    assert is_effectively_empty(placeholder)
 
 
 # ==================================================================================== #

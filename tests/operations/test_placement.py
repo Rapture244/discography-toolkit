@@ -115,7 +115,7 @@ def test_albums_already_on_the_right_side_are_kept(artist: Path) -> None:
 
     assert result.moving_in == ()
     assert result.moving_out == ()
-    assert result.kept == 2
+    assert all(p.side is Side.KEEP for p in result.placements)
 
 
 def test_placement_reads_the_files_not_the_name(artist: Path) -> None:
@@ -207,7 +207,7 @@ def test_an_all_lossless_artist_wants_no_container(artist: Path) -> None:
 
     assert result.container_change is None
     assert result.moving_in == ()
-    assert result.kept == 2
+    assert all(p.side is Side.KEEP for p in result.placements)
 
 
 def test_an_all_lossless_artist_has_its_container_dissolved(artist: Path) -> None:

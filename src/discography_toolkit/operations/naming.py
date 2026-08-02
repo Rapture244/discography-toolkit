@@ -132,11 +132,6 @@ class AlbumName:
         return not self.skipped and self.new_name != self.album.name
 
     @property
-    def held(self) -> bool:
-        """Whether the album is held in some real format, unconflicted."""
-        return not self.skipped and not self.missing and not self.conflict
-
-    @property
     def target(self) -> Path:
         """Where the folder would be renamed to."""
         return self.album.parent / self.new_name
@@ -153,36 +148,9 @@ class NamePlan:
     outcomes: tuple[AlbumName, ...]
 
     @property
-    def total(self) -> int:
-        """How many albums could be named at all."""
-        return sum(1 for outcome in self.outcomes if not outcome.skipped)
-
-    @property
     def pending(self) -> tuple[AlbumName, ...]:
         """Albums whose folder name would change."""
         return tuple(outcome for outcome in self.outcomes if outcome.needs_rename)
-
-    @property
-    def clean(self) -> int:
-        """Albums that can be named and whose name is already right."""
-        return sum(
-            1 for outcome in self.outcomes if not outcome.skipped and not outcome.needs_rename
-        )
-
-    @property
-    def skipped(self) -> tuple[AlbumName, ...]:
-        """Albums passed over for having nothing to build a name around."""
-        return tuple(outcome for outcome in self.outcomes if outcome.skipped)
-
-    @property
-    def held(self) -> int:
-        """Albums held in a real format, unconflicted."""
-        return sum(1 for outcome in self.outcomes if outcome.held)
-
-    @property
-    def missing(self) -> tuple[AlbumName, ...]:
-        """Albums marked "M" -- their folders hold no audio."""
-        return tuple(outcome for outcome in self.outcomes if outcome.missing)
 
     @property
     def conflicts(self) -> tuple[AlbumName, ...]:

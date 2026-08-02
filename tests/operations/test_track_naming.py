@@ -87,7 +87,7 @@ def test_a_stem_is_cased_and_the_extension_kept(album: Callable[..., list[Path]]
     assert outcome.needs_rename
 
 
-def test_an_already_cased_track_is_clean(album: Callable[..., list[Path]]) -> None:
+def test_an_already_cased_track_is_not_pending(album: Callable[..., list[Path]]) -> None:
     """A correctly cased name is not work.
 
     Args:
@@ -98,7 +98,7 @@ def test_an_already_cased_track_is_clean(album: Callable[..., list[Path]]) -> No
     result = track_naming.plan(tracks)
 
     assert result.pending == ()
-    assert result.clean == 1
+    assert not result.outcomes[0].needs_rename
 
 
 def test_nothing_is_written_by_planning(album: Callable[..., list[Path]]) -> None:

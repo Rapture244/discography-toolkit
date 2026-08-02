@@ -249,7 +249,7 @@ def test_a_misnumbered_singles_collection_is_moved_to_zero(
 # ==================================================================================== #
 #                                     THE WHOLE PLAN                                   #
 # ==================================================================================== #
-def test_a_correctly_numbered_album_is_clean(shelf: Callable[..., list[Path]]) -> None:
+def test_a_correctly_numbered_album_is_not_pending(shelf: Callable[..., list[Path]]) -> None:
     """An album already carrying its index is not work.
 
     Args:
@@ -260,7 +260,7 @@ def test_a_correctly_numbered_album_is_clean(shelf: Callable[..., list[Path]]) -
     result = numbering.plan(albums)
 
     assert result.pending == ()
-    assert result.clean == 2
+    assert not any(outcome.needs_rename for outcome in result.outcomes)
 
 
 def test_only_the_misnumbered_albums_are_pending(
@@ -275,7 +275,7 @@ def test_only_the_misnumbered_albums_are_pending(
 
     result = numbering.plan(albums)
 
-    assert result.total == 2
+    assert len(result.outcomes) == 2
     assert len(result.pending) == 1
     assert result.pending[0].album.name == "99. (1970) - Brew"
 

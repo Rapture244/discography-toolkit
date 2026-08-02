@@ -87,19 +87,9 @@ class NumberPlan:
     outcomes: tuple[Numbering, ...]
 
     @property
-    def total(self) -> int:
-        """How many albums were numbered."""
-        return len(self.outcomes)
-
-    @property
     def pending(self) -> tuple[Numbering, ...]:
         """Albums whose folder name would change."""
         return tuple(outcome for outcome in self.outcomes if outcome.needs_rename)
-
-    @property
-    def clean(self) -> int:
-        """Albums already carrying the right index."""
-        return sum(1 for outcome in self.outcomes if not outcome.needs_rename)
 
 
 @dataclass(frozen=True, slots=True)

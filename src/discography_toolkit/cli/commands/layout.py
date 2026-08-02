@@ -100,8 +100,10 @@ class ArtistResult:
         moved: Albums moved across the container.
         labelled: Whether the artist folder was renamed.
         failures: How many individual operations failed.
-        lowercase_eps: Albums carrying an "ep" in the wrong case, left
-            alone for a person to settle. Not a change -- a notice.
+        notices: What the pass saw but would not act on, each already
+            phrased and counted. Not changes -- things a person has to
+            look at, gathered into one list so a new kind of notice
+            costs a line here rather than a field, a render and a tally.
     """
 
     artist: Path
@@ -112,7 +114,7 @@ class ArtistResult:
     moved: int
     labelled: bool
     failures: int
-    lowercase_eps: int = 0
+    notices: tuple[str, ...] = ()
 
     @property
     def changed(self) -> bool:
@@ -328,14 +330,16 @@ def _lay_out(artist: Path) -> ArtistResult:
         A tally of what changed.
     """
     pruned = pruning.apply(pruning.plan(discover_albums(artist)))
-    # The naming plan is held rather than passed straight through: it
-    # carries what the pass noticed but would not act on, which the
-    # report reads once the renames are done.
+    # The plans are held rather than passed straight through: each
+    # carries what its pass noticed but would not act on, which the
+    # report reads once the writing is done.
     name_plan = naming.plan(discover_albums(artist))
     named = naming.apply(name_plan)
     numbered = numbering.apply(numbering.plan(discover_albums(artist)))
-    cased = track_naming.apply(track_naming.plan(find_audio_files(artist)))
-    placed = placement.apply(placement.plan(artist))
+    case_plan = track_naming.plan(find_audio_files(artist))
+    cased = track_naming.apply(case_plan)
+    place_plan = placement.plan(artist)
+    placed = placement.apply(place_plan)
     labelled = artist_label.apply(artist_label.plan(artist))
 
     failures: int = (
@@ -357,8 +361,42 @@ def _lay_out(artist: Path) -> ArtistResult:
         moved=placed.moved,
         labelled=labelled.renamed,
         failures=failures,
-        lowercase_eps=len(name_plan.lowercase_eps),
+        notices=_notices(name_plan, case_plan, place_plan),
     )
+
+
+def _notices(
+    name_plan: naming.NamePlan,
+    case_plan: track_naming.CasePlan,
+    place_plan: placement.PlacementPlan,
+) -> tuple[str, ...]:
+    """Phrase everything the pass saw but would not act on.
+
+    Five things resolve to a person rather than a rule: a name claiming
+    an album missing over a folder that holds audio, an album this run
+    was the first to call missing, a miscased "ep", a track whose cased
+    name is already taken, and an album blocked from moving by a folder
+    of its name. None is an error -- nothing failed -- but each leaves
+    the shelf in a state only a person can settle, and saying nothing
+    would let it pass silently.
+
+    Args:
+        name_plan: What naming worked out.
+        case_plan: What track casing worked out.
+        place_plan: What placement worked out.
+
+    Returns:
+        One phrased line per kind of notice there was, empty when there
+        was none.
+    """
+    counted: tuple[tuple[int, str], ...] = (
+        (len(name_plan.conflicts), 'album(s) marked "⚠" -- named missing while holding audio'),
+        (len(name_plan.newly_missing), 'album(s) newly marked "M" -- no audio found in them'),
+        (len(name_plan.lowercase_eps), 'album(s) carry a lower-case "ep" -- left as written'),
+        (len(case_plan.collisions), "track(s) not recased -- the cased name is already taken"),
+        (len(place_plan.collisions), "album(s) not filed -- a folder of that name is in the way"),
+    )
+    return tuple(f"{count} {phrase}" for count, phrase in counted if count)
 
 
 # ==================================================================================== #
@@ -394,11 +432,8 @@ def _echo_artist(result: ArtistResult) -> None:
 
     if result.failures:
         typer.secho(f"      {result.failures} operation(s) failed", fg=typer.colors.RED)
-    if result.lowercase_eps:
-        typer.secho(
-            f'      {result.lowercase_eps} album(s) carry a lower-case "ep" -- left as written',
-            fg=typer.colors.YELLOW,
-        )
+    for notice in result.notices:
+        typer.secho(f"      {notice}", fg=typer.colors.YELLOW)
 
 
 def _phrase(result: ArtistResult) -> str:
@@ -455,7 +490,7 @@ def _echo_summary(results: list[ArtistResult], skipped: list[Skipped]) -> None:
     """
     changed: int = sum(1 for result in results if result.changed)
     failures: int = sum(result.failures for result in results)
-    lowercase_eps: int = sum(result.lowercase_eps for result in results)
+    noticed: int = sum(1 for result in results if result.notices)
 
     typer.secho(
         f"\nDone. {changed} of {len(results)} artist(s) changed.",
@@ -463,9 +498,9 @@ def _echo_summary(results: list[ArtistResult], skipped: list[Skipped]) -> None:
         bold=True,
     )
     echo_skipped(skipped)
-    if lowercase_eps:
+    if noticed:
         typer.secho(
-            f'{lowercase_eps} album(s) carry a lower-case "ep" -- capitalise the ones that are markers and rerun.',
+            f"{noticed} artist(s) need an eye -- see the notices above.",
             fg=typer.colors.YELLOW,
         )
     if failures:

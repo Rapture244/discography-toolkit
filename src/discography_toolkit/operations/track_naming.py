@@ -79,19 +79,9 @@ class CasePlan:
     outcomes: tuple[TrackName, ...]
 
     @property
-    def total(self) -> int:
-        """How many tracks were examined."""
-        return len(self.outcomes)
-
-    @property
     def pending(self) -> tuple[TrackName, ...]:
         """Tracks that can be safely renamed -- changed, and not clashing."""
         return tuple(o for o in self.outcomes if o.needs_rename and not o.collision)
-
-    @property
-    def clean(self) -> int:
-        """Tracks already correctly cased."""
-        return sum(1 for o in self.outcomes if not o.needs_rename)
 
     @property
     def collisions(self) -> tuple[TrackName, ...]:

@@ -75,11 +75,6 @@ class PrunePlan:
 
     prunes: tuple[Prune, ...]
 
-    @property
-    def total(self) -> int:
-        """How many Opus duplicates were found."""
-        return len(self.prunes)
-
 
 @dataclass(frozen=True, slots=True)
 class PruneReport:

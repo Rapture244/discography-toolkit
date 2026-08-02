@@ -133,11 +133,6 @@ class PlacementPlan:
     container_change: ContainerChange | None
 
     @property
-    def total(self) -> int:
-        """How many albums were examined."""
-        return len(self.placements)
-
-    @property
     def moving_in(self) -> tuple[Placement, ...]:
         """Lossless albums to lift into the container, clear of collisions."""
         return tuple(p for p in self.placements if p.side is Side.IN and not p.collision)
@@ -148,19 +143,9 @@ class PlacementPlan:
         return tuple(p for p in self.placements if p.side is Side.OUT and not p.collision)
 
     @property
-    def kept(self) -> int:
-        """Albums already on the right side."""
-        return sum(1 for p in self.placements if p.side is Side.KEEP)
-
-    @property
     def collisions(self) -> tuple[Placement, ...]:
         """Albums that cannot move -- a folder of that name is in the way."""
         return tuple(p for p in self.placements if p.needs_move and p.collision)
-
-    @property
-    def flac(self) -> int:
-        """How many albums are lossless."""
-        return sum(1 for p in self.placements if p.tier is AudioTier.LOSSLESS)
 
 
 @dataclass(frozen=True, slots=True)

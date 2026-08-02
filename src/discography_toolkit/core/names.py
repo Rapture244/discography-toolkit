@@ -164,13 +164,6 @@ ALBUM_BODY_RE: Final[re.Pattern[str]] = re.compile(
     re.VERBOSE,
 )
 
-# The index a settled album carries, and the pin that may sit ahead of
-# it. Two digits at least, matching what numbering pads to, and widening
-# with a run past ninety-nine.
-ALBUM_INDEXED_RE: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<pin>©?)(?P<index>\d{2,})\.[ ](?P<body>\S.*)$"
-)
-
 # Words kept in capitals against the title-caser, which would otherwise
 # read them as shouting and lower them. Formats, media and rip types,
 # a few country codes, roles and labels -- ambiguous ones a real word
@@ -709,23 +702,6 @@ def album_title(name: str) -> str:
 # ==================================================================================== #
 #                                     CONFORMANCE                                      #
 # ==================================================================================== #
-def conforms(name: str) -> bool:
-    """Report whether a folder name is a settled album's, in full.
-
-    The whole shape, index included: what a shelf reads as once every
-    step has run. `conforms_unnumbered` is the one to ask before
-    numbering has had its say.
-
-    Args:
-        name: The album folder's name.
-
-    Returns:
-        `True` when the name is canonical.
-    """
-    match: re.Match[str] | None = ALBUM_INDEXED_RE.match(name)
-    return match is not None and conforms_body(match.group("body"))
-
-
 def conforms_unnumbered(name: str) -> bool:
     """Report whether a name is canonical from the year onward.
 
