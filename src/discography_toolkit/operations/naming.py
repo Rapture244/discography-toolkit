@@ -31,9 +31,9 @@ such pile, whatever mix of formats it is made of, so there is nothing
 for a tag to tell apart and a stale one is simply dropped.
 
 What the peel leaves behind is repaired rather than raised over. A
-bracket whose partner went with the token that wrapped it says nothing
-on its own, so there is nothing for a person to decide and it is
-dropped; a bracket that pairs is part of the title and stays. The point
+parenthesis or bracket whose partner went with the token that wrapped it
+says nothing on its own, so there is nothing for a person to decide and
+it is dropped; one that pairs is part of the title and stays. The point
 of settling every album into one shape is to correct that drift, not to
 collect it.
 
@@ -318,7 +318,7 @@ def _examine(album: Path) -> AlbumName:
 
     claims_missing, rest = names.split_missing_marker(rest)
     is_ep, rest = names.split_ep_marker(rest)
-    title: str = names.title_case(names.drop_unpaired_brackets(names.strip_quality_tag(rest)))
+    title: str = names.title_case(names.drop_unpaired_wrappers(names.strip_quality_tag(rest)))
     tier: AudioTier = detect_tier(album)
 
     marker, tag, missing, conflict, newly_missing = _resolve(tier, claimed=claims_missing)

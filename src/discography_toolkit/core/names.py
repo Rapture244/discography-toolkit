@@ -627,29 +627,29 @@ def clean_name(name: str) -> str:
     return _EDGE_SEPARATORS_RE.sub("", collapsed).strip()
 
 
-def drop_unpaired_brackets(text: str) -> str:
-    """Remove brackets with no partner, keeping every pair intact.
+def drop_unpaired_wrappers(text: str) -> str:
+    """Remove a parenthesis or bracket with no partner, keeping pairs intact.
 
     A name arrives past the peel carrying the odd orphan: a "]" whose "["
     a step ahead took away with the token it wrapped, a "(" whose close
-    never made it into the folder name. Balance is the test rather than
-    absence, because a bracket that pairs is part of the title and the
-    title's to keep -- "[40th Anniversary]" survives, "] the Mad Writer"
-    loses its orphan and reads as the album it always was.
+    never made it into the folder name. Both kinds are handled the same
+    way and against each other, so a crossed "(a]" counts as two orphans
+    rather than a pair.
+
+    Balance is the test rather than absence, because a wrapper that pairs
+    is part of the title and the title's to keep -- "[40th Anniversary]"
+    and "(Remastered)" survive, "] the Mad Writer" loses its orphan and
+    reads as the album it always was.
 
     Nothing here needs a person's judgement, which is why it repairs
     rather than reports: an orphan says nothing on its own, so there is
     no question of what was meant by it.
 
-    Openers are matched to closers as they are met, so a nested pair
-    counts as balanced and a crossed one -- "(a]" -- counts as two
-    orphans, both removed.
-
     Args:
         text: A name, past the peel and before casing.
 
     Returns:
-        The text with every unpaired bracket gone and its spacing tidied.
+        The text with every unpaired wrapper gone and its spacing tidied.
     """
     closers: dict[str, str] = {")": "(", "]": "["}
     open_at: list[int] = []
@@ -681,7 +681,7 @@ def album_title(name: str) -> str:
     describes where the album sits on this shelf or how this copy of it
     was ripped, and none of that means anything to anyone else's library.
 
-    A bracket left without its partner comes off too. Dropping it here as
+    A wrapper left without its partner comes off too. Dropping it here as
     well as in `naming` is what keeps one album's identity the same
     before and after the shelf is laid out, so a folder awaiting repair
     is not mistaken for a different album than the one it will become.
@@ -703,7 +703,7 @@ def album_title(name: str) -> str:
     _, rest = split_year(rest)
     _, rest = split_missing_marker(rest)
     _, rest = split_ep_marker(rest)
-    return drop_unpaired_brackets(strip_quality_tag(rest))
+    return drop_unpaired_wrappers(strip_quality_tag(rest))
 
 
 # ==================================================================================== #
@@ -780,9 +780,9 @@ def conforms_body(body: str) -> bool:
 def _title_is_wellformed(title: str) -> bool:
     """Report whether a title is something a rebuild could have produced.
 
-    Three things a settled title never has: nothing at all, a bracket
+    Three things a settled title never has: nothing at all, a wrapper
     without its partner, or spacing a rebuild would have closed. What it
-    may have is anything else -- a full stop, an ampersand, a bracket
+    may have is anything else -- a full stop, an ampersand, a wrapper
     that pairs -- since those are the title's own and not the
     convention's to judge.
 
@@ -796,13 +796,13 @@ def _title_is_wellformed(title: str) -> bool:
         return False
     if title != _MULTI_SPACE_RE.sub(" ", title).strip():
         return False
-    return brackets_balanced(title)
+    return wrappers_balanced(title)
 
 
-def brackets_balanced(text: str) -> bool:
-    """Report whether every bracket in a name has its partner.
+def wrappers_balanced(text: str) -> bool:
+    """Report whether every parenthesis and bracket has its partner.
 
-    The question `drop_unpaired_brackets` answers by acting; asked here
+    The question `drop_unpaired_wrappers` answers by acting; asked here
     without acting, for a caller checking that it did.
 
     Args:
