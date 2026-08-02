@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -14,6 +12,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,7 +40,7 @@ def album(tmp_path: Path) -> Callable[..., Path]:
         folder.mkdir(parents=True)
         for index, value in enumerate(titles, start=1):
             track: Path = folder / f"{index:02d}.flac"
-            sf.write(track, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
+            silence(track)
             if value is not None:
                 metadata.write(track, {Tag.TITLE: value})
         return folder

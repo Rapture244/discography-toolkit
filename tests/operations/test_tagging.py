@@ -11,14 +11,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
-
 from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.operations import tagging
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -41,8 +39,7 @@ def make_track(tmp_path: Path) -> Callable[..., Path]:
 
     def build(name: str, **tags: str) -> Path:
         path: Path = tmp_path / f"{name}.flac"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(path, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
+        silence(path)
         if tags:
             metadata.write(path, {Tag[key.upper()]: value for key, value in tags.items()})
         return path

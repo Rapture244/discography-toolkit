@@ -12,14 +12,13 @@ from __future__ import annotations
 import io
 from typing import TYPE_CHECKING
 
-import numpy as np
 from PIL import Image, ImageDraw
-import soundfile as sf
 
 from discography_toolkit.core import artwork, metadata
 from discography_toolkit.operations import covers
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -102,7 +101,7 @@ def make_album(tmp_path: Path) -> Callable[..., Path]:
         album.mkdir(parents=True, exist_ok=True)
         for index in range(tracks):
             path: Path = album / f"{index + 1:02d} - Track.flac"
-            sf.write(path, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
+            silence(path)
             data: bytes | None = embedded[index] if embedded else None
             if data is not None:
                 metadata.write_cover(path, cover_of(data))

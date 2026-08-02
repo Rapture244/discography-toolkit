@@ -10,14 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
-
 from discography_toolkit.core.layout import AudioTier
 from discography_toolkit.operations import placement
 from discography_toolkit.operations.placement import ContainerChange, Side, TooManyContainersError
 
 import pytest
+from tests.helpers import fill, subfolders
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,38 +37,6 @@ def artist(tmp_path: Path) -> Path:
     folder: Path = tmp_path / "Miles Davis"
     folder.mkdir()
     return folder
-
-
-def fill(album: Path, tier: str) -> Path:
-    """Build an album folder holding files of the given tier.
-
-    Args:
-        album: Where to make the folder.
-        tier: "lossless", "opus", "lossy", or "none".
-
-    Returns:
-        The album folder.
-    """
-    album.mkdir(parents=True, exist_ok=True)
-    if tier == "lossless":
-        sf.write(album / "01.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
-    elif tier == "opus":
-        _ = (album / "01.opus").write_bytes(b"x")
-    elif tier == "lossy":
-        _ = (album / "01.mp3").write_bytes(b"x")
-    return album
-
-
-def subfolders(root: Path) -> set[str]:
-    """The relative paths of every folder beneath a root.
-
-    Args:
-        root: The folder to walk.
-
-    Returns:
-        Relative folder paths as strings.
-    """
-    return {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_dir()}
 
 
 # ==================================================================================== #

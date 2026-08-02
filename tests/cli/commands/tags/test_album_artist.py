@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -14,6 +12,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -41,21 +40,12 @@ def shelf(tmp_path: Path) -> Path:
     ):
         album: Path = root / region / artist / "FLAC" / "01. (1970) - X [FLAC]"
         album.mkdir(parents=True)
-        _write_silence(album / "01.flac")
+        silence(album / "01.flac")
 
     (root / "Unsorted").mkdir(parents=True)
-    _write_silence(root / "Unsorted" / "loose.flac")
+    silence(root / "Unsorted" / "loose.flac")
 
     return root
-
-
-def _write_silence(path: Path) -> None:
-    """Write a short silent FLAC.
-
-    Args:
-        path: Where to write it.
-    """
-    sf.write(path, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
 
 
 def album_artist_of(track: Path) -> str:
@@ -157,7 +147,7 @@ def test_refuses_a_path_with_no_artist_folder(tmp_path: Path) -> None:
     """
     album: Path = tmp_path / "Unsorted" / "01. (1959) - X"
     album.mkdir(parents=True)
-    _write_silence(album / "01.flac")
+    silence(album / "01.flac")
 
     result = runner.invoke(app, ["tags", "album-artist", "-p", str(tmp_path)])
 
@@ -262,7 +252,7 @@ def test_a_forced_credit_needs_no_labelled_artist(tmp_path: Path) -> None:
     """
     loose: Path = tmp_path / "Unsorted"
     loose.mkdir()
-    _write_silence(loose / "track.flac")
+    silence(loose / "track.flac")
 
     result = runner.invoke(
         app, ["tags", "album-artist", "-p", str(loose), "--album-artist", "DJ Screw"], input="y\n"

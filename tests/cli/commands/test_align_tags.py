@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -20,6 +18,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,7 +47,7 @@ def shelf(tmp_path: Path) -> Callable[..., Path]:
         album: Path = artist / "FLAC" / album_name
         album.mkdir(parents=True)
         track: Path = album / "01 - so what.flac"
-        sf.write(track, np.zeros(441, dtype="float32"), 44100, format="FLAC")
+        silence(track)
         if title:
             metadata.write(track, {Tag.TITLE: title})
         return track
@@ -202,7 +201,7 @@ def test_the_breakdown_counts_only_the_tags_that_change(tmp_path: Path) -> None:
     album: Path = artist / "FLAC" / "01. (1959) - Kind of Blue [FLAC]"
     album.mkdir(parents=True)
     track: Path = album / "01 - so what.flac"
-    sf.write(track, np.zeros(441, dtype="float32"), 44100, format="FLAC")
+    silence(track)
     metadata.write(
         track,
         {
@@ -259,7 +258,7 @@ def test_unlaid_material_is_an_error(tmp_path: Path) -> None:
     # An unlabelled artist: no count label, so find_albums sees nothing.
     album: Path = tmp_path / "Miles Davis" / "(1959) - Kind of Blue"
     album.mkdir(parents=True)
-    sf.write(album / "track.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
+    silence(album / "track.flac")
 
     result = runner.invoke(app, ["align-tags", "--path", str(tmp_path)], input="y\n")
 

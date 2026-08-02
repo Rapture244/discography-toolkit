@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -20,6 +18,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -50,21 +49,12 @@ def shelf(tmp_path: Path) -> Path:
             folder: Path = root / artist / "FLAC" / album
             folder.mkdir(parents=True)
             for index in (1, 2):
-                _write_silence(folder / f"0{index}.flac")
+                silence(folder / f"0{index}.flac")
 
     (root / "Unsorted").mkdir(parents=True)
-    _write_silence(root / "Unsorted" / "loose.flac")
+    silence(root / "Unsorted" / "loose.flac")
 
     return root
-
-
-def _write_silence(path: Path) -> None:
-    """Write a short silent FLAC.
-
-    Args:
-        path: Where to write it.
-    """
-    sf.write(path, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
 
 
 def genres_under(root: Path) -> set[str]:

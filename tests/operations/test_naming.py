@@ -10,17 +10,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
-
 from discography_toolkit.core.layout import AudioTier
 from discography_toolkit.operations import naming
 
 import pytest
+from tests.helpers import fill
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+    from tests.helpers import Tier
 
 
 # ==================================================================================== #
@@ -38,16 +38,8 @@ def make_album(tmp_path: Path) -> Callable[..., Path]:
         folder. `"none"` leaves it empty.
     """
 
-    def build(name: str, tier: str = "lossless") -> Path:
-        album: Path = tmp_path / name
-        album.mkdir(parents=True, exist_ok=True)
-        if tier == "lossless":
-            sf.write(album / "01.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
-        elif tier == "opus":
-            _ = (album / "01.opus").write_bytes(b"")
-        elif tier == "lossy":
-            _ = (album / "01.mp3").write_bytes(b"")
-        return album
+    def build(name: str, tier: Tier = "lossless") -> Path:
+        return fill(tmp_path / name, tier)
 
     return build
 

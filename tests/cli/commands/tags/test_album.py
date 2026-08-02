@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -14,6 +12,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,19 +40,10 @@ def artist(tmp_path: Path) -> Callable[..., Path]:
         for name in albums:
             folder: Path = root / "FLAC" / name
             folder.mkdir(parents=True)
-            _write_silence(folder / "01.flac")
+            silence(folder / "01.flac")
         return root
 
     return build
-
-
-def _write_silence(path: Path) -> None:
-    """Write a short silent FLAC.
-
-    Args:
-        path: Where to write it.
-    """
-    sf.write(path, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
 
 
 def album_of(track: Path) -> str:
@@ -138,7 +128,7 @@ def test_every_disc_shares_the_album_name(artist: Callable[..., Path]) -> None:
     root: Path = artist("01. (1970) - Bitches Brew [FLAC]")
     folder: Path = root / "FLAC" / "01. (1970) - Bitches Brew [FLAC]"
     (folder / "CD 2").mkdir()
-    _write_silence(folder / "CD 2" / "01.flac")
+    silence(folder / "CD 2" / "01.flac")
 
     _ = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
 
@@ -170,7 +160,7 @@ def test_a_track_under_no_album_is_left_alone(artist: Callable[..., Path]) -> No
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
     loose: Path = root / "loose.flac"
-    _write_silence(loose)
+    silence(loose)
     # Seeded, so "left alone" is distinguishable from "cleared".
     metadata.write(loose, {Tag.ALBUM: "Untouched"})
 
@@ -187,7 +177,7 @@ def test_orphans_are_counted_apart_from_clean(artist: Callable[..., Path]) -> No
         artist: Factory building an artist folder.
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
-    _write_silence(root / "loose.flac")
+    silence(root / "loose.flac")
 
     result = runner.invoke(app, ["tags", "album", "-p", str(root)], input="n\n")
 
@@ -202,7 +192,7 @@ def test_refuses_a_path_with_no_album(tmp_path: Path) -> None:
     """
     loose: Path = tmp_path / "Unsorted"
     loose.mkdir()
-    _write_silence(loose / "01.flac")
+    silence(loose / "01.flac")
 
     result = runner.invoke(app, ["tags", "album", "-p", str(tmp_path)])
 

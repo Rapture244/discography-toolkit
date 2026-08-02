@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -14,6 +12,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,19 +40,10 @@ def artist(tmp_path: Path) -> Callable[..., Path]:
         for name in albums:
             folder: Path = root / "FLAC" / name
             folder.mkdir(parents=True)
-            _write_silence(folder / "01.flac")
+            silence(folder / "01.flac")
         return root
 
     return build
-
-
-def _write_silence(path: Path) -> None:
-    """Write a short silent FLAC.
-
-    Args:
-        path: Where to write it.
-    """
-    sf.write(path, np.zeros(4410, dtype="float32"), 44100, format="FLAC")
 
 
 def date_of(track: Path) -> str:
@@ -119,7 +109,7 @@ def test_every_disc_of_an_album_shares_its_year(artist: Callable[..., Path]) -> 
     root: Path = artist("01. (1970) - Bitches Brew [FLAC]")
     album: Path = root / "FLAC" / "01. (1970) - Bitches Brew [FLAC]"
     (album / "CD 2").mkdir()
-    _write_silence(album / "CD 2" / "01.flac")
+    silence(album / "CD 2" / "01.flac")
 
     _ = runner.invoke(app, ["tags", "year", "-p", str(root)], input="y\n")
 
@@ -189,7 +179,7 @@ def test_refuses_a_path_with_no_album(tmp_path: Path) -> None:
     """
     loose: Path = tmp_path / "Unsorted"
     loose.mkdir()
-    _write_silence(loose / "01.flac")
+    silence(loose / "01.flac")
 
     result = runner.invoke(app, ["tags", "year", "-p", str(tmp_path)])
 

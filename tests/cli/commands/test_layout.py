@@ -11,13 +11,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
 
 import pytest
+from tests.helpers import silence, subfolders
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -32,11 +31,13 @@ runner = CliRunner()
 def flac(album: Path) -> None:
     """Put a silent FLAC track in a folder, making its parents.
 
+    Named "a track" rather than the shared helper's default, because one
+    test asserts the casing step turns it into "A Track.flac".
+
     Args:
         album: The album folder to fill.
     """
-    album.mkdir(parents=True, exist_ok=True)
-    sf.write(album / "a track.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
+    silence(album / "a track.flac")
 
 
 def lossy(album: Path) -> None:
@@ -57,18 +58,6 @@ def opus(album: Path) -> None:
     """
     album.mkdir(parents=True, exist_ok=True)
     _ = (album / "a track.opus").write_bytes(b"x")
-
-
-def subfolders(root: Path) -> set[str]:
-    """The relative paths of every folder beneath a root.
-
-    Args:
-        root: The folder to walk.
-
-    Returns:
-        Relative folder paths, forward-slashed for portability.
-    """
-    return {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_dir()}
 
 
 @pytest.fixture()

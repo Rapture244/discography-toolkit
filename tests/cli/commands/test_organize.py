@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -20,6 +18,7 @@ from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -47,7 +46,7 @@ def fresh_shelf(tmp_path: Path) -> Callable[[], Path]:
             folder: Path = tmp_path / artist / name
             folder.mkdir(parents=True)
             track: Path = folder / "01 - so what.flac"
-            sf.write(track, np.zeros(441, dtype="float32"), 44100, format="FLAC")
+            silence(track)
             metadata.write(track, {Tag.TITLE: title})
 
         album("Miles Davis", "(1959) - kind of blue", "so what")
@@ -131,7 +130,7 @@ def test_a_single_artist_target_is_followed_when_renamed(tmp_path: Path) -> None
     artist: Path = tmp_path / "Miles Davis"
     album: Path = artist / "(1959) - kind of blue"
     album.mkdir(parents=True)
-    sf.write(album / "01 - so what.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
+    silence(album / "01 - so what.flac")
 
     result = runner.invoke(app, ["organize", "--path", str(artist)], input="y\n")
 
@@ -186,7 +185,7 @@ def test_organize_forces_a_credited_album_artist_across_collections(tmp_path: Pa
     def album(collection: str, name: str) -> None:
         folder: Path = tmp_path / "DJ Screw" / collection / name
         folder.mkdir(parents=True)
-        sf.write(folder / "01 - track.flac", np.zeros(441, dtype="float32"), 44100, format="FLAC")
+        silence(folder / "01 - track.flac")
 
     album("Original CDs", "01. (1994) - bigtyme vol I")
     album("Tapes", "DJ Screw - dusk 2 dawn (1996)")
