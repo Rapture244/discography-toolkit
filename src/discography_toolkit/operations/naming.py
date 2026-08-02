@@ -47,7 +47,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from discography_toolkit.core import names
+from discography_toolkit.core import files, names
 from discography_toolkit.core.layout import AudioTier, detect_tier
 
 if TYPE_CHECKING:
@@ -372,9 +372,8 @@ def _rename(album: Path, target: Path) -> str | None:
     refused rather than destroying it -- the collision is the person's to
     resolve. "In place" is judged by file identity, not path text: a
     change that only alters case reads as "already there" on a
-    case-insensitive filesystem though it is the folder's own name, so
-    that is recognised as a rename and routed through a staging name,
-    which a direct rename cannot do unambiguously there.
+    case-insensitive filesystem though it is the folder's own name, and
+    that is a rename rather than a collision.
 
     Args:
         album: The folder to rename.
@@ -383,16 +382,6 @@ def _rename(album: Path, target: Path) -> str | None:
     Returns:
         The failure's detail, or `None` on success.
     """
-    case_only: bool = album.name.casefold() == target.name.casefold()
     if target.exists() and not target.samefile(album):
         return f"a folder named {target.name!r} is already there"
-    try:
-        if case_only:
-            staging: Path = album.with_name(f"{_STAGING_PREFIX}{target.name}")
-            _ = album.rename(staging)
-            _ = staging.rename(target)
-        else:
-            _ = album.rename(target)
-    except OSError as exc:
-        return str(exc)
-    return None
+    return files.rename(album, target, staging_prefix=_STAGING_PREFIX)

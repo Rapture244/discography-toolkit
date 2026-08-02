@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from discography_toolkit.core import names
+from discography_toolkit.core import files, names
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -168,7 +168,9 @@ def apply(
     failures: list[tuple[Path, str]] = []
 
     for outcome in case_plan.pending:
-        detail: str | None = _rename(outcome.track, outcome.new_name)
+        detail: str | None = files.rename(
+            outcome.track, outcome.target, staging_prefix=_STAGING_PREFIX
+        )
         if detail is None:
             renamed += 1
         else:
@@ -216,31 +218,3 @@ def _clashing(changing: Sequence[tuple[Path, str]]) -> set[Path]:
         claimed.add(target)
 
     return clashing
-
-
-def _rename(track: Path, new_name: str) -> str | None:
-    """Rename one track, safely for a case-only change.
-
-    A change that alters more than case is a plain rename. A change that
-    alters only case is routed through a staging name first, since on a
-    case-insensitive filesystem the source and target are the same file
-    and a direct rename is ambiguous.
-
-    Args:
-        track: The file to rename.
-        new_name: Its new filename, extension included.
-
-    Returns:
-        The failure's detail, or `None` on success.
-    """
-    target: Path = track.with_name(new_name)
-    try:
-        if track.name.lower() != new_name.lower():
-            _ = track.rename(target)
-        else:
-            staging: Path = track.with_name(f"{_STAGING_PREFIX}{new_name}")
-            _ = track.rename(staging)
-            _ = staging.rename(target)
-    except OSError as exc:
-        return str(exc)
-    return None
