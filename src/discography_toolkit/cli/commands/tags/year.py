@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from discography_toolkit.cli.commands.tags.notices import underivable, unreadable
 from discography_toolkit.cli.console import (
-    Notice,
     artist_names,
     echo_banner,
     echo_result,
@@ -42,6 +42,8 @@ from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+    from discography_toolkit.cli.console import Notice
 
 
 # ==================================================================================== #
@@ -134,27 +136,6 @@ def _wants(albums: Sequence[Path]) -> tagging.Desired:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _undated(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.TrackOutcome]:
-    """Find tracks whose album offers no year.
-
-    Either they sit under no album folder, or the folder's name carries
-    no year token. Both count as clean, since nothing is written, but
-    both are worth naming.
-
-    Args:
-        plan: The plan to inspect.
-        albums: The album folders in scope.
-
-    Returns:
-        Outcomes with no derivable year.
-    """
-    return [
-        outcome
-        for outcome in plan.outcomes
-        if outcome.status == "already_correct" and derivation.date_of(outcome.path, albums) is None
-    ]
-
-
 def _echo_plan(plan: tagging.TagPlan, albums: Sequence[Path]) -> None:
     """Render the plan as one line, with anything needing an eye beneath it.
 
@@ -162,24 +143,17 @@ def _echo_plan(plan: tagging.TagPlan, albums: Sequence[Path]) -> None:
         plan: The plan to summarize.
         albums: The album folders in scope.
     """
-    undated: list[tagging.TrackOutcome] = _undated(plan, albums)
-    notices: list[Notice] = []
-
-    if undated:
-        notices.append(
-            Notice(
-                summary=f"{len(undated)} file(s) have no year to take",
-                details=tuple(f"{str(outcome.path)!r}" for outcome in undated),
-            )
+    notices: list[Notice] = [
+        notice
+        for notice in (
+            underivable(
+                plan,
+                lambda outcome: derivation.date_of(outcome.path, albums) is None,
+                "have no year to take",
+            ),
+            unreadable(plan),
         )
-    if plan.errors:
-        notices.append(
-            Notice(
-                summary=f"{len(plan.errors)} file(s) could not be read",
-                details=tuple(
-                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
-                ),
-            )
-        )
+        if notice is not None
+    ]
 
     echo_result("Year", len(plan.pending), "to date", notices)

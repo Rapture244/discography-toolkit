@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from discography_toolkit.cli.commands.tags.notices import underivable, unreadable
 from discography_toolkit.cli.console import (
-    Notice,
     artist_names,
     echo_banner,
     echo_result,
@@ -37,6 +37,8 @@ from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from discography_toolkit.cli.console import Notice
 
 
 # ==================================================================================== #
@@ -126,50 +128,24 @@ def _wants(_track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
     return {Tag.TITLE: title_case(current[Tag.TITLE])}
 
 
-def _untitled(plan: tagging.TagPlan) -> list[tagging.TrackOutcome]:
-    """Find tracks carrying no Title at all.
-
-    They count as clean, since there is nothing to case, but they are a
-    different thing from a title already correct and worth naming.
-
-    Args:
-        plan: The plan to inspect.
-
-    Returns:
-        Outcomes whose Title was empty.
-    """
-    return [
-        outcome
-        for outcome in plan.outcomes
-        if outcome.status == "already_correct" and not outcome.current.get(Tag.TITLE)
-    ]
-
-
 def _echo_plan(plan: tagging.TagPlan) -> None:
     """Render the plan as one line, with anything needing an eye beneath it.
 
     Args:
         plan: The plan to summarize.
     """
-    untitled: list[tagging.TrackOutcome] = _untitled(plan)
-    notices: list[Notice] = []
-
-    if untitled:
-        notices.append(
-            Notice(
-                summary=f"{len(untitled)} file(s) carry no Title tag",
-                details=tuple(f"{str(outcome.path)!r}" for outcome in untitled),
-            )
+    notices: list[Notice] = [
+        notice
+        for notice in (
+            underivable(
+                plan,
+                lambda outcome: not outcome.current.get(Tag.TITLE),
+                "carry no Title tag",
+            ),
+            unreadable(plan),
         )
-    if plan.errors:
-        notices.append(
-            Notice(
-                summary=f"{len(plan.errors)} file(s) could not be read",
-                details=tuple(
-                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
-                ),
-            )
-        )
+        if notice is not None
+    ]
 
     echo_result("Title", len(plan.pending), "to recase", notices)
 

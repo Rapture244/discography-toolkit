@@ -31,8 +31,8 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from discography_toolkit.cli.commands.tags.notices import underivable, unreadable
 from discography_toolkit.cli.console import (
-    Notice,
     artist_names,
     echo_banner,
     echo_result,
@@ -47,6 +47,8 @@ from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+    from discography_toolkit.cli.console import Notice
 
 
 # ==================================================================================== #
@@ -139,26 +141,6 @@ def _wants(albums: Sequence[Path]) -> tagging.Desired:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
-def _orphans(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.TrackOutcome]:
-    """Find tracks sitting under no album folder.
-
-    They count as clean, since nothing was written, but they are a
-    different thing from a track already correct and worth naming.
-
-    Args:
-        plan: The plan to inspect.
-        albums: The album folders in scope.
-
-    Returns:
-        Outcomes with no album to take a name from.
-    """
-    return [
-        outcome
-        for outcome in plan.outcomes
-        if outcome.status == "already_correct" and derivation.album_of(outcome.path, albums) is None
-    ]
-
-
 def _echo_plan(plan: tagging.TagPlan, albums: Sequence[Path]) -> None:
     """Render the plan as one line, with anything needing an eye beneath it.
 
@@ -166,24 +148,17 @@ def _echo_plan(plan: tagging.TagPlan, albums: Sequence[Path]) -> None:
         plan: The plan to summarize.
         albums: The album folders in scope.
     """
-    orphans: list[tagging.TrackOutcome] = _orphans(plan, albums)
-    notices: list[Notice] = []
-
-    if orphans:
-        notices.append(
-            Notice(
-                summary=f"{len(orphans)} file(s) sit under no album folder",
-                details=tuple(f"{str(outcome.path)!r}" for outcome in orphans),
-            )
+    notices: list[Notice] = [
+        notice
+        for notice in (
+            underivable(
+                plan,
+                lambda outcome: derivation.album_of(outcome.path, albums) is None,
+                "sit under no album folder",
+            ),
+            unreadable(plan),
         )
-    if plan.errors:
-        notices.append(
-            Notice(
-                summary=f"{len(plan.errors)} file(s) could not be read",
-                details=tuple(
-                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
-                ),
-            )
-        )
+        if notice is not None
+    ]
 
     echo_result("Album", len(plan.pending), "to tag", notices)

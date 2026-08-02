@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from discography_toolkit.cli.commands.tags.notices import underivable, unreadable
 from discography_toolkit.cli.console import (
-    Notice,
     artist_names,
     echo_banner,
     echo_result,
@@ -43,6 +43,8 @@ from discography_toolkit.operations import tagging
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+    from discography_toolkit.cli.console import Notice
 
 
 # ==================================================================================== #
@@ -198,59 +200,28 @@ def _echo_artists(artists: Sequence[Path], credit: str | None = None) -> None:
         typer.echo(f"{label} {name!r}")
 
 
-def _unresolved(
-    plan: tagging.TagPlan, artists: Sequence[Path], credit: str | None = None
-) -> list[tagging.TrackOutcome]:
-    """Find tracks sitting under no artist folder.
-
-    They count as clean, since nothing was written, but they are a
-    different thing from a track already correct and worth naming. A
-    forced credit reaches every track, so none is unresolved.
-
-    Args:
-        plan: The plan to inspect.
-        artists: The artist folders in scope.
-        credit: The Album Artist being forced, or `None`.
-
-    Returns:
-        Outcomes for tracks with no derivable Album Artist.
-    """
-    if credit is not None:
-        return []
-    return [
-        outcome
-        for outcome in plan.outcomes
-        if outcome.status == "already_correct"
-        and derivation.album_artist_of(outcome.path, artists) is None
-    ]
-
-
 def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path], credit: str | None = None) -> None:
     """Render the plan as one line, with anything needing an eye beneath it.
+
+    A forced credit reaches every track, so nothing can be unresolved
+    and only unreadable files are worth an eye.
 
     Args:
         plan: The plan to summarize.
         artists: The artist folders in scope.
         credit: The Album Artist being forced, or `None`.
     """
-    unresolved: list[tagging.TrackOutcome] = _unresolved(plan, artists, credit)
-    notices: list[Notice] = []
-
-    if unresolved:
-        notices.append(
-            Notice(
-                summary=f"{len(unresolved)} file(s) sit under no artist folder",
-                details=tuple(f"{str(outcome.path)!r}" for outcome in unresolved),
-            )
+    unresolved: Notice | None = (
+        None
+        if credit is not None
+        else underivable(
+            plan,
+            lambda outcome: derivation.album_artist_of(outcome.path, artists) is None,
+            "sit under no artist folder",
         )
-    if plan.errors:
-        notices.append(
-            Notice(
-                summary=f"{len(plan.errors)} file(s) could not be read",
-                details=tuple(
-                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
-                ),
-            )
-        )
+    )
+    notices: list[Notice] = [
+        notice for notice in (unresolved, unreadable(plan)) if notice is not None
+    ]
 
     echo_result("Album Artist", len(plan.pending), "to tag", notices)

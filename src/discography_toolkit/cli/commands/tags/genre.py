@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
+from discography_toolkit.cli.commands.tags.notices import unreadable
 from discography_toolkit.cli.console import (
-    Notice,
     artist_names,
     echo_banner,
     echo_result,
@@ -152,18 +152,12 @@ def _wants(value: str) -> tagging.Desired:
 def _echo_plan(plan: tagging.TagPlan) -> None:
     """Render the plan as one line, with any unreadable files beneath it.
 
+    Nothing here can be underivable: the value is given rather than read
+    off a folder, so every track has one.
+
     Args:
         plan: The plan to summarize.
     """
-    notices: list[Notice] = []
-    if plan.errors:
-        notices.append(
-            Notice(
-                summary=f"{len(plan.errors)} file(s) could not be read",
-                details=tuple(
-                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
-                ),
-            )
-        )
+    notice = unreadable(plan)
 
-    echo_result("Genre", len(plan.pending), "to tag", notices)
+    echo_result("Genre", len(plan.pending), "to tag", [] if notice is None else [notice])
