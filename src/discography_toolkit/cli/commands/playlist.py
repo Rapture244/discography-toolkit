@@ -117,7 +117,12 @@ def playlist(
         typer.secho(f"\nNo album found in {disco.name!r}.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
-    artist: Path = target / artist_name
+    # Either the folder a converter dropped its work into, which wants an
+    # artist folder made inside it, or a settled playlist that has since
+    # been moved somewhere permanent -- which is already that folder.
+    # Pointing at the second again should sync it in place rather than
+    # fold it into a second folder of the same name one level down.
+    artist: Path = target if target.name == artist_name else target / artist_name
     folders: list[Path] = folding.candidates(target, artist)
     if not folders:
         typer.secho(f"\nNo converted album found in {target}", fg=typer.colors.YELLOW)
@@ -140,7 +145,7 @@ def playlist(
         )
         raise typer.Exit(code=0)
 
-    warning: str = f"This moves {len(fold_plan.matches)} album(s) under {artist_name!r} and writes their Album tag. There is no dry run."
+    warning: str = f"This moves {len(fold_plan.matches)} album(s) under {artist_name!r}, writes their Album tag and a cover.jpg beside their tracks. There is no dry run."
     typer.secho(f"\n{warning}", fg=typer.colors.YELLOW)
     if not typer.confirm("Proceed?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
@@ -150,25 +155,44 @@ def playlist(
     report = folding.apply(fold_plan)
     echo_result("Albums", report.moved, "folded", failures=report.failures)
 
-    _write_tags(artist)
+    settled: list[Path] = _settled(artist)
+    _write_tags(artist, settled)
+    _write_covers(settled)
+
+
+# ==================================================================================== #
+#                                    WHAT IS SETTLED                                   #
+# ==================================================================================== #
+def _settled(artist: Path) -> list[Path]:
+    """List the playlist's album folders as they now stand on disk.
+
+    Read from the folder rather than taken from the plan, because the
+    fold has just renamed them and one of those renames may have failed.
+    What is on disk is what the tags and the covers are written from.
+
+    Args:
+        artist: The playlist's artist folder.
+
+    Returns:
+        Its album folders, empty when the fold created none.
+    """
+    if not artist.is_dir():
+        return []
+    return sorted(
+        entry for entry in artist.iterdir() if entry.is_dir() and not entry.name.startswith(".")
+    )
 
 
 # ==================================================================================== #
 #                                       THE TAGS                                       #
 # ==================================================================================== #
-def _write_tags(artist: Path) -> None:
+def _write_tags(artist: Path, settled: Sequence[Path]) -> None:
     """Write the Album tag of every track, read off its settled folder.
-
-    The folders are re-read rather than taken from the plan, because the
-    fold has just renamed them and one of those renames may have failed:
-    what is on disk is what the tags should be written from.
 
     Args:
         artist: The playlist's artist folder.
+        settled: Its album folders.
     """
-    settled: list[Path] = sorted(
-        entry for entry in artist.iterdir() if entry.is_dir() and not entry.name.startswith(".")
-    )
     tracks: list[Path] = find_audio_files(artist)
     if not tracks:
         return
@@ -188,6 +212,43 @@ def _write_tags(artist: Path) -> None:
         )
 
     echo_result("Album", report.written, "tagged", failures=report.failures)
+
+
+# ==================================================================================== #
+#                                      THE COVERS                                       #
+# ==================================================================================== #
+def _write_covers(settled: Sequence[Path]) -> None:
+    """Write one cover.jpg per album, from the art its tracks carry.
+
+    A phone that will not read the embedded art reads this instead, so
+    every album in the playlist ends with one beside its tracks.
+
+    Args:
+        settled: The playlist's album folders.
+    """
+    if not settled:
+        return
+
+    with make_progress(noun="albums") as progress:
+        plan = folding.plan_covers(
+            settled, on_progress=make_bar(progress, "Playlist: reading art", len(settled))
+        )
+
+    with make_progress(noun="covers") as progress:
+        report = folding.apply_covers(
+            plan, on_progress=make_bar(progress, "Playlist: covers", len(plan.writes))
+        )
+
+    notices: list[Notice] = []
+    if plan.without_artwork:
+        notices.append(
+            Notice(
+                summary=f"{len(plan.without_artwork)} album(s) carry no art to write out",
+                details=tuple(f"{album.name!r}" for album in plan.without_artwork),
+            )
+        )
+
+    echo_result("Covers", report.written, "written", notices, report.failures)
 
 
 def _wants(albums: Sequence[Path]) -> tagging.Desired:

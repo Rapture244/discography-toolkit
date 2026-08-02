@@ -35,9 +35,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
-from discography_toolkit.core import metadata, names
+from discography_toolkit.core import artwork, metadata, names
 from discography_toolkit.core.layout import (
     QUALITY_TAG,
     detect_tier,
@@ -50,12 +50,20 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
 
+    from discography_toolkit.core.artwork import Cover
+
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
 # The name a folder wears mid-move, for a change that only alters case.
 # Hidden, and distinct enough that no album is it.
 _STAGING_PREFIX: str = ".__playlist__"
+
+# The one name a loose cover is written under. A phone that will not read
+# the embedded art looks for this beside the tracks, and reads it by
+# extension rather than by content -- which is why the bytes are forced
+# to JPEG rather than saved as whatever the album happened to carry.
+COVER_NAME: Final[str] = "cover.jpg"
 
 
 # ==================================================================================== #
@@ -131,6 +139,47 @@ class PlaylistReport:
     failures: tuple[tuple[Path, str], ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class CoverWrite:
+    """One album's loose cover, and the bytes it should hold.
+
+    Attributes:
+        target: The file to write, always `cover.jpg` beside the tracks.
+        data: The image, capped and forced to JPEG.
+    """
+
+    target: Path
+    data: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class CoverPlan:
+    """What a run would write beside the tracks, before anything is written.
+
+    Attributes:
+        writes: One entry per album whose loose cover is missing or
+            stale. An album already holding the right bytes is absent.
+        without_artwork: Albums whose tracks carry no readable cover, so
+            there is nothing to write out.
+    """
+
+    writes: tuple[CoverWrite, ...] = ()
+    without_artwork: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CoverReport:
+    """What happened when a cover plan was applied.
+
+    Attributes:
+        written: How many loose covers were written.
+        failures: `(path, reason)` for each write that failed.
+    """
+
+    written: int = 0
+    failures: tuple[tuple[Path, str], ...] = ()
+
+
 # ==================================================================================== #
 #                                      PUBLIC API                                      #
 # ==================================================================================== #
@@ -142,9 +191,14 @@ def candidates(converted: Path, artist: Path) -> list[Path]:
     otherwise a second run would see nothing it had settled and report
     the whole playlist as missing.
 
+    The two levels are one when the converted path is itself the artist
+    folder, which is what a settled playlist moved somewhere permanent
+    looks like. Scanning it twice would have every album contest itself.
+
     Args:
         converted: The folder the converter wrote into.
-        artist: The playlist's artist folder, which may not exist yet.
+        artist: The playlist's artist folder, which may not exist yet
+            and may be `converted` itself.
 
     Returns:
         Candidate folders, sorted by path.
@@ -154,7 +208,7 @@ def candidates(converted: Path, artist: Path) -> list[Path]:
         for entry in converted.iterdir()
         if entry.is_dir() and not entry.name.startswith(".") and entry != artist
     ]
-    if artist.is_dir():
+    if artist.is_dir() and artist != converted:
         found.extend(
             entry for entry in artist.iterdir() if entry.is_dir() and not entry.name.startswith(".")
         )
@@ -258,6 +312,77 @@ def apply(
     return PlaylistReport(moved=moved, failures=tuple(failures))
 
 
+def plan_covers(
+    albums: Sequence[Path],
+    on_progress: Callable[[Path], None] | None = None,
+) -> CoverPlan:
+    """Work out which albums need a loose cover written, without writing.
+
+    The source is the art already inside the tracks, which the converter
+    carried across from the discography. Nothing is read from the
+    discography and nothing is embedded: the tracks are the source here,
+    and the loose file is the copy.
+
+    An album already holding the right bytes is left out, so a second run
+    writes nothing. One holding different bytes is overwritten, which is
+    what makes re-arting an album in the discography reach the playlist.
+
+    Args:
+        albums: The playlist's album folders.
+        on_progress: Called with each album as it is examined.
+
+    Returns:
+        What would be written, and the albums with no art to write.
+    """
+    writes: list[CoverWrite] = []
+    without_artwork: list[Path] = []
+
+    for album in albums:
+        cover: Cover | None = _embedded_cover(album)
+        if cover is None:
+            without_artwork.append(album)
+        else:
+            target: Path = album / COVER_NAME
+            if _on_disk(target) != cover.data:
+                writes.append(CoverWrite(target=target, data=cover.data))
+        if on_progress is not None:
+            on_progress(album)
+
+    return CoverPlan(writes=tuple(writes), without_artwork=tuple(without_artwork))
+
+
+def apply_covers(
+    cover_plan: CoverPlan,
+    on_progress: Callable[[Path], None] | None = None,
+) -> CoverReport:
+    """Write every loose cover the plan found.
+
+    A write that fails is recorded and the run continues: one unwritable
+    folder should not cost the rest their artwork.
+
+    Args:
+        cover_plan: A plan produced by `plan_covers`.
+        on_progress: Called with each file as it is dealt with.
+
+    Returns:
+        A count of writes and the failures collected along the way.
+    """
+    written: int = 0
+    failures: list[tuple[Path, str]] = []
+
+    for write in cover_plan.writes:
+        try:
+            _ = write.target.write_bytes(write.data)
+        except OSError as exc:
+            failures.append((write.target, str(exc)))
+        else:
+            written += 1
+        if on_progress is not None:
+            on_progress(write.target)
+
+    return CoverReport(written=written, failures=tuple(failures))
+
+
 def identity(album: Path) -> str | None:
     """Read which album a folder holds, from the tags rather than the name.
 
@@ -325,6 +450,63 @@ def album_tag(name: str) -> str:
 # ==================================================================================== #
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
+def _embedded_cover(album: Path) -> Cover | None:
+    """Read the art an album's tracks carry, capped and forced to JPEG.
+
+    The first readable front cover settles it. The tracks of one folder
+    came from one album, so they agree -- the vote `tags cover` holds
+    exists to stop a stray scan on one file of a hand-assembled album
+    winning, and nothing here is hand-assembled.
+
+    Capped because the copy is for a phone, and to the same size the
+    tracks already hold, so in practice this is the embedded image
+    written out rather than anything re-encoded.
+
+    Args:
+        album: The album folder to read.
+
+    Returns:
+        The cover to write, or `None` when no track carries readable art
+        or the bytes will not convert.
+    """
+    for track in find_audio_files(album):
+        cover: Cover | None = _cover_of(track)
+        if cover is not None:
+            return artwork.as_jpeg(artwork.for_embedding(cover))
+    return None
+
+
+def _cover_of(track: Path) -> Cover | None:
+    """Read one track's front cover, or nothing when it cannot be read.
+
+    Args:
+        track: The audio file to read.
+
+    Returns:
+        Its front cover, or `None` when it carries none or will not read.
+    """
+    try:
+        return metadata.read_cover(track)
+    except Exception:  # noqa: BLE001 - any file can fail in ways not worth enumerating
+        return None
+
+
+def _on_disk(target: Path) -> bytes | None:
+    """Read what a loose cover file already holds.
+
+    Args:
+        target: The file to read.
+
+    Returns:
+        Its bytes, or `None` when it is absent or will not read -- both
+        of which mean it does not hold what it should.
+    """
+    try:
+        return target.read_bytes()
+    except OSError:
+        return None
+
+
 def _album_of(track: Path) -> str:
     """Read one track's Album tag, or nothing when it cannot be read.
 

@@ -128,6 +128,35 @@ def choose(covers: Sequence[Cover]) -> Cover | None:
     return by_digest[best][0]
 
 
+def as_jpeg(cover: Cover) -> Cover | None:
+    """Re-encode a cover as JPEG, unless it is one already.
+
+    For a copy that must be written under a name promising JPEG. A PNG
+    small enough to pass the embedding cap untouched would otherwise be
+    saved as "cover.jpg" while holding PNG bytes -- a name that lies, and
+    one some players read by extension rather than by content.
+
+    Args:
+        cover: The image to convert.
+
+    Returns:
+        A JPEG cover, the same object when it already was one, or `None`
+        when the bytes will not decode -- in which case the album has no
+        artwork worth writing rather than artwork to write badly.
+    """
+    if cover.mime == JPEG:
+        return cover
+
+    try:
+        with Image.open(io.BytesIO(cover.data)) as image:
+            buffer = io.BytesIO()
+            image.convert("RGB").save(buffer, "JPEG", quality=EMBED_QUALITY)
+    except OSError:
+        return None
+
+    return Cover(data=buffer.getvalue(), mime=JPEG)
+
+
 def for_embedding(cover: Cover) -> Cover:
     """Produce the copy that goes inside each track.
 
