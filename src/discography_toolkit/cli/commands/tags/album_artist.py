@@ -26,10 +26,10 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import (
-    SummaryRow,
+    Notice,
     artist_names,
     echo_banner,
-    echo_summary,
+    echo_result,
     make_advancer,
     make_progress,
 )
@@ -142,12 +142,7 @@ def album_artist(
         )
         report = tagging.apply(plan, on_progress=advance)
 
-    for failed, detail in report.failures:
-        typer.secho(f"  Failed: {str(failed)!r} - {detail}", fg=typer.colors.RED)
-
-    typer.secho(f"\nDone. {report.written} file(s) tagged.", fg=typer.colors.GREEN, bold=True)
-    if report.failures:
-        typer.secho(f"{len(report.failures)} file(s) failed during writing.", fg=typer.colors.RED)
+    echo_result("Album Artist", report.written, "tagged", failures=report.failures)
 
 
 # ==================================================================================== #
@@ -232,7 +227,7 @@ def _unresolved(
 
 
 def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path], credit: str | None = None) -> None:
-    """Render a plan as a summary box, plus anything that needs naming.
+    """Render the plan as one line, with anything needing an eye beneath it.
 
     Args:
         plan: The plan to summarize.
@@ -240,43 +235,23 @@ def _echo_plan(plan: tagging.TagPlan, artists: Sequence[Path], credit: str | Non
         credit: The Album Artist being forced, or `None`.
     """
     unresolved: list[tagging.TrackOutcome] = _unresolved(plan, artists, credit)
-    counts: list[list[SummaryRow]] = [
-        [SummaryRow(label="Total", count=plan.total, indent="", percent=False)],
-        [
-            SummaryRow(
-                label="Tagged", count=len(plan.pending), marker="(->)", color=typer.colors.GREEN
-            ),
-            SummaryRow(
-                label="Clean",
-                count=plan.clean - len(unresolved),
-                marker="(==)",
-                color=typer.colors.BLUE,
-            ),
-        ],
-    ]
+    notices: list[Notice] = []
+
     if unresolved:
-        counts[1].append(
-            SummaryRow(
-                label="No artist", count=len(unresolved), marker="(--)", color=typer.colors.YELLOW
+        notices.append(
+            Notice(
+                summary=f"{len(unresolved)} file(s) sit under no artist folder",
+                details=tuple(f"{str(outcome.path)!r}" for outcome in unresolved),
             )
         )
     if plan.errors:
-        counts[1].append(
-            SummaryRow(
-                label="Errors", count=len(plan.errors), marker="(!!)", color=typer.colors.RED
+        notices.append(
+            Notice(
+                summary=f"{len(plan.errors)} file(s) could not be read",
+                details=tuple(
+                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
+                ),
             )
         )
 
-    echo_summary(counts, total=plan.total)
-
-    if unresolved:
-        typer.secho(
-            f"\n{len(unresolved)} file(s) sit under no artist folder:", fg=typer.colors.YELLOW
-        )
-        for outcome in unresolved:
-            typer.secho(f"  {str(outcome.path)!r}", fg=typer.colors.BRIGHT_BLACK)
-
-    if plan.errors:
-        typer.secho(f"\n{len(plan.errors)} file(s) could not be read:", fg=typer.colors.YELLOW)
-        for outcome in plan.errors:
-            typer.echo(f"  {str(outcome.path)!r} - {outcome.detail}")
+    echo_result("Album Artist", len(plan.pending), "to tag", notices)

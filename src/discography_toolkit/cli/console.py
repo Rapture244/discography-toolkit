@@ -3,8 +3,8 @@
 
 Nothing here knows what a step does. Steps compute and return results;
 this turns results into output. Keeping the two apart is what lets one
-result render as a full summary box for a single artist and as one line
-each for twenty.
+result render as a line for a single artist and as one line each for
+twenty.
 """
 
 from __future__ import annotations
@@ -283,78 +283,60 @@ def echo_banner(title: str, target: str, children: Sequence[str] = ()) -> None:
 
 
 # ==================================================================================== #
-#                                     SUMMARY BOX                                      #
+#                                     RESULT LINES                                     #
 # ==================================================================================== #
+# Wide enough for "Album Artist", the longest label any pass carries, so
+# the counts line up down a run whichever passes it happens to include.
+RESULT_LABEL_WIDTH: Final[int] = 13
+
+
 @dataclass(frozen=True, slots=True)
-class SummaryRow:
-    """One line of a summary box.
+class Notice:
+    """One thing a pass saw but would not act on.
+
+    Not an error -- nothing failed -- but something only a person can
+    settle: a track under no album folder, a file that would not read.
+    Kept apart from the count because the two answer different
+    questions, and "nothing to do" means the opposite thing depending on
+    which of them is empty.
 
     Attributes:
-        label: The row's name, rendered bold.
-        count: The figure to show.
-        marker: A short symbol identifying the row, e.g. `"(->)"`.
-        color: Typer colour applied to the whole row.
-        indent: Leading spaces, used to nest rows under a total.
-        percent: Whether to show this count as a share of the box total.
+        summary: The line naming it, already counted and phrased.
+        details: The specifics needed to go and fix it -- the paths, the
+            reasons. Empty where the summary says all there is.
     """
 
-    label: str
-    count: int
-    marker: str = ""
-    color: str = typer.colors.WHITE
-    indent: str = "  "
-    percent: bool = True
+    summary: str
+    details: tuple[str, ...] = ()
 
 
-def echo_summary(groups: Sequence[Sequence[SummaryRow]], total: int) -> None:
-    """Print a summary box, one horizontal rule between each group.
+def echo_result(
+    name: str,
+    count: int,
+    verb: str,
+    notices: Sequence[Notice] = (),
+    failures: Sequence[tuple[Path, str]] = (),
+) -> None:
+    """Print one pass's line, with whatever it wants a person's eye on.
 
-    Groups rather than a divider sentinel: a rule separates partitions,
-    so it belongs between them structurally. A box can then hold two
-    independent tallies -- what a run did, and what the collection is --
-    each summing to the total on its own, where listing them flat would
-    read as one tally adding to well over 100%.
-
-    Columns are sized from the data, so adding a row can never knock the
-    colons out of line.
+    The one shape every pass reports in, so the same work reads the same
+    whether it was reached through `align-tags` or through the `tags`
+    command that does it alone.
 
     Args:
-        groups: Rows to draw, one rule drawn between each group.
-        total: The figure percentages are taken against.
+        name: The pass's name, e.g. `"Album Artist"`.
+        count: How many files or albums it changes.
+        verb: How the count reads, e.g. `"tagged"`, `"to date"`.
+        notices: What it saw but would not act on.
+        failures: `(path, reason)` for anything that failed outright.
     """
-    entries: list[SummaryRow] = [row for group in groups for row in group]
-    if not entries or total <= 0:
-        return
+    colour: str = typer.colors.GREEN if count else typer.colors.BRIGHT_BLACK
+    typer.secho(f"  {name:<{RESULT_LABEL_WIDTH}} {count} {verb}", fg=colour)
 
-    label_width: int = max(len(row.indent + row.label) for row in entries)
-    marker_width: int = max(len(row.marker) for row in entries)
-    count_width: int = max(len(str(row.count)) for row in entries)
+    for notice in notices:
+        typer.secho(f"      {notice.summary}", fg=typer.colors.YELLOW)
+        for detail in notice.details:
+            typer.secho(f"          {detail}", fg=typer.colors.BRIGHT_BLACK)
 
-    def _rest(row: SummaryRow) -> str:
-        pad: str = " " * (label_width - len(row.indent + row.label))
-        body: str = f"{pad} {row.marker:<{marker_width}} : {row.count:>{count_width}}"
-        if not row.percent:
-            return body
-        return f"{body}  ({row.count / total * 100:>6.2f}%)"
-
-    rendered: list[list[tuple[SummaryRow, str]]] = [
-        [(row, _rest(row)) for row in group] for group in groups if group
-    ]
-    box_width: int = max(
-        len(row.indent + row.label + rest) for group in rendered for row, rest in group
-    )
-
-    typer.echo("┌" + "─" * (box_width + 2) + "┐")
-    for index, group in enumerate(rendered):
-        if index:
-            typer.echo("├" + "─" * (box_width + 2) + "┤")
-        for row, rest in group:
-            pad: str = " " * (box_width - len(row.indent + row.label + rest))
-            styled: str = (
-                row.indent
-                + typer.style(row.label, fg=row.color, bold=True)
-                + typer.style(rest, fg=row.color)
-                + pad
-            )
-            typer.echo("│ " + styled + " │")
-    typer.echo("└" + "─" * (box_width + 2) + "┘")
+    for failed, reason in failures:
+        typer.secho(f"      {str(failed)!r} - {reason}", fg=typer.colors.RED)

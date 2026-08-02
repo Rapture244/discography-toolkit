@@ -34,6 +34,7 @@ import typer
 from discography_toolkit.cli.console import (
     artist_names,
     echo_banner,
+    echo_result,
     make_advancer,
     make_progress,
 )
@@ -256,7 +257,7 @@ def _run_covers(albums: Sequence[Path], artists: Sequence[Path]) -> covers.Cover
         report = covers.apply(plan, on_progress=advance)
 
     settled: int = report.written + report.renamed + report.embedded
-    _echo_result("Covers", settled, "settled", report.failures)
+    echo_result("Covers", settled, "settled", failures=report.failures)
     return report
 
 
@@ -341,21 +342,6 @@ def _bar(progress: Progress, label: str, total: int) -> Callable[[Path], None]:
     return advance
 
 
-def _echo_result(name: str, count: int, verb: str, failures: Sequence[tuple[Path, str]]) -> None:
-    """Print one line for a pass, and any failures beneath it.
-
-    Args:
-        name: The pass's name.
-        count: How many files it changed.
-        verb: How the count reads, e.g. "settled".
-        failures: `(path, reason)` for anything that failed.
-    """
-    colour: str = typer.colors.GREEN if count else typer.colors.BRIGHT_BLACK
-    typer.secho(f"  {name:<13} {count} {verb}", fg=colour)
-    for failed, detail in failures:
-        typer.secho(f"      {str(failed)!r} - {detail}", fg=typer.colors.RED)
-
-
 def _echo_breakdown(breakdown: Mapping[Tag, int], failures: Sequence[tuple[Path, str]]) -> None:
     """Print one line per tag, from the combined plan's counts.
 
@@ -364,7 +350,7 @@ def _echo_breakdown(breakdown: Mapping[Tag, int], failures: Sequence[tuple[Path,
         failures: `(path, reason)` for any write that failed.
     """
     for tag, name, verb in _TAG_LABELS:
-        _echo_result(name, breakdown[tag], verb, ())
+        echo_result(name, breakdown[tag], verb)
     for failed, detail in failures:
         typer.secho(f"      {str(failed)!r} - {detail}", fg=typer.colors.RED)
 
@@ -388,7 +374,7 @@ def _preview(
         cover_plan = covers.plan(
             albums, on_progress=_bar(progress, "Covers: scanning", len(albums))
         )
-    _echo_result("Covers", cover_plan.changes, "to settle", ())
+    echo_result("Covers", cover_plan.changes, "to settle")
 
     with make_progress() as progress:
         advance = make_advancer(progress, "Tags: scanning", tracks, artists)
@@ -398,7 +384,7 @@ def _preview(
 
     breakdown: dict[Tag, int] = _breakdown(plan)
     for tag, name, _verb in _TAG_LABELS:
-        _echo_result(name, breakdown[tag], "to write", ())
+        echo_result(name, breakdown[tag], "to write")
 
 
 def _echo_summary(cover_report: covers.CoverReport, tag_report: tagging.WriteReport) -> None:

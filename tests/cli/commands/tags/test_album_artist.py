@@ -136,7 +136,7 @@ def test_unresolved_is_counted_apart_from_clean(shelf: Path) -> None:
     """
     result = runner.invoke(app, ["tags", "album-artist", "-p", str(shelf)], input="n\n")
 
-    assert "No artist" in result.output
+    assert "1 file(s) sit under no artist folder" in result.output
 
 
 def test_refuses_a_path_with_no_artist_folder(tmp_path: Path) -> None:

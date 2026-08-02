@@ -116,8 +116,8 @@ def test_untitled_is_counted_apart_from_clean(album: Callable[..., Path]) -> Non
 
     result = runner.invoke(app, ["tags", "title", "-p", str(folder)])
 
-    assert "Untitled" in result.output
-    assert "Clean" in result.output
+    assert "1 file(s) carry no Title tag" in result.output
+    assert "0 to recase" in result.output
 
 
 def test_a_second_run_finds_nothing(album: Callable[..., Path]) -> None:

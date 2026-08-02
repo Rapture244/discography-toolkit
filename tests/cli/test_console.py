@@ -8,23 +8,20 @@ emit escape codes.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
-from typing import TYPE_CHECKING
 
 from discography_toolkit.cli.console import (
     DashBarColumn,
     FileCountColumn,
-    SummaryRow,
+    Notice,
     artist_names,
-    echo_summary,
+    echo_result,
     make_advancer,
     make_progress,
 )
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 # ==================================================================================== #
@@ -227,89 +224,84 @@ def test_advancer_counts_loose_tracks_in_the_total_only(tmp_path: Path) -> None:
 
 
 # ==================================================================================== #
-#                                     SUMMARY BOX                                      #
+#                                    RESULT LINES                                      #
 # ==================================================================================== #
-def test_summary_box_aligns_every_row(capsys: pytest.CaptureFixture[str]) -> None:
-    """Rows of differing label and count width still line up.
+def test_result_line_names_the_pass_and_its_count(capsys: pytest.CaptureFixture[str]) -> None:
+    """The line is the outcome: which pass, how many, and how that reads.
 
     Args:
         capsys: Pytest's captured stdout.
     """
-    echo_summary(
-        [
-            [SummaryRow(label="Total", count=538, indent="", percent=False)],
-            [
-                SummaryRow(label="Tagged", count=7, marker="(->)"),
-                SummaryRow(label="Clean", count=531, marker="(==)"),
-            ],
-        ],
-        total=538,
-    )
+    echo_result("Album Artist", 12, "tagged")
 
-    box: list[str] = strip_ansi(capsys.readouterr().out).splitlines()
-
-    assert len({len(line) for line in box}) == 1
-    assert box[2].startswith("├")
-    assert box[2].endswith("┤")
+    assert strip_ansi(capsys.readouterr().out).rstrip() == "  Album Artist  12 tagged"
 
 
-def test_summary_box_aligns_the_colons(capsys: pytest.CaptureFixture[str]) -> None:
-    """Every row's colon sits in the same column, whatever the label lengths.
+def test_result_lines_align_their_counts(capsys: pytest.CaptureFixture[str]) -> None:
+    """Counts line up down a run whichever passes it happens to include.
 
-    Uniform line length is not enough: the frame stays square while the
-    columns wander if either is sized from one row. Counts are given
-    narrowest-first so a column sized from the first row is visible.
+    A run through align-tags prints five of these in sequence, so a label
+    column sized per line would stagger them.
 
     Args:
         capsys: Pytest's captured stdout.
     """
-    echo_summary(
-        [
-            [
-                SummaryRow(label="Tagged", count=7, marker="(->)"),
-                SummaryRow(label="A much longer label", count=531, marker="(==)"),
-                SummaryRow(label="Clean", count=1103, marker="(!!)"),
-            ]
-        ],
-        total=1103,
-    )
+    echo_result("Album Artist", 12, "tagged")
+    echo_result("Year", 3, "dated")
+    echo_result("Title", 1103, "recased")
 
-    rows: list[str] = strip_ansi(capsys.readouterr().out).splitlines()[1:-1]
+    lines: list[str] = strip_ansi(capsys.readouterr().out).splitlines()
 
-    assert len({row.index(":") for row in rows}) == 1
-    assert len({row.index("(", row.index(":")) for row in rows}) == 1
+    counts: tuple[int, ...] = (12, 3, 1103)
+    starts: set[int] = {line.index(str(count)) for line, count in zip(lines, counts, strict=True)}
+
+    assert len(starts) == 1
 
 
-def test_summary_box_is_silent_without_rows(capsys: pytest.CaptureFixture[str]) -> None:
-    """Nothing to summarize prints nothing, not an empty frame.
+def test_a_notice_nests_under_its_line(capsys: pytest.CaptureFixture[str]) -> None:
+    """Three levels: the result, what it noticed, and the files it names.
 
     Args:
         capsys: Pytest's captured stdout.
     """
-    echo_summary([], total=0)
-
-    assert capsys.readouterr().out == ""
-
-
-def test_summary_box_omits_a_percentage_when_asked(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The total is not a share of itself.
-
-    Args:
-        capsys: Pytest's captured stdout.
-    """
-    echo_summary(
-        [
-            [
-                SummaryRow(label="Total", count=10, indent="", percent=False),
-                SummaryRow(label="Tagged", count=5, marker="(->)"),
-            ]
-        ],
-        total=10,
+    echo_result(
+        "Year",
+        3,
+        "to date",
+        [Notice(summary="2 file(s) have no year to take", details=("'a.flac'", "'b.flac'"))],
     )
 
     lines: list[str] = strip_ansi(capsys.readouterr().out).splitlines()
 
-    assert "%" not in lines[1]
-    assert "50.00%" in lines[2]
+    assert lines[0].startswith("  Year")
+    assert lines[1] == "      2 file(s) have no year to take"
+    assert lines[2] == "          'a.flac'"
+    assert lines[3] == "          'b.flac'"
+
+
+def test_a_notice_needs_no_details(capsys: pytest.CaptureFixture[str]) -> None:
+    """Some notices say all there is: naming forty placeholders helps no one.
+
+    Args:
+        capsys: Pytest's captured stdout.
+    """
+    echo_result("Cover files", 0, "to settle", [Notice(summary="40 placeholder(s) hold no tracks")])
+
+    lines: list[str] = strip_ansi(capsys.readouterr().out).splitlines()
+
+    assert len(lines) == 2
+    assert lines[1] == "      40 placeholder(s) hold no tracks"
+
+
+def test_a_result_line_reports_its_failures(capsys: pytest.CaptureFixture[str]) -> None:
+    """A failure is not a notice: something was attempted and did not work.
+
+    Args:
+        capsys: Pytest's captured stdout.
+    """
+    echo_result("Title", 1, "recased", failures=[(Path("broken.flac"), "not audio")])
+
+    lines: list[str] = strip_ansi(capsys.readouterr().out).splitlines()
+
+    assert "broken.flac" in lines[1]
+    assert "not audio" in lines[1]

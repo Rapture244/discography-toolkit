@@ -32,10 +32,10 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import (
-    SummaryRow,
+    Notice,
     artist_names,
     echo_banner,
-    echo_summary,
+    echo_result,
     make_advancer,
     make_progress,
 )
@@ -132,12 +132,7 @@ def album(
         )
         report = tagging.apply(plan, on_progress=advance)
 
-    for failed, detail in report.failures:
-        typer.secho(f"  Failed: {str(failed)!r} - {detail}", fg=typer.colors.RED)
-
-    typer.secho(f"\nDone. {report.written} file(s) tagged.", fg=typer.colors.GREEN, bold=True)
-    if report.failures:
-        typer.secho(f"{len(report.failures)} file(s) failed during writing.", fg=typer.colors.RED)
+    echo_result("Album", report.written, "tagged", failures=report.failures)
 
 
 # ==================================================================================== #
@@ -185,48 +180,30 @@ def _orphans(plan: tagging.TagPlan, albums: Sequence[Path]) -> list[tagging.Trac
 
 
 def _echo_plan(plan: tagging.TagPlan, albums: Sequence[Path]) -> None:
-    """Render a plan as a summary box, plus anything that needs naming.
+    """Render the plan as one line, with anything needing an eye beneath it.
 
     Args:
         plan: The plan to summarize.
         albums: The album folders in scope.
     """
     orphans: list[tagging.TrackOutcome] = _orphans(plan, albums)
-    counts: list[list[SummaryRow]] = [
-        [SummaryRow(label="Total", count=plan.total, indent="", percent=False)],
-        [
-            SummaryRow(
-                label="Tagged", count=len(plan.pending), marker="(->)", color=typer.colors.GREEN
-            ),
-            SummaryRow(
-                label="Clean",
-                count=plan.clean - len(orphans),
-                marker="(==)",
-                color=typer.colors.BLUE,
-            ),
-        ],
-    ]
+    notices: list[Notice] = []
+
     if orphans:
-        counts[1].append(
-            SummaryRow(
-                label="No album", count=len(orphans), marker="(--)", color=typer.colors.YELLOW
+        notices.append(
+            Notice(
+                summary=f"{len(orphans)} file(s) sit under no album folder",
+                details=tuple(f"{str(outcome.path)!r}" for outcome in orphans),
             )
         )
     if plan.errors:
-        counts[1].append(
-            SummaryRow(
-                label="Errors", count=len(plan.errors), marker="(!!)", color=typer.colors.RED
+        notices.append(
+            Notice(
+                summary=f"{len(plan.errors)} file(s) could not be read",
+                details=tuple(
+                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
+                ),
             )
         )
 
-    echo_summary(counts, total=plan.total)
-
-    if orphans:
-        typer.secho(f"\n{len(orphans)} file(s) sit under no album folder:", fg=typer.colors.YELLOW)
-        for outcome in orphans:
-            typer.secho(f"  {str(outcome.path)!r}", fg=typer.colors.BRIGHT_BLACK)
-
-    if plan.errors:
-        typer.secho(f"\n{len(plan.errors)} file(s) could not be read:", fg=typer.colors.YELLOW)
-        for outcome in plan.errors:
-            typer.echo(f"  {str(outcome.path)!r} - {outcome.detail}")
+    echo_result("Album", len(plan.pending), "to tag", notices)

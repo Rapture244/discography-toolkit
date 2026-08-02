@@ -32,10 +32,10 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import (
-    SummaryRow,
+    Notice,
     artist_names,
     echo_banner,
-    echo_summary,
+    echo_result,
     make_advancer,
     make_progress,
 )
@@ -125,12 +125,10 @@ def cover(
         advance = make_advancer(progress, target.name, plan.touched, artists)
         report = covers.apply(plan, on_progress=advance)
 
-    for failed, detail in report.failures:
-        typer.secho(f"  Failed: {str(failed)!r} - {detail}", fg=typer.colors.RED)
-
-    typer.secho(f"\nDone. {_outcome(report)}.", fg=typer.colors.GREEN, bold=True)
-    if report.failures:
-        typer.secho(f"{len(report.failures)} operation(s) failed.", fg=typer.colors.RED)
+    echo_result("Cover files", report.written + report.renamed, "in place")
+    if report.deleted:
+        echo_result("Duplicates", report.deleted, "removed")
+    echo_result("Tracks", report.embedded, "embedded", failures=report.failures)
 
 
 # ==================================================================================== #
@@ -158,114 +156,46 @@ def _intent(plan: covers.CoverPlan) -> str:
     return ", ".join(parts).capitalize()
 
 
-def _outcome(report: covers.CoverReport) -> str:
-    """Phrase what the run did, for the closing line.
-
-    Args:
-        report: What applying the plan achieved.
-
-    Returns:
-        A sentence naming the counts worth reading.
-    """
-    parts: list[str] = [f"{report.written + report.renamed} cover file(s) in place"]
-    if report.deleted:
-        parts.append(f"{report.deleted} duplicate(s) removed")
-    parts.append(f"{report.embedded} track(s) embedded")
-
-    return ", ".join(parts)
-
-
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
 def _echo_plan(plan: covers.CoverPlan) -> None:
-    """Render a plan as a summary box, the work, and what is missing.
+    """Render the plan as a line per kind of work, then the work itself.
+
+    Three lines rather than one, because the cover pass does three
+    different things and a single count would hide which. What is missing
+    hangs off them as notices: an album holding tracks but no artwork is
+    a person's problem, while a placeholder folder holding nothing is not
+    a fault at all and is only said once, without naming forty of them.
 
     Args:
         plan: The plan to summarize.
     """
-    _echo_counts(plan)
+    album_notices: list[Notice] = []
+    if plan.without_artwork:
+        album_notices.append(
+            Notice(
+                summary=f"{len(plan.without_artwork)} album(s) hold tracks but no cover",
+                details=tuple(f"{album.album.name!r}" for album in plan.without_artwork),
+            )
+        )
+    if plan.empty:
+        album_notices.append(
+            Notice(summary=f"{len(plan.empty)} placeholder(s) hold no tracks to cover")
+        )
+
+    track_notices: list[Notice] = []
+    unsupported: int = sum(album.unsupported for album in plan.albums)
+    if unsupported:
+        note: str = "in formats covers are not written into (APE, WV, WMA)"
+        track_notices.append(Notice(summary=f"{unsupported} file(s) {note} -- left untouched"))
+
+    echo_result("Cover files", plan.writes + plan.renames, "to settle", album_notices)
+    if plan.deletions:
+        echo_result("Duplicates", plan.deletions, "to remove")
+    echo_result("Tracks", plan.embeds, "to embed", track_notices)
+
     _echo_work(plan)
-    _echo_missing(plan)
-
-
-def _echo_counts(plan: covers.CoverPlan) -> None:
-    """Print the summary box.
-
-    Two partitions over the same albums, then the work itself. Where
-    each cover came from and what the run will do about it are separate
-    tallies, so they are separate groups rather than one list adding to
-    well over the album count.
-
-    "Empty" is its own row rather than folded into "No cover": a
-    placeholder holds no tracks, so it has no artwork by definition and
-    is not a fault. Counting it as a missing cover would put a third of
-    a discography in the failure column.
-
-    Args:
-        plan: The plan to summarize.
-    """
-    counts: list[list[SummaryRow]] = [
-        [SummaryRow(label="Total", count=plan.total, indent="", percent=False)],
-        [
-            SummaryRow(
-                label="From tags",
-                count=_sourced(plan, "tags"),
-                marker="(<-)",
-                color=typer.colors.GREEN,
-            ),
-            SummaryRow(
-                label="From disk",
-                count=_sourced(plan, "disk"),
-                marker="(<-)",
-                color=typer.colors.CYAN,
-            ),
-            SummaryRow(
-                label="No cover",
-                count=len(plan.without_artwork),
-                marker="(--)",
-                color=typer.colors.YELLOW,
-            ),
-            SummaryRow(
-                label="Empty",
-                count=len(plan.empty),
-                marker="(  )",
-                color=typer.colors.BRIGHT_BLACK,
-            ),
-        ],
-        [
-            SummaryRow(
-                label="Cover files",
-                count=plan.writes + plan.renames,
-                marker="(->)",
-                color=typer.colors.GREEN,
-                percent=False,
-            ),
-            SummaryRow(
-                label="Duplicates",
-                count=plan.deletions,
-                marker="(xx)",
-                color=typer.colors.YELLOW,
-                percent=False,
-            ),
-            SummaryRow(
-                label="Tracks to embed",
-                count=plan.embeds,
-                marker="(->)",
-                color=typer.colors.GREEN,
-                percent=False,
-            ),
-            SummaryRow(
-                label="Tracks settled",
-                count=sum(a.settlement.correct for a in plan.albums if a.settlement),
-                marker="(==)",
-                color=typer.colors.BLUE,
-                percent=False,
-            ),
-        ],
-    ]
-
-    echo_summary(counts, total=plan.total)
 
 
 def _echo_work(plan: covers.CoverPlan) -> None:
@@ -337,29 +267,6 @@ def _echo_work(plan: covers.CoverPlan) -> None:
                 )
 
 
-def _echo_missing(plan: covers.CoverPlan) -> None:
-    """Name the albums holding no artwork, and the files nothing can hold it.
-
-    Args:
-        plan: The plan to render.
-    """
-    if plan.without_artwork:
-        typer.secho(
-            f"\n{len(plan.without_artwork)} album(s) with no cover:",
-            fg=typer.colors.YELLOW,
-            bold=True,
-        )
-        _echo_lines(f"{album.album.name!r}" for album in plan.without_artwork)
-
-    unsupported: int = sum(album.unsupported for album in plan.albums)
-    if unsupported:
-        note: str = "in formats covers are not written into (APE, WV, WMA)"
-        typer.secho(
-            f"\n{unsupported} file(s) {note} -- left untouched.",
-            fg=typer.colors.YELLOW,
-        )
-
-
 def _echo_lines(lines: Iterable[str]) -> None:
     """Print an indented, dimmed list beneath a heading.
 
@@ -368,16 +275,3 @@ def _echo_lines(lines: Iterable[str]) -> None:
     """
     for line in lines:
         typer.secho(f"  {line}", fg=typer.colors.BRIGHT_BLACK)
-
-
-def _sourced(plan: covers.CoverPlan, source: covers.Source) -> int:
-    """Count the albums whose cover came from one place.
-
-    Args:
-        plan: The plan to count over.
-        source: Where the cover was found.
-
-    Returns:
-        How many albums settled on a cover from there.
-    """
-    return sum(1 for album in plan.albums if album.settlement and album.settlement.source == source)

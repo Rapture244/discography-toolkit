@@ -92,23 +92,53 @@ def album_of(root: Path, name: str) -> Path:
 
 
 def counted(output: str, label: str) -> int:
-    """Read one summary-box row's figure out of the rendered output.
+    """Read one result line's figure out of the rendered output.
 
     Args:
         output: Everything the command printed.
-        label: The row's label, e.g. `"No cover"`.
+        label: The line's label, e.g. `"Cover files"`.
 
     Returns:
-        The count that row shows.
+        The count that line shows.
 
     Raises:
-        AssertionError: If no such row was printed.
+        AssertionError: If no such line was printed.
     """
     line: str | None = next(
-        (line for line in output.splitlines() if label in line and ":" in line), None
+        (line for line in output.splitlines() if line.strip().startswith(label)), None
     )
-    assert line is not None, f"no {label!r} row in the summary"
-    return int(line.split(":")[1].split()[0])
+    assert line is not None, f"no {label!r} line in the output"
+    return int(line.strip()[len(label) :].split()[0])
+
+
+def notice_details(output: str, phrase: str) -> list[str]:
+    """Read the detail lines nested under one notice.
+
+    A notice's details are indented further than anything else, and the
+    run of them ends at the first line that is not. Reading them as a
+    block is what keeps an assertion about one notice from catching the
+    work listing printed below it.
+
+    Args:
+        output: Everything the command printed.
+        phrase: Part of the notice's summary line.
+
+    Returns:
+        The detail lines, stripped.
+
+    Raises:
+        AssertionError: If no notice matching `phrase` was printed.
+    """
+    lines: list[str] = output.splitlines()
+    start: int | None = next((i for i, line in enumerate(lines) if phrase in line), None)
+    assert start is not None, f"no notice matching {phrase!r}"
+
+    details: list[str] = []
+    for line in lines[start + 1 :]:
+        if not line.startswith(" " * 10):
+            break
+        details.append(line.strip())
+    return details
 
 
 def embed(track: Path, data: bytes) -> None:
@@ -275,9 +305,10 @@ def test_an_album_with_no_artwork_anywhere_is_listed_apart(
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
 
-    assert "1 album(s) with no cover:" in result.output
-    assert "'02. (1970) - Bare [FLAC]'" in result.output
-    assert "'01. (1959) - Has Art [FLAC]'" not in result.output.split("with no cover:")[1]
+    assert "1 album(s) hold tracks but no cover" in result.output
+
+    named: list[str] = notice_details(result.output, "hold tracks but no cover")
+    assert named == ["'02. (1970) - Bare [FLAC]'"]
 
 
 def test_an_empty_placeholder_is_counted_but_not_listed(
@@ -297,8 +328,8 @@ def test_an_empty_placeholder_is_counted_but_not_listed(
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
 
-    assert "Empty" in result.output
-    assert "with no cover" not in result.output
+    assert "1 placeholder(s) hold no tracks to cover" in result.output
+    assert "hold tracks but no cover" not in result.output
     assert "'02. (1970) - Placeholder [FLAC]'" not in result.output
 
 
@@ -319,16 +350,18 @@ def test_a_bare_album_is_counted_apart_from_a_placeholder(
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
 
-    assert counted(result.output, "Total") == 4
-    assert counted(result.output, "No cover") == 1
-    assert counted(result.output, "Empty") == 2
+    assert "1 album(s) hold tracks but no cover" in result.output
+    assert "2 placeholder(s) hold no tracks to cover" in result.output
     # The scan walks albums; a bar saying "files" would be counting
     # something it never looked at.
     assert "(4/4 albums)" in result.output
 
 
-def test_the_box_counts_the_work_it_is_about_to_do(artist: Callable[..., Path]) -> None:
+def test_the_lines_count_the_work_it_is_about_to_do(artist: Callable[..., Path]) -> None:
     """The figures shown before confirming are the run itself.
+
+    Three lines rather than one, because the pass does three different
+    things and a single count would hide which.
 
     Args:
         artist: Factory building an artist folder.
@@ -344,26 +377,7 @@ def test_the_box_counts_the_work_it_is_about_to_do(artist: Callable[..., Path]) 
 
     assert counted(result.output, "Cover files") == 1
     assert counted(result.output, "Duplicates") == 1
-    assert counted(result.output, "Tracks to embed") == 1
-    assert counted(result.output, "Tracks settled") == 1
-
-
-def test_where_each_cover_came_from_is_counted(artist: Callable[..., Path]) -> None:
-    """Art recovered from the tags is not art that was already on disk.
-
-    Args:
-        artist: Factory building an artist folder.
-    """
-    root: Path = artist("01. (1959) - Tagged [FLAC]", "02. (1970) - On Disk [FLAC]")
-    embed(album_of(root, "01. (1959) - Tagged [FLAC]") / "01.flac", image(600, seed=1))
-    _ = (album_of(root, "02. (1970) - On Disk [FLAC]") / "cover.jpg").write_bytes(
-        image(600, seed=2)
-    )
-
-    result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
-
-    assert counted(result.output, "From tags") == 1
-    assert counted(result.output, "From disk") == 1
+    assert counted(result.output, "Tracks") == 1
 
 
 def test_a_format_carrying_no_cover_is_reported_not_written(
@@ -422,9 +436,9 @@ def test_the_closing_line_counts_what_was_done(artist: Callable[..., Path]) -> N
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
 
-    assert "1 cover file(s) in place" in result.output
-    assert "1 duplicate(s) removed" in result.output
-    assert "1 track(s) embedded" in result.output
+    assert counted(result.output, "Cover files") == 1
+    assert counted(result.output, "Duplicates") == 1
+    assert counted(result.output, "Tracks") == 1
     # A rename, a delete and an embed: the bar is sized from the plan, so
     # it ends full at three of three, counted as operations. Checked as
     # two facts rather than one string, since the columns may wrap.

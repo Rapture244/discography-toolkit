@@ -173,6 +173,10 @@ def test_a_track_under_no_album_is_left_alone(artist: Callable[..., Path]) -> No
 def test_orphans_are_counted_apart_from_clean(artist: Callable[..., Path]) -> None:
     """A track under no album is not a track already correct.
 
+    A bare count cannot tell "nothing to do because everything is right"
+    from "nothing to do because nothing could be derived", so the second
+    is said out loud.
+
     Args:
         artist: Factory building an artist folder.
     """
@@ -181,7 +185,7 @@ def test_orphans_are_counted_apart_from_clean(artist: Callable[..., Path]) -> No
 
     result = runner.invoke(app, ["tags", "album", "-p", str(root)], input="n\n")
 
-    assert "No album" in result.output
+    assert "1 file(s) sit under no album folder" in result.output
 
 
 def test_refuses_a_path_with_no_album(tmp_path: Path) -> None:

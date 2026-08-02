@@ -22,10 +22,10 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import (
-    SummaryRow,
+    Notice,
     artist_names,
     echo_banner,
-    echo_summary,
+    echo_result,
     make_advancer,
     make_progress,
 )
@@ -107,14 +107,7 @@ def title(
         )
         report = tagging.apply(plan, on_progress=advance)
 
-    for failed, detail in report.failures:
-        typer.secho(f"  Failed: {str(failed)!r} - {detail}", fg=typer.colors.RED)
-
-    typer.secho(
-        f"\nDone. {report.written} Title tag(s) rewritten.", fg=typer.colors.GREEN, bold=True
-    )
-    if report.failures:
-        typer.secho(f"{len(report.failures)} file(s) failed during writing.", fg=typer.colors.RED)
+    echo_result("Title", report.written, "recased", failures=report.failures)
 
 
 # ==================================================================================== #
@@ -156,50 +149,32 @@ def _untitled(plan: tagging.TagPlan) -> list[tagging.TrackOutcome]:
 
 
 def _echo_plan(plan: tagging.TagPlan) -> None:
-    """Render a plan as a summary box, plus anything that needs naming.
+    """Render the plan as one line, with anything needing an eye beneath it.
 
     Args:
         plan: The plan to summarize.
     """
     untitled: list[tagging.TrackOutcome] = _untitled(plan)
-    counts: list[list[SummaryRow]] = [
-        [SummaryRow(label="Total", count=plan.total, indent="", percent=False)],
-        [
-            SummaryRow(
-                label="Cased", count=len(plan.pending), marker="(->)", color=typer.colors.GREEN
-            ),
-            SummaryRow(
-                label="Clean",
-                count=plan.clean - len(untitled),
-                marker="(==)",
-                color=typer.colors.BLUE,
-            ),
-        ],
-    ]
+    notices: list[Notice] = []
+
     if untitled:
-        counts[1].append(
-            SummaryRow(
-                label="Untitled", count=len(untitled), marker="(--)", color=typer.colors.YELLOW
+        notices.append(
+            Notice(
+                summary=f"{len(untitled)} file(s) carry no Title tag",
+                details=tuple(f"{str(outcome.path)!r}" for outcome in untitled),
             )
         )
     if plan.errors:
-        counts[1].append(
-            SummaryRow(
-                label="Errors", count=len(plan.errors), marker="(!!)", color=typer.colors.RED
+        notices.append(
+            Notice(
+                summary=f"{len(plan.errors)} file(s) could not be read",
+                details=tuple(
+                    f"{str(outcome.path)!r} - {outcome.detail}" for outcome in plan.errors
+                ),
             )
         )
 
-    echo_summary(counts, total=plan.total)
-
-    if untitled:
-        typer.secho(f"\n{len(untitled)} file(s) carry no Title tag:", fg=typer.colors.YELLOW)
-        for outcome in untitled:
-            typer.secho(f"  {str(outcome.path)!r}", fg=typer.colors.BRIGHT_BLACK)
-
-    if plan.errors:
-        typer.secho(f"\n{len(plan.errors)} file(s) could not be read:", fg=typer.colors.YELLOW)
-        for outcome in plan.errors:
-            typer.echo(f"  {str(outcome.path)!r} - {outcome.detail}")
+    echo_result("Title", len(plan.pending), "to recase", notices)
 
 
 def _echo_changes(plan: tagging.TagPlan) -> None:

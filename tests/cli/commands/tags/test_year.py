@@ -156,6 +156,10 @@ def test_an_album_without_a_year_is_left_alone(artist: Callable[..., Path]) -> N
 def test_undated_is_counted_apart_from_clean(artist: Callable[..., Path]) -> None:
     """An album with no year is not an album already dated.
 
+    A bare count cannot tell "nothing to do because everything is right"
+    from "nothing to do because nothing could be derived", so the second
+    is said out loud.
+
     Args:
         artist: Factory building an artist folder.
     """
@@ -164,8 +168,8 @@ def test_undated_is_counted_apart_from_clean(artist: Callable[..., Path]) -> Non
 
     result = runner.invoke(app, ["tags", "year", "-p", str(root)])
 
-    assert "No year" in result.output
-    assert "Clean" in result.output
+    assert "0 to date" in result.output
+    assert "1 file(s) have no year to take" in result.output
 
 
 # ==================================================================================== #
