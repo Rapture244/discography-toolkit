@@ -13,9 +13,11 @@ deliberately leaves `sys.path` alone, so nothing else would.
 
 from __future__ import annotations
 
+import io
 from typing import TYPE_CHECKING, Final, Literal
 
 import numpy as np
+from PIL import Image, ImageDraw
 import soundfile as sf
 
 if TYPE_CHECKING:
@@ -83,3 +85,39 @@ def subfolders(root: Path) -> set[str]:
         on every platform.
     """
     return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()}
+
+
+def encode(size: int, seed: int = 0, fmt: str = "JPEG", quality: int = 90) -> bytes:
+    """Build image bytes with enough detail that JPEG cannot cheat.
+
+    A flat colour compresses to almost nothing at any size, which would
+    hide what the embedding cap does: a downscaled copy has to come out
+    measurably smaller, or `for_embedding` reads it as no saving and
+    hands the original back.
+
+    The quality is above Pillow's own default for the same reason. It is
+    passed only for JPEG, PNG having no such setting.
+
+    Args:
+        size: Width and height in pixels.
+        seed: Varies the image, so two calls differ.
+        fmt: Pillow format name.
+        quality: JPEG quality.
+
+    Returns:
+        The encoded bytes.
+    """
+    image = Image.new("RGB", (size, size))
+    draw = ImageDraw.Draw(image)
+    for row in range(size):
+        draw.line(
+            [(0, row), (size, row)],
+            fill=((seed * 37 + row) % 256, (row * 3) % 256, (255 - row) % 256),
+        )
+
+    buffer = io.BytesIO()
+    if fmt == "JPEG":
+        image.save(buffer, fmt, quality=quality)
+    else:
+        image.save(buffer, fmt)
+    return buffer.getvalue()

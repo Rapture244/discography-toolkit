@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from discography_toolkit.core.artwork import (
     EMBED_MAX_PIXELS,
@@ -23,37 +23,7 @@ from discography_toolkit.core.artwork import (
 )
 
 import pytest
-
-
-# ==================================================================================== #
-#                                       HELPERS                                        #
-# ==================================================================================== #
-def encode(size: int, seed: int = 0, fmt: str = "JPEG", quality: int = 90) -> bytes:
-    """Build image bytes with enough detail that JPEG cannot cheat.
-
-    A flat colour compresses to almost nothing at any size, which would
-    hide what the size cap does.
-
-    Args:
-        size: Width and height in pixels.
-        seed: Varies the image, so two calls differ.
-        fmt: Pillow format name.
-        quality: JPEG quality. Above the module's own, so a re-encode is
-            measurably smaller and cannot be mistaken for a pass-through.
-
-    Returns:
-        The encoded bytes.
-    """
-    image = Image.new("RGB", (size, size))
-    draw = ImageDraw.Draw(image)
-    for row in range(size):
-        draw.line(
-            [(0, row), (size, row)],
-            fill=((seed * 37 + row) % 256, (row * 3) % 256, (255 - row) % 256),
-        )
-    buffer = io.BytesIO()
-    image.save(buffer, fmt, quality=quality) if fmt == "JPEG" else image.save(buffer, fmt)
-    return buffer.getvalue()
+from tests.helpers import encode
 
 
 # ==================================================================================== #

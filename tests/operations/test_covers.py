@@ -9,16 +9,13 @@ generate.
 
 from __future__ import annotations
 
-import io
 from typing import TYPE_CHECKING
-
-from PIL import Image, ImageDraw
 
 from discography_toolkit.core import artwork, metadata
 from discography_toolkit.operations import covers
 
 import pytest
-from tests.helpers import silence
+from tests.helpers import encode, silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -30,32 +27,6 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 #                                       HELPERS                                        #
 # ==================================================================================== #
-def encode(size: int, seed: int = 0, fmt: str = "JPEG") -> bytes:
-    """Build image bytes with enough detail that JPEG cannot cheat.
-
-    A flat colour compresses to almost nothing at any size, which would
-    hide what the embedding cap does.
-
-    Args:
-        size: Width and height in pixels.
-        seed: Varies the image, so two calls differ.
-        fmt: Pillow format name.
-
-    Returns:
-        The encoded bytes.
-    """
-    image = Image.new("RGB", (size, size))
-    draw = ImageDraw.Draw(image)
-    for row in range(size):
-        draw.line(
-            [(0, row), (size, row)],
-            fill=((seed * 37 + row) % 256, (row * 3) % 256, (255 - row) % 256),
-        )
-    buffer = io.BytesIO()
-    image.save(buffer, fmt)
-    return buffer.getvalue()
-
-
 def cover_of(data: bytes) -> Cover:
     """Wrap image bytes, asserting they are readable as artwork.
 

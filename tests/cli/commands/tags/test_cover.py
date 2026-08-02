@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import io
 from typing import TYPE_CHECKING
 
-from PIL import Image, ImageDraw
 from typer.testing import CliRunner
 
 from discography_toolkit.cli.main import app
@@ -14,7 +12,7 @@ from discography_toolkit.core import artwork, metadata
 from discography_toolkit.core.metadata import Tag
 
 import pytest
-from tests.helpers import silence
+from tests.helpers import encode, silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,28 +24,6 @@ runner = CliRunner()
 # ==================================================================================== #
 #                                       FIXTURES                                       #
 # ==================================================================================== #
-def image(size: int, seed: int = 0) -> bytes:
-    """Build image bytes with enough detail that JPEG cannot cheat.
-
-    Args:
-        size: Width and height in pixels.
-        seed: Varies the image, so two calls differ.
-
-    Returns:
-        The encoded bytes.
-    """
-    picture = Image.new("RGB", (size, size))
-    draw = ImageDraw.Draw(picture)
-    for row in range(size):
-        draw.line(
-            [(0, row), (size, row)],
-            fill=((seed * 37 + row) % 256, (row * 3) % 256, (255 - row) % 256),
-        )
-    buffer = io.BytesIO()
-    picture.save(buffer, "JPEG")
-    return buffer.getvalue()
-
-
 @pytest.fixture()
 def artist(tmp_path: Path) -> Callable[..., Path]:
     """Return a factory building an artist folder holding given albums.
@@ -158,7 +134,7 @@ def test_art_in_the_tags_is_spilled_onto_disk(artist: Callable[..., Path]) -> No
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    art: bytes = image(900)
+    art: bytes = encode(900)
     embed(album / "01.flac", art)
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
@@ -177,7 +153,7 @@ def test_an_existing_name_is_renamed_rather_than_duplicated(
     """
     root: Path = artist("02. (1970) - Bitches Brew [FLAC]")
     album: Path = album_of(root, "02. (1970) - Bitches Brew [FLAC]")
-    art: bytes = image(900)
+    art: bytes = encode(900)
     _ = (album / "folder.jpg").write_bytes(art)
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
@@ -195,7 +171,7 @@ def test_duplicates_are_removed(artist: Callable[..., Path]) -> None:
     """
     root: Path = artist("03. (1972) - On the Corner [FLAC]")
     album: Path = album_of(root, "03. (1972) - On the Corner [FLAC]")
-    art: bytes = image(700)
+    art: bytes = encode(700)
     for stem in ("cover", "folder", "albumart"):
         _ = (album / f"{stem}.jpg").write_bytes(art)
 
@@ -214,7 +190,7 @@ def test_the_cover_is_embedded_into_every_track(artist: Callable[..., Path]) -> 
     """
     root: Path = artist("04. (1986) - Tutu [FLAC]", tracks=3)
     album: Path = album_of(root, "04. (1986) - Tutu [FLAC]")
-    _ = (album / "cover.jpg").write_bytes(image(2400))
+    _ = (album / "cover.jpg").write_bytes(encode(2400))
 
     _ = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
 
@@ -231,7 +207,7 @@ def test_the_loose_file_keeps_its_resolution(artist: Callable[..., Path]) -> Non
     """
     root: Path = artist("05. (1957) - Birth of the Cool [FLAC]")
     album: Path = album_of(root, "05. (1957) - Birth of the Cool [FLAC]")
-    art: bytes = image(2400)
+    art: bytes = encode(2400)
     _ = (album / "cover.jpg").write_bytes(art)
 
     _ = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
@@ -251,7 +227,7 @@ def test_each_kind_of_write_names_the_albums_it_touches(
         artist: Factory building an artist folder.
     """
     root: Path = artist("01. (1959) - Written [FLAC]", "02. (1970) - Renamed [FLAC]")
-    art: bytes = image(900)
+    art: bytes = encode(900)
     embed(album_of(root, "01. (1959) - Written [FLAC]") / "01.flac", art)
     renamed: Path = album_of(root, "02. (1970) - Renamed [FLAC]")
     _ = (renamed / "folder.jpg").write_bytes(art)
@@ -277,7 +253,7 @@ def test_tracks_to_embed_are_listed_under_their_album(
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]", tracks=2)
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    _ = (album / "cover.jpg").write_bytes(image(600))
+    _ = (album / "cover.jpg").write_bytes(encode(600))
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
 
@@ -295,7 +271,7 @@ def test_an_album_with_no_artwork_anywhere_is_listed_apart(
         artist: Factory building an artist folder.
     """
     root: Path = artist("01. (1959) - Has Art [FLAC]", "02. (1970) - Bare [FLAC]")
-    embed(album_of(root, "01. (1959) - Has Art [FLAC]") / "01.flac", image(600))
+    embed(album_of(root, "01. (1959) - Has Art [FLAC]") / "01.flac", encode(600))
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
 
@@ -317,7 +293,7 @@ def test_an_empty_placeholder_is_counted_but_not_listed(
         artist: Factory building an artist folder.
     """
     root: Path = artist("01. (1959) - Real [FLAC]")
-    embed(album_of(root, "01. (1959) - Real [FLAC]") / "01.flac", image(600))
+    embed(album_of(root, "01. (1959) - Real [FLAC]") / "01.flac", encode(600))
     (root / "FLAC" / "02. (1970) - Placeholder [FLAC]").mkdir()
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
@@ -336,7 +312,7 @@ def test_a_bare_album_is_counted_apart_from_a_placeholder(
         artist: Factory building an artist folder.
     """
     root: Path = artist("01. (1959) - Real [FLAC]", "02. (1970) - Bare [FLAC]")
-    embed(album_of(root, "01. (1959) - Real [FLAC]") / "01.flac", image(600))
+    embed(album_of(root, "01. (1959) - Real [FLAC]") / "01.flac", encode(600))
     # Deliberately not one of each: equal counts would hide the two rows
     # being swapped for one another.
     for name in ("03. (1972) - Empty [FLAC]", "04. (1986) - Also Empty [FLAC]"):
@@ -362,7 +338,7 @@ def test_the_lines_count_the_work_it_is_about_to_do(artist: Callable[..., Path])
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]", tracks=2)
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    art: bytes = image(600)
+    art: bytes = encode(600)
     _ = (album / "folder.jpg").write_bytes(art)
     _ = (album / "front.jpg").write_bytes(art)
     embed(album / "01.flac", art)
@@ -384,7 +360,7 @@ def test_a_format_carrying_no_cover_is_reported_not_written(
     """
     root: Path = artist("01. (1959) - Mixed [FLAC]")
     album: Path = album_of(root, "01. (1959) - Mixed [FLAC]")
-    _ = (album / "cover.jpg").write_bytes(image(600))
+    _ = (album / "cover.jpg").write_bytes(encode(600))
     _ = (album / "02.wv").write_bytes(b"not really wavpack")
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
@@ -399,12 +375,12 @@ def test_the_prompt_names_the_work_before_asking(artist: Callable[..., Path]) ->
         artist: Factory building an artist folder.
     """
     root: Path = artist("01. (1959) - Tagged [FLAC]", tracks=1)
-    embed(album_of(root, "01. (1959) - Tagged [FLAC]") / "01.flac", image(600, seed=1))
+    embed(album_of(root, "01. (1959) - Tagged [FLAC]") / "01.flac", encode(600, seed=1))
     loose: Path = root / "FLAC" / "02. (1970) - Loose [FLAC]"
     loose.mkdir()
     for index in (1, 2):
         silence(loose / f"{index:02d}.flac")
-    art: bytes = image(600, seed=2)
+    art: bytes = encode(600, seed=2)
     _ = (loose / "folder.jpg").write_bytes(art)
     _ = (loose / "front.jpg").write_bytes(art)
 
@@ -424,7 +400,7 @@ def test_the_closing_line_counts_what_was_done(artist: Callable[..., Path]) -> N
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    art: bytes = image(600)
+    art: bytes = encode(600)
     _ = (album / "folder.jpg").write_bytes(art)
     _ = (album / "front.jpg").write_bytes(art)
 
@@ -484,7 +460,7 @@ def test_a_dry_run_changes_nothing(artist: Callable[..., Path]) -> None:
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    embed(album / "01.flac", image(600))
+    embed(album / "01.flac", encode(600))
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root), "--dry-run"])
 
@@ -500,7 +476,7 @@ def test_declining_the_prompt_changes_nothing(artist: Callable[..., Path]) -> No
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    embed(album / "01.flac", image(600))
+    embed(album / "01.flac", encode(600))
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="n\n")
 
@@ -516,7 +492,7 @@ def test_a_second_run_finds_nothing(artist: Callable[..., Path]) -> None:
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]", tracks=2)
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    _ = (album / "cover.jpg").write_bytes(image(2400))
+    _ = (album / "cover.jpg").write_bytes(encode(2400))
     _ = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
 
     result = runner.invoke(app, ["tags", "cover", "-p", str(root)])
@@ -532,7 +508,7 @@ def test_the_album_tag_is_untouched(artist: Callable[..., Path]) -> None:
     """
     root: Path = artist("01. (1959) - Kind of Blue [FLAC]")
     album: Path = album_of(root, "01. (1959) - Kind of Blue [FLAC]")
-    _ = (album / "cover.jpg").write_bytes(image(600))
+    _ = (album / "cover.jpg").write_bytes(encode(600))
     metadata.write(album / "01.flac", {Tag.ALBUM: "Untouched"})
 
     _ = runner.invoke(app, ["tags", "cover", "-p", str(root)], input="y\n")
