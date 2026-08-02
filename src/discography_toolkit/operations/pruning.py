@@ -39,6 +39,17 @@ if TYPE_CHECKING:
 
 
 # ==================================================================================== #
+#                                      CONSTANTS                                       #
+# ==================================================================================== #
+# What makes one album distinct from another: the year it came out, its
+# title casefolded, and whether it is an EP. Named rather than written
+# out at each use, because both the pruning dictionary and the duplicate
+# grouping key on it, and a component added to `_identity` should not
+# have to be remembered in their annotations too.
+type _Identity = tuple[str | None, str, bool]
+
+
+# ==================================================================================== #
 #                                     RESULT TYPES                                     #
 # ==================================================================================== #
 @dataclass(frozen=True, slots=True)
@@ -92,11 +103,11 @@ def plan(
 ) -> PrunePlan:
     """Find each Opus album that duplicates a lossless one, without deleting.
 
-    An album's identity is its year and title, read past the index, pin,
-    marker and quality tag, so an Opus album and its FLAC twin match
-    however differently they are named or wherever they are stored. The
-    tier is read from the files, not the name, so a mislabelled folder is
-    judged by what it actually holds.
+    An album's identity is its year, title and whether it is an EP, read
+    past the index, pin, marker and quality tag, so an Opus album and its
+    FLAC twin match however differently they are named or wherever they
+    are stored. The tier is read from the files, not the name, so a
+    mislabelled folder is judged by what it actually holds.
 
     Args:
         albums: One artist's album folders, the container already
@@ -112,7 +123,7 @@ def plan(
     # ask whether its own is already held in lossless form. A later
     # lossless album with a shared identity simply wins the slot; that an
     # Opus copy is redundant does not depend on which twin answers.
-    lossless: dict[tuple[str | None, str], Path] = {
+    lossless: dict[_Identity, Path] = {
         _identity(album.name): album for album in albums if tiers[album] is AudioTier.LOSSLESS
     }
 
@@ -163,8 +174,9 @@ def duplicates(albums: Sequence[Path]) -> tuple[tuple[Path, ...], ...]:
     """Group albums that are the same record held more than once.
 
     The same identity `plan` prunes on, asked of every album rather than
-    only the Opus ones: two folders sharing a year and title are one
-    album twice however they are indexed, contained or tagged.
+    only the Opus ones: two folders sharing a year, a title and an EP
+    marker are one album twice however they are indexed, contained or
+    tagged.
 
     Nothing is proposed. An Opus copy of a lossless album has an obvious
     resolution and `plan` takes it; anything left over does not, so this
@@ -179,7 +191,7 @@ def duplicates(albums: Sequence[Path]) -> tuple[tuple[Path, ...], ...]:
         One tuple per repeated identity, each holding the folders that
         share it, in the order given. Empty when every album is its own.
     """
-    grouped: defaultdict[tuple[str | None, str], list[Path]] = defaultdict(list)
+    grouped: defaultdict[_Identity, list[Path]] = defaultdict(list)
     for album in albums:
         grouped[_identity(album.name)].append(album)
 
@@ -189,23 +201,30 @@ def duplicates(albums: Sequence[Path]) -> tuple[tuple[Path, ...], ...]:
 # ==================================================================================== #
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
-def _identity(name: str) -> tuple[str | None, str]:
-    """Read an album's identity: its year and title, and nothing else.
+def _identity(name: str) -> _Identity:
+    """Read an album's identity: its year, title, and whether it is an EP.
 
     Everything that a copy might differ by -- the pin, the index, the
     availability marker, the quality tag -- is what `album_title` peels
-    off, so a FLAC album and its Opus conversion resolve to the same pair
-    however they are dressed. The title is casefolded so case alone never
-    tells them apart.
+    off, so a FLAC album and its Opus conversion resolve to the same
+    triple however they are dressed. The title is casefolded so case
+    alone never tells them apart.
+
+    The EP marker is peeled with the rest but put back here, because it
+    is a fact about the release rather than a dressing on the folder: an
+    artist who puts out an EP and then an album of the same name in the
+    same year has made two records, and they are not copies of each
+    other.
 
     Args:
         name: The album folder's name.
 
     Returns:
-        A `(year, title)` pair, the year `None` when the name carries
-        none.
+        A `(year, title, is_ep)` triple, the year `None` when the name
+        carries none.
     """
-    return names.extract_year(name), names.album_title(name).casefold()
+    is_ep, _ = names.split_ep_marker(name)
+    return names.extract_year(name), names.album_title(name).casefold(), is_ep
 
 
 def _delete(album: Path) -> str | None:

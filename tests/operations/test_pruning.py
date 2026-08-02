@@ -245,3 +245,15 @@ def test_an_opus_copy_is_a_duplicate_too(shelf: Callable[..., Path]) -> None:
     lossless: Path = shelf("01. (1999) - Mapouka [FLAC]", ".flac")
 
     assert len(pruning.duplicates([opus_copy, lossless])) == 1
+
+
+def test_an_ep_is_not_the_album_that_shares_its_name(shelf: Callable[..., Path]) -> None:
+    """An EP and an album of one year and name are two records, not one.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    ep: Path = shelf("03. (2013) - Summer Knights (EP) [FLAC]")
+    album: Path = shelf("04. (2013) - Summer Knights [FLAC]")
+
+    assert pruning.duplicates([ep, album]) == ()
