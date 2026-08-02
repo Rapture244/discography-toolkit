@@ -237,6 +237,15 @@ def is_lossless_m4a(path: Path) -> bool:
     try:
         info = MP4(path).info
     except (MutagenError, OSError):
+        # ponytail: an unreadable file is reported as AAC, so an album
+        # whose `.m4a` tracks cannot be read comes out lossy -- it loses
+        # the "[FLAC]" tag it has earned and is filed out of the
+        # container. Non-destructive: nothing is deleted, and repairing
+        # the file and rerunning settles it. Upgrading means giving
+        # `detect_tier` a channel for warnings as well as a tier, and
+        # threading it up through naming, placement and the artist label
+        # into layout's notices -- four signatures widened for a case
+        # that is a corrupt file you would notice by other means.
         return False
     codec = getattr(info, "codec", None)
     return isinstance(codec, str) and codec.lower().startswith("alac")
