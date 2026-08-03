@@ -225,7 +225,7 @@ def declare(folder: Path, value: str) -> None:
         folder: The folder to declare for.
         value: What it should declare.
     """
-    _ = (folder / ".genre").write_text(f"{value}\n", encoding="utf-8")
+    _ = (folder / ".genre").write_text(f"{value}\n", encoding="utf-8", newline="\n")
 
 
 def test_the_nearest_declaration_wins(shelf: Path) -> None:
@@ -283,6 +283,11 @@ def test_a_declaration_beats_the_supplied_genre(shelf: Path) -> None:
 def test_the_run_leaves_its_declaration_at_the_path(shelf: Path) -> None:
     """Asked once, never again: the answer is written where it was scoped.
 
+    Read as bytes, not text: `read_text` translates CRLF back to LF, so a
+    file written with the platform's line ending would pass this on every
+    platform while holding different bytes on each. `.editorconfig` asks
+    for LF, and only bytes can say whether it got one.
+
     Args:
         shelf: The fixture shelf.
     """
@@ -290,7 +295,7 @@ def test_the_run_leaves_its_declaration_at_the_path(shelf: Path) -> None:
 
     _ = runner.invoke(app, ["tags", "genre", "-p", str(artist), "-g", "Bebop"], input="y\n")
 
-    assert (artist / ".genre").read_text(encoding="utf-8") == "Bebop\n"
+    assert (artist / ".genre").read_bytes() == b"Bebop\n"
     assert not (shelf / ".genre").exists()
 
 
@@ -306,7 +311,7 @@ def test_a_declaration_is_written_even_when_the_tags_are_already_right(shelf: Pa
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
     assert result.exit_code == 0
-    assert (shelf / ".genre").read_text(encoding="utf-8") == "Jazz\n"
+    assert (shelf / ".genre").read_bytes() == b"Jazz\n"
 
 
 def test_a_declared_shelf_is_a_no_op_on_the_second_run(shelf: Path) -> None:
@@ -337,7 +342,10 @@ def test_a_declaration_above_the_path_is_out_of_scope(shelf: Path) -> None:
 
 
 def test_a_declaration_names_its_source(shelf: Path) -> None:
-    """A hidden file deciding the genre must say so, or it cannot be argued with.
+    """A hidden file deciding the genre must say so, relative to the target.
+
+    Absolute would be a hundred characters of which seven matter, which
+    is a line nobody reads.
 
     Args:
         shelf: The fixture shelf.
@@ -347,6 +355,7 @@ def test_a_declaration_names_its_source(shelf: Path) -> None:
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
 
     assert ".genre" in result.output
+    assert str(shelf) not in result.output.split("Genre ->")[1]
 
 
 def test_the_declaration_is_written_verbatim(shelf: Path) -> None:
@@ -425,6 +434,21 @@ def test_force_clears_every_declaration_beneath_the_path(shelf: Path) -> None:
 
     assert list(shelf.rglob(".genre")) == [shelf / ".genre"]
     assert genres_under(shelf) == {"Jazz"}
+
+
+def test_force_asks_when_given_no_genre(shelf: Path) -> None:
+    """`--force` alone prompts: it always needs a value, declared or not.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "Jazz")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "--force"], input="Koto\ny\n")
+
+    assert result.exit_code == 0
+    assert genres_under(shelf) == {"Koto"}
+    assert (shelf / ".genre").read_bytes() == b"Koto\n"
 
 
 def test_force_says_what_it_would_delete(shelf: Path) -> None:

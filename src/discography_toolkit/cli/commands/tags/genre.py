@@ -106,7 +106,10 @@ def genre(
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Delete every .genre beneath the path and declare this one."),
+        typer.Option(
+            "--force",
+            help="Delete every .genre beneath the path and declare one genre for it all.",
+        ),
     ] = False,
     dry_run: Annotated[
         bool,
@@ -161,7 +164,7 @@ def genre(
             typer.secho("\nGenre cannot be empty.", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1)
 
-    _echo_values(tracks, declared, fallback)
+    _echo_values(tracks, declared, fallback, target)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
@@ -185,9 +188,9 @@ def genre(
     # already be right while the file that keeps them right is missing,
     # and without it the next run asks all over again.
     if not pending and not fallback:
-        typer.secho(
-            "\nEvery file already carries this Genre. Nothing to do.", fg=typer.colors.GREEN
-        )
+        # "its", not "this": with declarations in play there may be
+        # several genres in one run, and no one of them is the run's.
+        typer.secho("\nEvery file already carries its Genre. Nothing to do.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
     if not typer.confirm(f"\n{_summarize(pending, fallback, doomed, target)}"):
@@ -320,9 +323,10 @@ def _declare(doomed: Sequence[Path], target: Path, fallback: str) -> list[tuple[
     if fallback:
         declaration: Path = target / SIDECAR_NAME
         try:
-            # Trailing newline to match `.editorconfig`, which asks for
-            # one in every file here.
-            _ = declaration.write_text(f"{fallback}\n", encoding="utf-8")
+            # Written LF, not the platform's line ending: `.editorconfig`
+            # asks for a final newline and for `end_of_line = lf`, and
+            # text mode would translate this to CRLF on Windows.
+            _ = declaration.write_text(f"{fallback}\n", encoding="utf-8", newline="\n")
         except OSError as exc:
             failures.append((declaration, str(exc)))
 
@@ -371,32 +375,48 @@ def _echo_values(
     tracks: Sequence[Path],
     declared: Mapping[Path, _Declaration],
     fallback: str,
+    target: Path,
 ) -> None:
     """Say what each group of tracks is getting, and which file decided it.
 
-    One line where a run is one genre, which is the common case and reads
-    as it always did. More where the shelf declares more -- and each
-    names its source, because a hidden file is otherwise unanswerable
-    when an album keeps coming out wrong.
+    One line where a run is one genre, which is the common case. More
+    where the shelf declares more -- and each names its source, because a
+    hidden file is otherwise unanswerable when an album keeps coming out
+    wrong.
+
+    The source is named relative to the target, which the banner has
+    already printed in full: an absolute path here is a hundred
+    characters of which the last seven carry the information, and a line
+    that long is skipped rather than read. Dimmed for the same reason
+    every other supporting detail is -- the palette is spoken for, and
+    another colour would read as a status.
 
     Args:
         tracks: The audio files in scope.
         declared: The declaration reaching each folder holding tracks.
         fallback: The value for folders none reaches.
+        target: The folder the run is scoped to, which sources are named
+            relative to.
     """
     counts: Counter[tuple[str, str]] = Counter()
     for track in tracks:
         declaration: _Declaration | None = declared.get(track.parent)
         if declaration is None:
-            counts[fallback, ""] += 1
+            counts[fallback, "supplied"] += 1
         else:
-            counts[declaration.genre, str(declaration.source)] += 1
+            counts[declaration.genre, str(declaration.source.relative_to(target))] += 1
 
     label: str = typer.style("Genre ->", fg=typer.colors.GREEN, bold=True)
+    # Both columns padded to their longest, so a run declaring several
+    # genres reads down rather than zig-zagging. Counts right-aligned and
+    # values left, the way `console.FileCountColumn` pads its own counter.
+    width: int = max((len(repr(value)) for value, _ in counts), default=0)
+    digits: int = max((len(str(count)) for count in counts.values()), default=0)
+
     typer.echo()
-    for (value, source), count in sorted(counts.items()):
-        origin: str = source or "supplied"
-        typer.echo(f"{label} {value!r}  ({count} file(s), {origin})")
+    for (value, origin), count in sorted(counts.items()):
+        source: str = typer.style(origin, fg=typer.colors.BRIGHT_BLACK)
+        typer.echo(f"{label} {value!r:<{width}}   {count:>{digits}} file(s)   {source}")
 
 
 def _summarize(pending: int, fallback: str, doomed: Sequence[Path], target: Path) -> str:
