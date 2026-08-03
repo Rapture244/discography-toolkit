@@ -1,5 +1,5 @@
 # tests/cli/commands/tags/test_genre.py
-"""Tests for the `rapt genre` command.
+"""Tests for the `rapt tags genre` command.
 
 These exercise the wiring rather than the logic: whether the command
 finds the right files, respects a dry run, refuses bad input, and stops
@@ -203,9 +203,6 @@ def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     assert "No audio files" in result.output
 
 
-# ==================================================================================== #
-#                                    INTERACTIVITY                                     #
-# ==================================================================================== #
 def test_prompts_for_both_when_given_neither(shelf: Path) -> None:
     """Bare `rapt genre` asks for the path, then the genre.
 
@@ -218,6 +215,237 @@ def test_prompts_for_both_when_given_neither(shelf: Path) -> None:
     assert genres_under(shelf) == {"Jazz"}
 
 
+# ==================================================================================== #
+#                                     DECLARATIONS                                     #
+# ==================================================================================== #
+def declare(folder: Path, value: str) -> None:
+    """Write a `.genre` declaration into a folder.
+
+    Args:
+        folder: The folder to declare for.
+        value: What it should declare.
+    """
+    _ = (folder / ".genre").write_text(f"{value}\n", encoding="utf-8")
+
+
+def test_the_nearest_declaration_wins(shelf: Path) -> None:
+    """An album's own file beats its artist's, which beats the shelf's.
+
+    The whole precedence rule in one assertion: three declarations at
+    three depths, and each track takes the closest one above it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    album: Path = artist / "FLAC" / "01. (1959) - Kind of Blue [FLAC]"
+    declare(shelf, "Shelf")
+    declare(artist, "Artist")
+    declare(album, "Album")
+
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+
+    assert genres_under(album) == {"Album"}
+    assert genres_under(shelf / "Japan") == {"Shelf"}
+    assert genres_under(shelf / "Unsorted") == {"Shelf"}
+
+
+def test_a_declaration_covering_everything_is_never_asked_past(shelf: Path) -> None:
+    """With every track declared, no genre is wanted and none is asked for.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "Jazz")
+
+    # No genre on the line and none on stdin: a prompt here would abort.
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+
+    assert result.exit_code == 0
+    assert genres_under(shelf) == {"Jazz"}
+
+
+def test_a_declaration_beats_the_supplied_genre(shelf: Path) -> None:
+    """`--genre` is the fallback, not the answer.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    declare(artist, "Bebop")
+
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+
+    assert genres_under(artist) == {"Bebop"}
+    assert genres_under(shelf / "Japan") == {"Jazz"}
+
+
+def test_the_run_leaves_its_declaration_at_the_path(shelf: Path) -> None:
+    """Asked once, never again: the answer is written where it was scoped.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(artist), "-g", "Bebop"], input="y\n")
+
+    assert (artist / ".genre").read_text(encoding="utf-8") == "Bebop\n"
+    assert not (shelf / ".genre").exists()
+
+
+def test_a_declaration_is_written_even_when_the_tags_are_already_right(shelf: Path) -> None:
+    """Correct tags with no declaration still owe one, or the next run asks again.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+    (shelf / ".genre").unlink()
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+
+    assert result.exit_code == 0
+    assert (shelf / ".genre").read_text(encoding="utf-8") == "Jazz\n"
+
+
+def test_a_declared_shelf_is_a_no_op_on_the_second_run(shelf: Path) -> None:
+    """The declaration is what makes the run idempotent.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)])
+
+    assert "Nothing to do" in result.output
+
+
+def test_a_declaration_above_the_path_is_out_of_scope(shelf: Path) -> None:
+    """The search stops at the path given: scope is scope.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    declare(shelf, "Shelf")
+
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(artist), "-g", "Bebop"], input="y\n")
+
+    assert genres_under(artist) == {"Bebop"}
+
+
+def test_a_declaration_names_its_source(shelf: Path) -> None:
+    """A hidden file deciding the genre must say so, or it cannot be argued with.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "Jazz")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+
+    assert ".genre" in result.output
+
+
+def test_the_declaration_is_written_verbatim(shelf: Path) -> None:
+    """A compound genre survives the round trip through the file.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "Jazz;Jazz Fusion")
+
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+
+    assert genres_under(shelf) == {"Jazz;Jazz Fusion"}
+
+
+@pytest.mark.parametrize(
+    ("contents", "complaint"),
+    [("   \n", "is empty"), ("Jazz\nRock\n", "more than one line")],
+)
+def test_an_unusable_declaration_is_refused(shelf: Path, contents: str, complaint: str) -> None:
+    """Neither nothing nor two things is a genre, and neither is guessed at.
+
+    Args:
+        shelf: The fixture shelf.
+        contents: What the declaration holds.
+        complaint: The phrase the refusal should carry.
+    """
+    _ = (shelf / ".genre").write_text(contents, encoding="utf-8")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"])
+
+    assert result.exit_code == 1
+    assert complaint in result.output
+    assert genres_under(shelf) == {""}
+
+
+def test_dry_run_writes_no_declaration(shelf: Path) -> None:
+    """A dry run leaves the shelf exactly as it found it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz", "--dry-run"])
+
+    assert not (shelf / ".genre").exists()
+
+
+def test_declining_writes_no_declaration(shelf: Path) -> None:
+    """Answering no stops before the declaration as well as the tags.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="n\n")
+
+    assert not (shelf / ".genre").exists()
+
+
+# ==================================================================================== #
+#                                        FORCING                                       #
+# ==================================================================================== #
+def test_force_clears_every_declaration_beneath_the_path(shelf: Path) -> None:
+    """Forcing leaves one declaration where there were three.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    album: Path = artist / "FLAC" / "01. (1959) - Kind of Blue [FLAC]"
+    declare(artist, "Bebop")
+    declare(album, "Cool")
+
+    _ = runner.invoke(
+        app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz", "--force"], input="y\n"
+    )
+
+    assert list(shelf.rglob(".genre")) == [shelf / ".genre"]
+    assert genres_under(shelf) == {"Jazz"}
+
+
+def test_force_says_what_it_would_delete(shelf: Path) -> None:
+    """The one destructive step here is named before it is taken.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]", "Bebop")
+
+    result = runner.invoke(
+        app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz", "--force"], input="n\n"
+    )
+
+    assert "delete 1 existing .genre file(s)" in result.output
+    assert (shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]" / ".genre").exists()
+
+
+# ==================================================================================== #
+#                                    INTERACTIVITY                                     #
+# ==================================================================================== #
 def test_reports_a_file_it_cannot_read(shelf: Path, make_broken: Callable[[Path], None]) -> None:
     """An unreadable file is listed, and the rest are still tagged.
 
