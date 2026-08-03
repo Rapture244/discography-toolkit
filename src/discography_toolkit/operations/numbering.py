@@ -8,10 +8,10 @@ runs across a whole artist at once, the lossy albums beside the artist
 folder and the lossless ones inside its container pooled into a single
 run, because they are one discography however they are stored.
 
-What an album is called past its index -- the "©" pin, the year, the
-title, the availability marker -- plays no part in where it sorts, only
-the year and title do. That is what keeps the sequence stable: an album
-found missing and later held keeps its number instead of shuffling
+What an album is called past its index -- the verdict mark, the year,
+the title, the availability marker -- plays no part in where it sorts,
+only the year and title do. That is what keeps the sequence stable: an
+album found missing and later held keeps its number instead of shuffling
 everything after it.
 
 A singles collection is the one album set outside the sequence. Titled
@@ -116,7 +116,8 @@ def plan(
 
     The albums are sorted here rather than trusted in the order given:
     the index follows year and title, and only this module knows to look
-    past the pin, the old index and the availability marker to find them.
+    past the verdict mark, the old index and the availability marker to
+    find them.
 
     Args:
         albums: One artist's album folders, the container already
@@ -202,9 +203,10 @@ def apply(
 def _renumbered(name: str, index: int, width: int) -> str:
     """Rebuild a folder name with a fresh index at its front.
 
-    The pin is kept ahead of the number and the old index is dropped;
-    everything past it -- year, marker, title, quality tag -- is left as
-    it was. Numbering settles the sequence, not the rest of the name.
+    The verdict mark is kept ahead of the number and the old index is
+    dropped; everything past it -- year, marker, title, quality tag -- is
+    left as it was. Numbering settles the sequence, not the rest of the
+    name.
 
     Args:
         name: The album folder's current name.
@@ -214,9 +216,9 @@ def _renumbered(name: str, index: int, width: int) -> str:
     Returns:
         The renumbered name.
     """
-    pin, rest = names.split_pin_mark(name)
+    mark, rest = names.split_front_mark(name)
     _, rest = names.split_index(rest)
-    return f"{pin}{index:0{width}d}. {rest}"
+    return f"{mark}{index:0{width}d}. {rest}"
 
 
 def _move(source: Path, target: Path) -> str | None:

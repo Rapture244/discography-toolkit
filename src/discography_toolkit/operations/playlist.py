@@ -442,7 +442,7 @@ def album_tag(name: str) -> str:
     Returns:
         The Album tag, e.g. "©(1993) - 60 Horses in My Herd [OPUS]".
     """
-    pin, rest = names.split_pin_mark(name)
+    pin, rest = names.split_front_mark(name)
     _, rest = names.split_index(rest)
     return f"{pin}{rest}"
 
@@ -551,7 +551,7 @@ def _bare_title(tag: str) -> str:
     Returns:
         The album's title.
     """
-    _, rest = names.split_pin_mark(tag)
+    _, rest = names.split_front_mark(tag)
     if not names.conforms_body(rest):
         return tag
 

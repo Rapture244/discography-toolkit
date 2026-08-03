@@ -150,6 +150,40 @@ def test_the_pin_stays_ahead_of_the_index(shelf: Callable[..., list[Path]]) -> N
     assert numbering.plan(albums).outcomes[0].new_name == "©01. (2001) - Later"
 
 
+def test_the_dud_mark_stays_ahead_of_the_index(shelf: Callable[..., list[Path]]) -> None:
+    """So does a "✗": both verdicts ride the front the same way.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    albums: list[Path] = shelf("✗(2001) - Later")
+
+    assert numbering.plan(albums).outcomes[0].new_name == "✗01. (2001) - Later"
+
+
+def test_a_verdict_does_not_move_an_album_in_the_sequence(
+    shelf: Callable[..., list[Path]],
+) -> None:
+    """Marking an album says nothing about where it belongs in the run.
+
+    Were a mark to count toward the sort, pinning a favourite or writing
+    off a dud would renumber everything after it -- so the numbers follow
+    year and title alone, and the mark rides along at the front.
+
+    Args:
+        shelf: Factory making album folders.
+    """
+    albums: list[Path] = shelf("✗(1970) - Brew", "©(1959) - Ascension", "(1965) - Cookin")
+
+    result = numbering.plan(albums)
+
+    assert [outcome.new_name for outcome in result.outcomes] == [
+        "©01. (1959) - Ascension",
+        "02. (1965) - Cookin",
+        "✗03. (1970) - Brew",
+    ]
+
+
 def test_the_index_is_two_digits_at_least(shelf: Callable[..., list[Path]]) -> None:
     """A short run still pads to two, so a browser sorts "02" under "10".
 

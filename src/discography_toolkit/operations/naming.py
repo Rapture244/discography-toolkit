@@ -2,11 +2,11 @@
 """Rebuilding an album folder's name from its parts.
 
 A folder name carries an order that the eye reads and a player never
-sees: a "©" pin, a numbering index, the year, a title, an "(EP)" marker
-where the release is one, and -- for the albums held losslessly -- a
-quality tag. Names drift, get typed in different shapes, keep a stale tag
-after a transcode. This reads a name back into its parts and writes them
-out in one settled form.
+sees: a verdict mark, a numbering index, the year, a title, an "(EP)"
+marker where the release is one, and -- for the albums held losslessly --
+a quality tag. Names drift, get typed in different shapes, keep a stale
+tag after a transcode. This reads a name back into its parts and writes
+them out in one settled form.
 
 The quality tag is never trusted from the name; it is decided from the
 files, which is where the "M"/"⚠" markers come in. "M" is a claim that
@@ -257,7 +257,7 @@ def _examine(album: Path) -> AlbumName:
     Returns:
         Its outcome -- the name it should carry, and what that says.
     """
-    pin, rest = names.split_pin_mark(album.name)
+    pin, rest = names.split_front_mark(album.name)
     index, rest = names.split_index(rest)
 
     if names.is_singles(album.name):

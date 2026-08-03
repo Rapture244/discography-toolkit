@@ -21,9 +21,9 @@ from discography_toolkit.core.names import (
     is_singles,
     sort_key,
     split_ep_marker,
+    split_front_mark,
     split_index,
     split_missing_marker,
-    split_pin_mark,
     split_year,
     strip_artist_label,
     strip_quality_tag,
@@ -144,39 +144,45 @@ def test_with_artist_label_survives_a_prefix_in_the_name() -> None:
 
 
 # ==================================================================================== #
-#                                     PIN MARK & INDEX                                 #
+#                                   FRONT MARK & INDEX                                 #
 # ==================================================================================== #
 @pytest.mark.parametrize(
-    ("name", "remainder"),
+    ("name", "remainder", "expected"),
     [
-        ("\u00a9 Kind of Blue", "Kind of Blue"),
+        ("\u00a9 Kind of Blue", "Kind of Blue", "\u00a9"),
         # Not anchored: found wherever it was typed, front, middle or end.
-        ("01. \u00a9 Kind of Blue", "01. Kind of Blue"),
-        ("Kind of Blue \u00a9", "Kind of Blue"),
-        ("01. Kind \u00a9 of Blue", "01. Kind of Blue"),
+        ("01. \u00a9 Kind of Blue", "01. Kind of Blue", "\u00a9"),
+        ("Kind of Blue \u00a9", "Kind of Blue", "\u00a9"),
+        ("01. Kind \u00a9 of Blue", "01. Kind of Blue", "\u00a9"),
+        # The dud mark rides the same mechanism -- one split, two verdicts.
+        ("\u2717 Kind of Blue", "Kind of Blue", "\u2717"),
+        ("01. \u2717 Kind of Blue", "01. Kind of Blue", "\u2717"),
+        ("Kind of Blue \u2717", "Kind of Blue", "\u2717"),
+        ("01. Kind \u2717 of Blue", "01. Kind of Blue", "\u2717"),
     ],
 )
-def test_split_pin_mark_lifts_the_mark(name: str, remainder: str) -> None:
-    """The mark comes off wherever it sat, and the gap is tidied.
+def test_split_front_mark_lifts_the_mark(name: str, remainder: str, expected: str) -> None:
+    """Either mark comes off wherever it sat, and the gap is tidied.
 
     Args:
-        name: A name carrying the pin mark.
+        name: A name carrying a verdict mark.
         remainder: What should be left, cleaned.
+        expected: The mark that should come back.
     """
-    mark, rest = split_pin_mark(name)
+    mark, rest = split_front_mark(name)
 
-    assert mark == "\u00a9"
+    assert mark == expected
     assert rest == remainder
 
 
 @pytest.mark.parametrize("name", ["Kind of Blue", "01. So What", ""])
-def test_split_pin_mark_leaves_an_unmarked_name(name: str) -> None:
+def test_split_front_mark_leaves_an_unmarked_name(name: str) -> None:
     """No mark means the name comes back untouched.
 
     Args:
-        name: A name with no pin mark.
+        name: A name with no verdict mark.
     """
-    mark, rest = split_pin_mark(name)
+    mark, rest = split_front_mark(name)
 
     assert mark == ""
     assert rest == name
@@ -235,6 +241,7 @@ def test_split_index_leaves_an_unnumbered_name(name: str) -> None:
     ("name", "expected"),
     [
         ("\u00a901. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue [flac]"),
+        ("\u271701. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue [flac]"),
         ("05. (1959) - So What [FLAC]", "(1959) - so what [flac]"),
         # The conflict glyph is stripped the same as the plain marker.
         ("12. (1980) - \u26a0 - Decoy", "(1980) - decoy"),
@@ -243,13 +250,26 @@ def test_split_index_leaves_an_unnumbered_name(name: str) -> None:
     ],
 )
 def test_sort_key_ignores_what_should_not_move_an_album(name: str, expected: str) -> None:
-    """The key is year and title, with pin, index and marker taken out.
+    """The key is year and title, with mark, index and marker taken out.
 
     Args:
         name: The raw album folder name.
         expected: The key it should produce.
     """
     assert sort_key(name) == expected
+
+
+def test_sort_key_is_blind_to_which_verdict_a_name_carries() -> None:
+    """A verdict says nothing about where an album belongs in sequence.
+
+    Pinning a favourite or writing off a dud must not renumber the shelf,
+    so both marks fall out of the key and a pinned, a dud and a bare name
+    order identically.
+    """
+    bare: str = "03. (1959) - Kind of Blue [FLAC]"
+
+    assert sort_key(f"\u00a9{bare}") == sort_key(bare)
+    assert sort_key(f"\u2717{bare}") == sort_key(bare)
 
 
 def test_sort_key_is_stable_when_availability_changes() -> None:
@@ -288,6 +308,7 @@ def test_sort_key_orders_by_year_then_title() -> None:
         "00. Singles",
         "00. Singles [FLAC]",
         "©05. Singles [OPUS]",
+        "✗05. Singles [OPUS]",
         "Singles [OGG]",  # a non-standard format tag is still set aside
         "07. Singles",  # wrongly numbered, still a singles collection
     ],
@@ -761,8 +782,10 @@ def test_clean_name(name: str, expected: str) -> None:
         # no lossless twin for pruning to have deleted it against -- reads
         # like any other.
         ("04. (1972) - On the Corner [OPUS]", "On the Corner"),
-        # The pin floats a favourite on this shelf and travels nowhere.
+        # A verdict floats or sinks an album on this shelf and travels
+        # nowhere: neither mark reaches the tag.
         ("©27. (1977) - October [FLAC]", "October"),
+        ("✗27. (1977) - October [FLAC]", "October"),
         # Both spellings of the availability marker.
         ("05. (1980) - M - Lost Record", "Lost Record"),
         ("12. (1980) - ⚠ - Decoy", "Decoy"),
@@ -776,7 +799,7 @@ def test_clean_name(name: str, expected: str) -> None:
     ],
 )
 def test_album_title_peels_everything_but_the_title(name: str, expected: str) -> None:
-    """Pin, index, year, marker and quality word all come off.
+    """Mark, index, year, marker and quality word all come off.
 
     What survives is what the album is called -- the part that does not
     change when it is renumbered, re-ripped, or found at last.
@@ -945,6 +968,7 @@ def test_conforms_body_rejects_everything_else(body: str) -> None:
     [
         "01. (1959) - Kind of Blue [FLAC]",
         "\u00a905. (1959) - Kind of Blue [FLAC]",  # pinned
+        "\u271705. (1959) - Kind of Blue [FLAC]",  # written off
         "127. (1970) - Bitches Brew",  # a run past ninety-nine
         "5. (1959) - Kind of Blue",  # an index numbering has yet to pad
         "(1959) - Kind of Blue",  # never numbered at all
@@ -982,16 +1006,17 @@ def test_conforms_unnumbered_still_judges_the_rest(name: str) -> None:
     assert not conforms_unnumbered(name)
 
 
-def test_conforms_unnumbered_tidies_a_pinned_name_as_it_reads_it() -> None:
-    """A known quirk: lifting the pin also closes the spacing behind it.
+def test_conforms_unnumbered_tidies_a_marked_name_as_it_reads_it() -> None:
+    """A known quirk: lifting the mark also closes the spacing behind it.
 
-    `split_pin_mark` tidies what it leaves, so a doubled space in a
-    pinned name is repaired before the pattern ever sees it, while the
-    same name unpinned is judged as typed. Recorded rather than wished
+    `split_front_mark` tidies what it leaves, so a doubled space in a
+    marked name is repaired before the pattern ever sees it, while the
+    same name unmarked is judged as typed. Recorded rather than wished
     away: naming rebuilds the whole name regardless, so the guard reading
-    a pinned album slightly more leniently costs nothing.
+    a marked album slightly more leniently costs nothing.
     """
     assert conforms_unnumbered("\u00a9 (1959) - Kind  of Blue")
+    assert conforms_unnumbered("\u2717 (1959) - Kind  of Blue")
     assert not conforms_unnumbered("01. (1959) - Kind  of Blue")
 
 

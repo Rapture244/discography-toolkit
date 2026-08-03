@@ -28,17 +28,28 @@ ARTIST_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"\s*(?:-\s*)?\[\s*M?\d[^\[
 # dots.
 _LABEL_DOT: Final[str] = "\u2022"
 
-# Guards ARTIST_LABEL_RE: "90. (2013) - In India [1973]" matches the label
-# by accident, and only the index tells the two apart.
-ALBUM_INDEX_RE: Final[re.Pattern[str]] = re.compile(r"^©?\d+\.")
-
-# The "pin to top" mark: a bare "©" typed anywhere in a name to float a
-# favourite above the default sort. Nothing to do with copyright, and
-# carries no year or quality meaning -- it is relocated to the very front
-# on rebuild. Found anywhere, since it is typed wherever the eye lands,
-# not anchored like the index.
+# The two front marks: a verdict on the album, typed anywhere in the name
+# and relocated to the very front on rebuild. "©" pins a favourite above
+# the default sort; "✗" says the album is not worth the shelf space.
+# Neither has anything to do with copyright or a trademark, and neither
+# carries a year or quality meaning. Found anywhere, since they are typed
+# wherever the eye lands, not anchored like the index.
+#
+# "✗" is U+2717 BALLOT X rather than the "®" that would pair with "©" by
+# shape: at a file browser's font size those two are a squint apart, and
+# a mark that has to be squinted at is not doing its job.
 PIN_MARK: Final[str] = "©"
-_PIN_MARK_RE: Final[re.Pattern[str]] = re.compile(re.escape(PIN_MARK))
+DUD_MARK: Final[str] = "✗"
+
+# Either mark as a character class, so the index pattern below and the
+# split share one definition instead of repeating the glyphs.
+_MARK_CLASS: Final[str] = f"[{re.escape(PIN_MARK)}{re.escape(DUD_MARK)}]"
+_MARK_RE: Final[re.Pattern[str]] = re.compile(_MARK_CLASS)
+
+# Guards ARTIST_LABEL_RE: "90. (2013) - In India [1973]" matches the label
+# by accident, and only the index tells the two apart. A mark may sit
+# ahead of the index, which is where a rebuild puts it.
+ALBUM_INDEX_RE: Final[re.Pattern[str]] = re.compile(rf"^{_MARK_CLASS}?\d+\.")
 
 # A leading numbering index to preserve across a rename: "01. ", "(01) ",
 # "[27] ", "5. ", trailing separators included. Broader than
@@ -349,27 +360,30 @@ def with_artist_label(name: str, label: str) -> str:
 
 
 # ==================================================================================== #
-#                                     PIN MARK & INDEX                                 #
+#                                   FRONT MARK & INDEX                                 #
 # ==================================================================================== #
-def split_pin_mark(name: str) -> tuple[str, str]:
-    """Lift a "pin to top" mark off a name, wherever it was typed.
+def split_front_mark(name: str) -> tuple[str, str]:
+    """Lift a verdict mark off a name, wherever it was typed.
 
-    The mark floats a favourite above the default sort. It is not
-    anchored -- it lands wherever the eye was at the time -- so it is
-    found anywhere, removed, and the gap it leaves tidied. Re-prefixing
-    it at the very front is the caller's job, which is what gives it one
-    canonical place. Only the first is handled; the convention assumes at
-    most one per name.
+    Either of them, handled identically: "©" floats a favourite above the
+    default sort, "✗" says the album is not worth the shelf space. Neither
+    is anchored -- both land wherever the eye was at the time -- so one is
+    found anywhere, removed, and the gap it leaves tidied. Re-prefixing at
+    the very front is the caller's job, which is what gives them one
+    canonical place.
+
+    Only the first is handled: the convention is that an album carries
+    one verdict or the other, and never both.
 
     Args:
         name: The raw album folder name.
 
     Returns:
-        A `(mark, remainder)` pair. `mark` is `PIN_MARK` when found, else
-        an empty string; `remainder` has that one mark removed and its
-        surroundings tidied.
+        A `(mark, remainder)` pair. `mark` is whichever mark was found,
+        else an empty string; `remainder` has that one mark removed and
+        its surroundings tidied.
     """
-    match: re.Match[str] | None = _PIN_MARK_RE.search(name)
+    match: re.Match[str] | None = _MARK_RE.search(name)
     if match is None:
         return "", name
     return match.group(0), clean_name(name[: match.start()] + name[match.end() :])
@@ -403,11 +417,14 @@ def sort_key(name: str) -> str:
 
     Numbering runs down an artist's albums in this order and assigns
     "01.", "02." in turn, so the key has to leave out anything that is
-    not the album's identity: the "©" pin, any existing index, and the
-    "M"/"⚠" availability marker. Dropping the marker is what keeps the
-    sequence stable -- an album that gains or loses audio holds its place
-    instead of jumping to wherever the glyph happens to sort. The year is
-    kept, so albums order by year and then title.
+    not the album's identity: the verdict mark, any existing index, and
+    the "M"/"⚠" availability marker. Dropping the mark keeps a verdict
+    from renumbering the shelf -- pinning a favourite or writing off a
+    dud says nothing about where the album belongs in sequence. Dropping
+    the availability marker keeps the sequence stable the same way: an
+    album that gains or loses audio holds its place instead of jumping to
+    wherever the glyph happens to sort. The year is kept, so albums order
+    by year and then title.
 
     Args:
         name: The raw album folder name.
@@ -415,7 +432,7 @@ def sort_key(name: str) -> str:
     Returns:
         The casefolded remainder, ready to sort on.
     """
-    _, rest = split_pin_mark(name)
+    _, rest = split_front_mark(name)
     _, rest = split_index(rest)
     return _SORT_MARKER_RE.sub(r"\1", rest, count=1).casefold()
 
@@ -429,10 +446,10 @@ def is_singles(name: str) -> bool:
     carrying a year, however it is titled, is an ordinary release and not
     this: a year is what a real album has and a singles pile does not.
 
-    The pin, index, year, availability marker and one trailing format tag
-    are all set aside before the title is read, so "©05. Singles [FLAC]"
-    and a bare "singles" alike are recognised, and a collection kept in
-    several formats is caught whatever bracket it wears.
+    The mark, index, year, availability marker and one trailing format
+    tag are all set aside before the title is read, so "©05. Singles
+    [FLAC]" and a bare "singles" alike are recognised, and a collection
+    kept in several formats is caught whatever bracket it wears.
 
     Args:
         name: The album folder's name.
@@ -440,7 +457,7 @@ def is_singles(name: str) -> bool:
     Returns:
         `True` when the album reads as a singles collection.
     """
-    _, rest = split_pin_mark(name)
+    _, rest = split_front_mark(name)
     _, rest = split_index(rest)
     year, rest = split_year(rest)
     if year is not None:
@@ -727,11 +744,12 @@ def drop_unpaired_wrappers(text: str) -> str:
 def album_title(name: str) -> str:
     """Read the bare title out of an album folder's name.
 
-    The whole convention comes off -- the pin mark, the numbering index,
-    the year, the availability marker, the EP marker, the quality word --
-    leaving what the album is actually called. Everything removed
-    describes where the album sits on this shelf or how this copy of it
-    was ripped, and none of that means anything to anyone else's library.
+    The whole convention comes off -- the verdict mark, the numbering
+    index, the year, the availability marker, the EP marker, the quality
+    word -- leaving what the album is actually called. Everything removed
+    describes where the album sits on this shelf, what its owner made of
+    it, or how this copy was ripped, and none of that means anything to
+    anyone else's library.
 
     A wrapper left without its partner comes off too. Dropping it here as
     well as in `naming` is what keeps one album's identity the same
@@ -750,7 +768,7 @@ def album_title(name: str) -> str:
     Returns:
         The title alone, its spacing tidied.
     """
-    _, rest = split_pin_mark(name)
+    _, rest = split_front_mark(name)
     _, rest = split_index(rest)
     _, rest = split_year(rest)
     _, rest = split_missing_marker(rest)
@@ -775,7 +793,7 @@ def conforms_unnumbered(name: str) -> bool:
     Returns:
         `True` when everything past the index is canonical.
     """
-    _, rest = split_pin_mark(name)
+    _, rest = split_front_mark(name)
     _, rest = split_index(rest)
     return conforms_body(rest)
 
@@ -800,7 +818,7 @@ def conforms_body(body: str) -> bool:
     what lands in it is judged too.
 
     Args:
-        body: A name with its pin and index already removed.
+        body: A name with its mark and index already removed.
 
     Returns:
         `True` when the body is canonical.
