@@ -190,6 +190,31 @@ def test_surveying_changes_nothing(shelf: Path) -> None:
     assert list(shelf.rglob(".genre")) == [shelf / ".genre"]
 
 
+def test_one_track_answers_for_its_album(shelf: Path) -> None:
+    """The sampling, pinned: the folder is counted whole from its first track.
+
+    An album is tagged as a unit, so reading every track would be twenty
+    times the disk for the same answer. The cost is recorded here rather
+    than left to be discovered: a track that drifted inside an otherwise
+    consistent album does not show up, and its siblings' genre is
+    reported for it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    album: Path = shelf / "USA" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]" / "FLAC"
+    album = album / "01. (1959) - Album [FLAC]"
+    metadata.write(album / "01.flac", {Tag.GENRE: "Bebop"})
+    metadata.write(album / "02.flac", {Tag.GENRE: "Strays"})
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+
+    assert "Bebop" in result.output
+    assert "Strays" not in result.output
+    # Both tracks counted, under the one genre the first reported.
+    assert "2 file(s)" in result.output
+
+
 def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     """Nothing to survey is not a failure.
 

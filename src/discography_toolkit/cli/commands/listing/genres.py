@@ -19,6 +19,13 @@ without anything having to guess at what looks similar.
 One bar, no per-artist breakdown. A survey is asked about a path, not
 about the artists under it, and a whole discography would otherwise
 print three hundred names above a dozen result lines.
+
+One track per album folder is read, not every track. An album is tagged
+as a unit -- every track in it carries the same genre -- so the other
+twenty answer nothing the first did not. That matters more than it
+sounds: a FLAC carries its cover art in the same metadata mutagen parses
+to reach a genre, so every skipped track is a few hundred kilobytes not
+read off the disk.
 """
 
 from __future__ import annotations
@@ -82,7 +89,8 @@ def genres(
 
     A `.genre` file answers for the folder holding it, nearest winning,
     searched no higher than the path given. Where none reaches a track,
-    the tag inside the file is read instead.
+    the tag is read from one file per album folder -- an album is tagged
+    as a unit, so the rest say nothing the first did not.
 
     Args:
         path: Folder to survey beneath; prompted for if omitted.
@@ -108,11 +116,19 @@ def genres(
     counts: Counter[tuple[str, str]] = Counter()
     unreadable: list[Path] = []
 
-    with make_progress() as progress:
-        advance = make_bar(progress, target.name, len(tracks))
-        for track in tracks:
-            _tally(track, declared, counts, unreadable)
-            advance(track)
+    # Grouped by folder, which is the unit a genre actually belongs to --
+    # and the same key the declarations are already resolved against.
+    folders: dict[Path, list[Path]] = {}
+    for track in tracks:
+        folders.setdefault(track.parent, []).append(track)
+
+    # Albums, not files: the bar should count the reads that happen, not
+    # the tracks they stand for.
+    with make_progress(noun="albums") as progress:
+        advance = make_bar(progress, target.name, len(folders))
+        for folder, members in folders.items():
+            _tally(folder, members, declared, counts, unreadable)
+            advance(folder)
 
     _echo_genres(counts)
     echo_result("Genres", len(counts), "in use", notices=_notices(unreadable))
@@ -122,35 +138,42 @@ def genres(
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
 def _tally(
-    track: Path,
+    folder: Path,
+    members: Sequence[Path],
     declared: Mapping[Path, declarations.Declaration],
     counts: Counter[tuple[str, str]],
     unreadable: list[Path],
 ) -> None:
-    """Count one track under the genre it carries, and where that came from.
+    """Count one album folder under the genre it carries.
 
-    A declaration answers without the file being opened at all, which is
-    most of why a declared shelf surveys quickly: the tags are only read
-    where nothing declared anything.
+    A declaration answers without any file being opened at all, which is
+    most of why a declared shelf surveys instantly: the tags are only
+    read where nothing declared anything.
 
     Args:
-        track: The file to count.
+        folder: The folder holding the tracks.
+        members: Its audio files, all of which are counted.
         declared: The declaration reaching each folder holding tracks.
         counts: Running tally, keyed by `(genre, origin)`.
         unreadable: Collects files that would not open.
     """
-    declaration: declarations.Declaration | None = declared.get(track.parent)
+    declaration: declarations.Declaration | None = declared.get(folder)
     if declaration is not None:
-        counts[declaration.genre, _DECLARED] += 1
+        counts[declaration.genre, _DECLARED] += len(members)
         return
 
+    # ponytail: one track answers for the folder. An album is tagged as a
+    # unit, so the rest hold the same genre -- but a single track that
+    # drifted inside an otherwise consistent album is invisible here, and
+    # the count still attributes it to what the first track said. Upgrade
+    # by reading every member, at roughly twenty times the disk.
     try:
-        current: dict[Tag, str] = metadata.read(track, [Tag.GENRE])
+        current: dict[Tag, str] = metadata.read(members[0], [Tag.GENRE])
     except Exception:  # noqa: BLE001 - a corrupt file must not stop the survey
-        unreadable.append(track)
+        unreadable.append(members[0])
         return
 
-    counts[current.get(Tag.GENRE, "").strip(), _TAGGED] += 1
+    counts[current.get(Tag.GENRE, "").strip(), _TAGGED] += len(members)
 
 
 def _echo_genres(counts: Counter[tuple[str, str]]) -> None:
