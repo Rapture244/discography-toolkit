@@ -15,6 +15,10 @@ Sorted by value rather than by count, which is the whole point. Near
 misses land next to each other -- "(JP) Shakuhachi" directly above
 "(JPN) Shakuhachi" -- so a convention that drifted announces itself
 without anything having to guess at what looks similar.
+
+One bar, no per-artist breakdown. A survey is asked about a path, not
+about the artists under it, and a whole discography would otherwise
+print three hundred names above a dozen result lines.
 """
 
 from __future__ import annotations
@@ -31,13 +35,12 @@ import typer
 
 from discography_toolkit.cli.console import (
     Notice,
-    artist_names,
     echo_banner,
     echo_result,
-    make_advancer,
+    make_bar,
     make_progress,
 )
-from discography_toolkit.cli.scope import artists_in, require_tracks, resolve_path
+from discography_toolkit.cli.scope import require_tracks, resolve_path
 from discography_toolkit.core import declarations, metadata
 from discography_toolkit.core.metadata import Tag
 
@@ -89,8 +92,10 @@ def genres(
             found, or a completed survey.
     """
     target: Path = resolve_path(path, "Enter the absolute path to survey beneath")
-    artists: list[Path] = artists_in(target)
-    echo_banner("Genres", target.name, children=artist_names(target, artists))
+    # No artist breakdown, and so no walk to find one. A survey answers
+    # about the path as a whole -- listing three hundred artists above a
+    # dozen result lines buries the answer under the question.
+    echo_banner("Genres", target.name)
 
     tracks: list[Path] = require_tracks(target)
 
@@ -104,7 +109,7 @@ def genres(
     unreadable: list[Path] = []
 
     with make_progress() as progress:
-        advance = make_advancer(progress, target.name, tracks, artists)
+        advance = make_bar(progress, target.name, len(tracks))
         for track in tracks:
             _tally(track, declared, counts, unreadable)
             advance(track)
