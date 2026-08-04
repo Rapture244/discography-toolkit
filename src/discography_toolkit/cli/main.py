@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands import align_tags, layout, organize, playlist, tags
+from discography_toolkit.cli.commands import align_tags, layout, listing, organize, playlist, tags
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -50,6 +50,10 @@ def main() -> None:
 # folders and what it writes inside the files, and `rapt --help` should
 # say so before listing nine verbs.
 app.add_typer(tags.app, name="tags")
+
+# The read-only half, kept apart from everything that writes. A survey
+# and a rewrite should not be one letter apart on the command line.
+app.add_typer(listing.app, name="list")
 
 # The one exception is a bare command, not a group: layout is a single
 # protocol, not a family of verbs, so it reads as one on `rapt --help`.
