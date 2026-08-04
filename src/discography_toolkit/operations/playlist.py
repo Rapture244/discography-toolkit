@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Final
 
 from discography_toolkit.core import artwork, metadata, names
 from discography_toolkit.core.layout import (
+    AUDIO_EXTENSIONS,
     QUALITY_TAG,
     detect_tier,
     find_audio_files,
@@ -47,7 +48,7 @@ from discography_toolkit.core.layout import (
 from discography_toolkit.core.metadata import Tag
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence, Set
     from pathlib import Path
 
     from discography_toolkit.core.artwork import Cover
@@ -100,7 +101,6 @@ class PlaylistPlan:
     direction or the other, and neither is the tool's to settle.
 
     Attributes:
-        artist: The folder everything matched moves into.
         matches: One entry per converted album that was placed.
         unmatched: Folders whose album is in no discography album.
         untagged: Folders carrying no readable Album tag to match on.
@@ -108,7 +108,6 @@ class PlaylistPlan:
         ambiguous: Folders whose album names several discography albums.
     """
 
-    artist: Path
     matches: tuple[Match, ...] = ()
     unmatched: tuple[Path, ...] = ()
     untagged: tuple[Path, ...] = ()
@@ -183,50 +182,81 @@ class CoverReport:
 # ==================================================================================== #
 #                                      PUBLIC API                                      #
 # ==================================================================================== #
-def candidates(converted: Path, artist: Path) -> list[Path]:
-    """Find the folders a run should try to match.
+def find_homes(root: Path, artist_names: Set[str]) -> dict[str, list[Path]]:
+    """Find where each artist already lives in the playlist.
 
-    Both levels: what the converter dropped loose, and what a previous
-    run already filed. The artist folder itself is not a candidate --
-    otherwise a second run would see nothing it had settled and report
-    the whole playlist as missing.
+    One artist may have several homes, or none. The playlist is a
+    curation rather than a mirror -- an album filed under "Classical"
+    because that is what it is to you sits beside the same artist's other
+    shelf elsewhere -- so every folder named for them is theirs, and the
+    run syncs all of them against the one discography.
 
-    The two levels are one when the converted path is itself the artist
-    folder, which is what a settled playlist moved somewhere permanent
-    looks like. Scanning it twice would have every album contest itself.
+    One walk for every artist rather than a walk apiece, and it stops
+    descending on two conditions: a folder that matches, since an artist
+    holds albums and never another artist, and a folder holding audio of
+    its own, which is an album or a disc and cannot contain an artist
+    either.
+
+    Names are matched exactly. Nothing types these -- the fold writes
+    them from the discography and a converter writes them from the tag --
+    so a difference in case is a folder that has drifted, and reporting
+    it as missing is more use than quietly syncing it under a name the
+    discography does not agree with.
 
     Args:
-        converted: The folder the converter wrote into.
-        artist: The playlist's artist folder, which may not exist yet
-            and may be `converted` itself.
+        root: The playlist path to search.
+        artist_names: The names to look for, from the discography.
 
     Returns:
-        Candidate folders, sorted by path.
+        Each name mapped to the folders found for it, in walk order.
+        A name with no folder is absent.
     """
-    found: list[Path] = [
+    found: dict[str, list[Path]] = defaultdict(list)
+    _collect_homes(root, artist_names, found)
+    return dict(found)
+
+
+def loose_albums(root: Path, homes: Iterable[Path]) -> list[Path]:
+    """Find the album folders sitting in the playlist path itself.
+
+    What a converter leaves behind: album folders dropped directly into
+    one place, belonging to no artist folder yet. A playlist that has
+    been tidied has none of these, and a fresh drop folder is nothing
+    but.
+
+    Direct children only. An album deeper down is inside somebody's
+    folder already, and moving it would be deciding where it lives.
+
+    Args:
+        root: The playlist path.
+        homes: Every artist folder found beneath it, which are not
+            albums.
+
+    Returns:
+        Loose album folders, sorted by path.
+    """
+    settled: set[Path] = set(homes)
+    return sorted(
         entry
-        for entry in converted.iterdir()
-        if entry.is_dir() and not entry.name.startswith(".") and entry != artist
-    ]
-    if artist.is_dir() and artist != converted:
-        found.extend(
-            entry for entry in artist.iterdir() if entry.is_dir() and not entry.name.startswith(".")
-        )
-    return sorted(found)
+        for entry in root.iterdir()
+        if entry.is_dir() and not entry.name.startswith(".") and entry not in settled
+    )
 
 
 def plan(
-    folders: Sequence[Path],
-    artist: Path,
+    folders: Sequence[tuple[Path, Path]],
     disco_albums: Sequence[Path],
     on_progress: Callable[[Path], None] | None = None,
 ) -> PlaylistPlan:
     """Match every converted album to its discography album, without moving.
 
     Args:
-        folders: The converted folders to examine. Discovery belongs to
-            the caller, which `candidates` does.
-        artist: The playlist's artist folder, where matches belong.
+        folders: `(folder, destination)` pairs -- the album as it stands,
+            and the artist folder it belongs in. An album already inside
+            one of its artist's folders is paired with that folder, so
+            it is renamed where it sits rather than moved; a loose one is
+            paired with where it should be filed. Deciding which is the
+            caller's, since only it knows the artists.
         disco_albums: The discography's album folders, read-only.
         on_progress: Called with each folder as it is examined.
 
@@ -237,12 +267,12 @@ def plan(
     for album in disco_albums:
         disco[names.album_title(album.name).casefold()].append(album)
 
-    claims: defaultdict[str, list[Path]] = defaultdict(list)
+    claims: defaultdict[str, list[tuple[Path, Path]]] = defaultdict(list)
     untagged: list[Path] = []
     unmatched: list[Path] = []
     ambiguous: list[Path] = []
 
-    for candidate in folders:
+    for candidate, destination in folders:
         title: str | None = identity(candidate)
         if title is None:
             untagged.append(candidate)
@@ -251,7 +281,7 @@ def plan(
         elif len(disco[title]) > 1:
             ambiguous.append(candidate)
         else:
-            claims[title].append(candidate)
+            claims[title].append((candidate, destination))
         if on_progress is not None:
             on_progress(candidate)
 
@@ -259,15 +289,14 @@ def plan(
     contested: list[tuple[Path, ...]] = []
     for title, claimants in claims.items():
         if len(claimants) > 1:
-            contested.append(tuple(claimants))
+            contested.append(tuple(folder for folder, _ in claimants))
             continue
-        claimant: Path = claimants[0]
+        claimant, destination = claimants[0]
         matches.append(
-            Match(album=claimant, target=artist / settled_name(disco[title][0], claimant))
+            Match(album=claimant, target=destination / settled_name(disco[title][0], claimant))
         )
 
     return PlaylistPlan(
-        artist=artist,
         matches=tuple(matches),
         unmatched=tuple(unmatched),
         untagged=tuple(untagged),
@@ -294,13 +323,11 @@ def apply(
     Returns:
         A count of moves and the failures collected along the way.
     """
-    if playlist_plan.pending:
-        playlist_plan.artist.mkdir(parents=True, exist_ok=True)
-
     moved: int = 0
     failures: list[tuple[Path, str]] = []
 
     for match in playlist_plan.pending:
+        match.target.parent.mkdir(parents=True, exist_ok=True)
         detail: str | None = _place(match)
         if detail is None:
             moved += 1
@@ -450,6 +477,29 @@ def album_tag(name: str) -> str:
 # ==================================================================================== #
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
+def _collect_homes(folder: Path, artist_names: Set[str], found: dict[str, list[Path]]) -> None:
+    """Descend a folder, adding the artist homes found and not stepping past them.
+
+    Args:
+        folder: The folder to examine.
+        artist_names: The names to look for.
+        found: The mapping to append to, in place.
+    """
+    if folder.name in artist_names:
+        found[folder.name].append(folder)
+        return
+
+    children: list[Path] = []
+    for entry in sorted(folder.iterdir(), key=lambda path: path.name):
+        if entry.is_file() and entry.suffix.lower() in AUDIO_EXTENSIONS:
+            return  # an album or a disc: it holds tracks, never an artist
+        if entry.is_dir() and not entry.name.startswith("."):
+            children.append(entry)
+
+    for child in children:
+        _collect_homes(child, artist_names, found)
+
+
 def _embedded_cover(album: Path) -> Cover | None:
     """Read the art an album's tracks carry, capped and forced to JPEG.
 
