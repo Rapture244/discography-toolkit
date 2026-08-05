@@ -77,6 +77,9 @@ class Artist:
 
     Attributes:
         name: The discography folder's name without its count label.
+        region: The discography folder holding them -- "Japan", "Tuva".
+            Empty when the run was pointed at the artist itself, there
+            being nothing above them in scope.
         albums: The albums the discography holds for them.
         homes: The playlist folders named for them, empty when the
             playlist holds none of their work yet.
@@ -85,6 +88,7 @@ class Artist:
     """
 
     name: str
+    region: str
     albums: tuple[Path, ...]
     homes: tuple[Path, ...]
     candidates: tuple[tuple[Path, Path], ...]
@@ -178,8 +182,11 @@ def playlist(
 
     echo_banner("Playlist", target.name, children=[str(disco), str(target)])
 
-    artists, skipped = _gather(roster, target)
-    _echo_found(artists, skipped)
+    artists, skipped = _gather(roster, disco, target)
+    # One column for the whole run: the roster below, and the progress
+    # bar labels after it, so every bar starts where the names ended.
+    width: int = max(cell_len(artist.name) for artist in artists)
+    _echo_found(artists, skipped, width)
 
     workable: list[Artist] = [artist for artist in artists if artist.candidates]
     wanted: int = sum(len(artist.candidates) for artist in workable)
@@ -200,7 +207,7 @@ def playlist(
     typer.echo()
     results: list[Synced] = []
     for artist in workable:
-        result: Synced = _sync(artist)
+        result: Synced = _sync(artist, width)
         results.append(result)
         _echo_artist(result)
 
@@ -210,7 +217,7 @@ def playlist(
 # ==================================================================================== #
 #                                      GATHERING                                       #
 # ==================================================================================== #
-def _gather(roster: Sequence[Path], target: Path) -> tuple[list[Artist], list[Path]]:
+def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Artist], list[Path]]:
     """Work out, for every artist, which folders this run should place.
 
     Two kinds of candidate, told apart by where they sit. One already
@@ -227,6 +234,8 @@ def _gather(roster: Sequence[Path], target: Path) -> tuple[list[Artist], list[Pa
 
     Args:
         roster: The discography's artist folders.
+        disco: The discography path the run was given, so an artist
+            pointed at directly is known to have no region above it.
         target: The playlist path to search.
 
     Returns:
@@ -238,6 +247,10 @@ def _gather(roster: Sequence[Path], target: Path) -> tuple[list[Artist], list[Pa
         label: str | None = strip_artist_label(folder.name)
         if label is not None:
             names[folder] = label
+
+    regions: dict[str, str] = {
+        name: (folder.parent.name if folder != disco else "") for folder, name in names.items()
+    }
 
     homes: dict[str, list[Path]] = folding.find_homes(target, set(names.values()))
     settled: list[Path] = [home for found in homes.values() for home in found]
@@ -269,6 +282,7 @@ def _gather(roster: Sequence[Path], target: Path) -> tuple[list[Artist], list[Pa
         artists.append(
             Artist(
                 name=name,
+                region=regions[name],
                 albums=albums[name],
                 homes=tuple(found),
                 candidates=tuple(candidates),
@@ -307,7 +321,7 @@ def _assign(loose: Sequence[Path], titles: Mapping[str, set[str]]) -> dict[Path,
 # ==================================================================================== #
 #                                      SYNCING                                         #
 # ==================================================================================== #
-def _sync(artist: Artist) -> Synced:
+def _sync(artist: Artist, width: int) -> Synced:
     """Fold, tag and cover one artist's albums.
 
     In that order and only that order: the Album tag is read off the
@@ -316,15 +330,18 @@ def _sync(artist: Artist) -> Synced:
 
     Args:
         artist: The artist to sync.
+        width: The column every artist's name is padded to, so the bars
+            line up with each other and with the roster above.
 
     Returns:
         What the three passes did, and what they could not.
     """
+    label: str = set_cell_size(artist.name, width)
     with make_progress(noun="albums") as progress:
         fold_plan = folding.plan(
             artist.candidates,
             artist.albums,
-            on_progress=make_bar(progress, f"Playlist: {artist.name}", len(artist.candidates)),
+            on_progress=make_bar(progress, f"Playlist: {label}", len(artist.candidates)),
         )
 
     report = folding.apply(fold_plan)
@@ -459,7 +476,7 @@ def _fold_notices(fold_plan: folding.PlaylistPlan) -> tuple[Notice, ...]:
     return tuple(notices)
 
 
-def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path]) -> None:
+def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path], width: int) -> None:
     """Print what the roster turned up, before anything is agreed to.
 
     Every artist the discography path covers, and where each stands in
@@ -468,23 +485,35 @@ def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path]) -> None:
     these yet" and "you pointed at the wrong playlist", and a run that
     listed only the ones it found would look identical either way.
 
+    Grouped under the discography folder that holds them, which is a fact
+    about the artist rather than about where you filed their music -- one
+    artist may sit in several places in the playlist, or none. The
+    heading only appears when there is more than one region to tell
+    apart, so pointing at a single one reads as a plain list.
+
     Args:
         artists: Every artist in the roster, with what was found for
             them.
         skipped: Folders that hold neither an album nor a known artist.
+        width: The column every artist's name is padded to. By cell
+            width, not character count: a CJK name is half as many
+            characters as it is columns wide, and "{:<40}" would step
+            the column left by one for every one of them.
     """
     typer.echo()
-    # Padded by cell width, not character count: a CJK name is half as
-    # many characters as it is columns wide, and "{:<40}" would step the
-    # column left by one for every one of them. The width comes from the
-    # longest name rather than a fixed number, so nothing ever overruns.
-    width: int = max(cell_len(artist.name) for artist in artists)
+    grouped: bool = len({artist.region for artist in artists}) > 1
+    indent: str = "    " if grouped else "  "
+    region: str = ""
 
     for artist in artists:
+        if grouped and artist.region != region:
+            region = artist.region
+            typer.secho(f"  {region}", fg=typer.colors.MAGENTA, bold=True)
+
         name: str = set_cell_size(artist.name, width)
         if not artist.candidates:
             typer.secho(
-                f"  {name}  nothing found in the playlist",
+                f"{indent}{name}  nothing found in the playlist",
                 fg=typer.colors.BRIGHT_BLACK,
             )
             continue
@@ -495,7 +524,7 @@ def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path]) -> None:
             else ("to file" if not artist.homes else "to sync")
         )
         typer.secho(
-            f"  {name}  {len(artist.candidates)} album(s) {where}",
+            f"{indent}{name}  {len(artist.candidates)} album(s) {where}",
             fg=typer.colors.CYAN,
         )
 
