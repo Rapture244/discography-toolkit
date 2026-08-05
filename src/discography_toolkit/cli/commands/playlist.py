@@ -69,7 +69,7 @@ from discography_toolkit.core.names import album_title, strip_artist_label
 from discography_toolkit.operations import playlist as folding, tagging
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 
 # ==================================================================================== #
@@ -199,22 +199,14 @@ def playlist(
         raise typer.Exit(code=0)
 
     typer.echo()
-    planned: list[tuple[Artist, folding.PlaylistPlan]] = []
-    for artist in workable:
-        label: str = set_cell_size(artist.name, width)
-        with make_progress(noun="albums") as progress:
-            planned.append(
-                (
-                    artist,
-                    folding.plan(
-                        artist.candidates,
-                        artist.albums,
-                        on_progress=make_bar(
-                            progress, f"Playlist: {label}", len(artist.candidates)
-                        ),
-                    ),
-                )
-            )
+    with make_progress(noun="albums") as progress:
+        matching = make_bar(
+            progress, "Playlist: matching", sum(len(a.candidates) for a in workable)
+        )
+        planned: list[tuple[Artist, folding.PlaylistPlan]] = [
+            (artist, folding.plan(artist.candidates, artist.albums, on_progress=matching))
+            for artist in workable
+        ]
 
     moves: int = sum(len(plan.pending) for _, plan in planned)
     _echo_moves(planned)
@@ -228,11 +220,26 @@ def playlist(
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
+    # One bar for the writing, sized before anything moves: every track
+    # to be read for its tags, and one step per album for its cover.
+    # Counted from the folders as they stand, a move changing where they
+    # are and not how many tracks they hold.
+    total: int = sum(
+        len(album_tracks(match.album)) + 1
+        for _, fold_plan in planned
+        for match in fold_plan.matches
+    )
+
     typer.echo()
     results: list[Synced] = []
-    for artist, fold_plan in planned:
-        result: Synced = _sync(artist, fold_plan)
-        results.append(result)
+    with make_progress() as progress:
+        writing = make_bar(progress, "Playlist: writing", total)
+        for artist, fold_plan in planned:
+            results.append(_sync(artist, fold_plan, writing))
+
+    # Printed after the bar closes, not between artists: a live display
+    # and a stream of lines to the same terminal fight over the cursor.
+    for result in results:
         _echo_artist(result)
 
     _echo_summary(results)
@@ -348,7 +355,11 @@ def _assign(loose: Sequence[Path], titles: Mapping[str, set[str]]) -> dict[Path,
 # ==================================================================================== #
 #                                      SYNCING                                         #
 # ==================================================================================== #
-def _sync(artist: Artist, fold_plan: folding.PlaylistPlan) -> Synced:
+def _sync(
+    artist: Artist,
+    fold_plan: folding.PlaylistPlan,
+    advance: Callable[[Path], None],
+) -> Synced:
     """Fold, tag and cover one artist's albums.
 
     In that order and only that order: the Album tag is read off the
@@ -360,6 +371,8 @@ def _sync(artist: Artist, fold_plan: folding.PlaylistPlan) -> Synced:
     Args:
         artist: The artist to sync.
         fold_plan: What the fold worked out, already shown and agreed to.
+        advance: The run's single progress callback, shared by every
+            artist so the whole write reads as one bar.
 
     Returns:
         What the three passes did, and what they could not.
@@ -368,8 +381,10 @@ def _sync(artist: Artist, fold_plan: folding.PlaylistPlan) -> Synced:
 
     placed: list[folding.Match] = [match for match in fold_plan.matches if match.target.is_dir()]
 
-    tagged, tag_notices, tag_failures = _write_tags(placed)
-    covered, art_notices, art_failures = _write_covers(sorted({match.target for match in placed}))
+    tagged, tag_notices, tag_failures = _write_tags(placed, advance)
+    covered, art_notices, art_failures = _write_covers(
+        sorted({match.target for match in placed}), advance
+    )
 
     return Synced(
         name=artist.name,
@@ -384,6 +399,7 @@ def _sync(artist: Artist, fold_plan: folding.PlaylistPlan) -> Synced:
 
 def _write_tags(
     placed: Sequence[folding.Match],
+    advance: Callable[[Path], None],
 ) -> tuple[int, tuple[Notice, ...], tuple[tuple[Path, str], ...]]:
     """Write the Album tag and the Genre of every track in one pass.
 
@@ -411,6 +427,7 @@ def _write_tags(
 
     Args:
         placed: The matches whose folders are in place.
+        advance: The run's progress callback, called per track read.
 
     Returns:
         How many tracks were written, what had no genre to copy, and
@@ -432,7 +449,10 @@ def _write_tags(
     if not tracks:
         return 0, (), ()
 
-    plan = tagging.plan(tracks, [Tag.ALBUM, Tag.GENRE], _wants(wanted))
+    # Barred on the read rather than the write: opening every track to
+    # see what it already holds is where the time goes, and it is the
+    # pause a run would otherwise sit through in silence.
+    plan = tagging.plan(tracks, [Tag.ALBUM, Tag.GENRE], _wants(wanted), on_progress=advance)
     report = tagging.apply(plan)
 
     notices: tuple[Notice, ...] = ()
@@ -451,11 +471,13 @@ def _write_tags(
 
 def _write_covers(
     settled: Sequence[Path],
+    advance: Callable[[Path], None],
 ) -> tuple[int, tuple[Notice, ...], tuple[tuple[Path, str], ...]]:
     """Write one cover.jpg per album, from the art its tracks carry.
 
     Args:
         settled: The artist's album folders, as they now stand.
+        advance: The run's progress callback, called per album read.
 
     Returns:
         How many covers were written, what had no art, and what failed.
@@ -463,7 +485,7 @@ def _write_covers(
     if not settled:
         return 0, (), ()
 
-    plan = folding.plan_covers(settled)
+    plan = folding.plan_covers(settled, on_progress=advance)
     report = folding.apply_covers(plan)
 
     notices: tuple[Notice, ...] = ()
@@ -662,16 +684,33 @@ def _echo_artist(result: Synced) -> None:
 def _echo_summary(results: Sequence[Synced]) -> None:
     """Print the closing line for the whole run.
 
+    Three outcomes, not two. An artist whose albums were all found and
+    all already right has been synced as surely as one that changed --
+    counting only the changes said "0 of 1 synced" for a run that did
+    exactly what it was asked and found nothing left to do. An artist
+    nothing could be matched for is the one that did not.
+
+    Only the outcomes that happened are named, so the ordinary run reads
+    as one clause rather than two zeroes.
+
     Args:
         results: What the run did for each artist.
     """
     changed: int = sum(1 for result in results if result.changed)
+    in_step: int = sum(1 for result in results if not result.changed and result.matched)
+    unmatched: int = sum(1 for result in results if not result.matched)
     failures: int = sum(len(result.failures) for result in results)
 
-    typer.secho(
-        f"\nDone. {changed} of {len(results)} artist(s) synced.",
-        fg=typer.colors.GREEN,
-        bold=True,
-    )
+    parts: list[str] = []
+    if changed:
+        parts.append(f"{changed} artist(s) updated")
+    if in_step:
+        parts.append(f"{in_step} already in step")
+    if unmatched:
+        parts.append(f"{unmatched} with nothing matched")
+
+    colour: str = typer.colors.YELLOW if unmatched and not changed else typer.colors.GREEN
+    typer.secho(f"\nDone. {', '.join(parts)}.", fg=colour, bold=True)
+
     if failures:
         typer.secho(f"{failures} operation(s) failed.", fg=typer.colors.RED)
