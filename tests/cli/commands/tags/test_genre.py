@@ -451,6 +451,42 @@ def test_force_asks_when_given_no_genre(shelf: Path) -> None:
     assert (shelf / ".genre").read_bytes() == b"Koto\n"
 
 
+def test_force_shows_what_each_declaration_holds_before_asking(shelf: Path) -> None:
+    """Nobody should be asked to overwrite something they cannot see.
+
+    The value is what makes the prompt answerable: the new genre is often
+    the old one extended, which needs the old one in front of you.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    declare(artist, "Mande;(GIN) Djembe")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "--force"], input="Jazz\nn\n")
+
+    assert "Mande;(GIN) Djembe" in result.output
+    # Named relative to the target, and before the prompt rather than after.
+    assert result.output.index("Mande;(GIN) Djembe") < result.output.index("Enter the genre")
+
+
+def test_force_names_an_unusable_declaration_rather_than_refusing(shelf: Path) -> None:
+    """A file on its way out must not stop the run that is removing it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    _ = (shelf / ".genre").write_text("   \n", encoding="utf-8", newline="\n")
+
+    result = runner.invoke(
+        app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz", "--force"], input="y\n"
+    )
+
+    assert result.exit_code == 0
+    assert "(unusable)" in result.output
+    assert (shelf / ".genre").read_bytes() == b"Jazz\n"
+
+
 def test_force_says_what_it_would_delete(shelf: Path) -> None:
     """The one destructive step here is named before it is taken.
 

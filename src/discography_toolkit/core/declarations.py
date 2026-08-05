@@ -134,17 +134,22 @@ def nearest(folder: Path, ceiling: Path) -> Declaration | None:
     for parent in (folder, *folder.parents):
         sidecar: Path = parent / SIDECAR_NAME
         if sidecar.is_file():
-            return Declaration(genre=_value(sidecar), source=sidecar)
+            return Declaration(genre=value(sidecar), source=sidecar)
         if parent == ceiling:
             return None
     return None
 
 
 # ==================================================================================== #
-#                                   HELPER FUNCTIONS                                   #
+#                                 READING ONE FILE                                     #
 # ==================================================================================== #
-def _value(sidecar: Path) -> str:
+def value(sidecar: Path) -> str:
     """Read one declaration, refusing anything that is not a single genre.
+
+    Public because a known file sometimes has to be read rather than
+    found: replacing the declarations beneath a path means saying what
+    they hold first, and nobody should be asked to overwrite something
+    they cannot see.
 
     A trailing newline is not a fault: `.editorconfig` sets
     `insert_final_newline`, so an editor honouring it adds one to every
@@ -165,9 +170,9 @@ def _value(sidecar: Path) -> str:
     except (OSError, UnicodeDecodeError) as exc:
         raise UnusableDeclarationError(sidecar, f"{_UNREADABLE} - {exc}") from exc
 
-    value: str = raw.strip()
-    if not value:
+    declared: str = raw.strip()
+    if not declared:
         raise UnusableDeclarationError(sidecar, _EMPTY)
-    if "\n" in value:
+    if "\n" in declared:
         raise UnusableDeclarationError(sidecar, _MULTILINE)
-    return value
+    return declared

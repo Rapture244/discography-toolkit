@@ -112,7 +112,8 @@ def genre(
         value: Fallback for tracks no `.genre` declares, written exactly
             as given; prompted for when one is needed and none was given.
         force: Delete every `.genre` beneath the path and declare the
-            supplied value instead, ignoring what they said.
+            supplied value instead, ignoring what they said. What they
+            currently hold is printed before the genre is asked for.
         dry_run: Report what would change without writing.
 
     Raises:
@@ -131,6 +132,19 @@ def genre(
     # the shelf already declares, which cannot be known without the
     # tracks in hand.
     tracks: list[Path] = require_tracks(target)
+
+    # ponytail: rglob does not prune dotted folders the way
+    # `layout._visible_files` does, so a repository or a virtualenv
+    # beneath the target would be walked. A discography holds neither.
+    # Upgrade by pruning during the walk if this ever runs somewhere it
+    # might.
+    #
+    # Gathered before the prompt rather than after: forcing is the one
+    # step that destroys something hand-written, and being asked to
+    # replace declarations without being shown them is how a considered
+    # answer gets overwritten by a hasty one.
+    doomed: list[Path] = sorted(target.rglob(SIDECAR_NAME)) if force else []
+    _echo_doomed(doomed, target)
 
     # Forcing replaces every declaration, so none is read -- the supplied
     # value answers for each track rather than losing to a file that is
@@ -159,13 +173,6 @@ def genre(
     if dry_run:
         typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
         raise typer.Exit(code=0)
-
-    # ponytail: rglob does not prune dotted folders the way
-    # `layout._visible_files` does, so a repository or a virtualenv
-    # beneath the target would be walked. A discography holds neither.
-    # Upgrade by pruning during the walk if this ever runs somewhere it
-    # might.
-    doomed: list[Path] = sorted(target.rglob(SIDECAR_NAME)) if force else []
 
     pending: int = len(plan.pending)
     # A run writing no tag can still owe a declaration: the tags may
@@ -217,6 +224,43 @@ def _resolved(tracks: Sequence[Path], ceiling: Path) -> Mapping[Path, Declaratio
         return declarations.resolve(tracks, ceiling)
     except declarations.UnusableDeclarationError as exc:
         _refuse(str(exc))
+
+
+def _echo_doomed(doomed: Sequence[Path], target: Path) -> None:
+    """Say what the declarations beneath the path currently hold.
+
+    Printed before the genre is asked for, because the answer often
+    starts from what is already there -- a value to extend rather than
+    replace outright. Being asked to overwrite something unseen is how a
+    considered declaration gets lost to a hastier one.
+
+    An unusable file is named rather than refused. Forcing deletes it
+    either way, so stopping the run over a file that is on its way out
+    would be a refusal with nothing behind it.
+
+    Args:
+        doomed: The declarations that would be deleted.
+        target: The folder the run is scoped to, which they are named
+            relative to.
+    """
+    if not doomed:
+        return
+
+    holdings: list[tuple[str, str]] = []
+    for sidecar in doomed:
+        try:
+            current: str = declarations.value(sidecar)
+        except declarations.UnusableDeclarationError:
+            current = "(unusable)"
+        holdings.append((current, str(sidecar.relative_to(target))))
+
+    label: str = typer.style("Replacing ->", fg=typer.colors.YELLOW, bold=True)
+    width: int = max(len(repr(current)) for current, _ in holdings)
+
+    typer.echo()
+    for current, where in holdings:
+        source: str = typer.style(where, fg=typer.colors.BRIGHT_BLACK)
+        typer.echo(f"{label} {current!r:<{width}}   {source}")
 
 
 def _declare(doomed: Sequence[Path], target: Path, fallback: str) -> list[tuple[Path, str]]:
