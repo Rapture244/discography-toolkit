@@ -79,10 +79,14 @@ class Match:
         album: The converted folder as it stands.
         target: Where it belongs -- inside the artist folder, under the
             discography's name for it with its own quality word.
+        source: The discography album it matched. Kept because not
+            everything the playlist copies is in a folder name: the genre
+            has to be read from the discography's own tracks.
     """
 
     album: Path
     target: Path
+    source: Path
 
     @property
     def needs_move(self) -> bool:
@@ -331,8 +335,13 @@ def plan(
             contested.append(tuple(folder for folder, _ in claimants))
             continue
         claimant, destination = claimants[0]
+        source: Path = disco[title][0]
         matches.append(
-            Match(album=claimant, target=destination / settled_name(disco[title][0], claimant))
+            Match(
+                album=claimant,
+                target=destination / settled_name(source, claimant),
+                source=source,
+            )
         )
 
     return PlaylistPlan(
@@ -449,6 +458,27 @@ def apply_covers(
     return CoverReport(written=written, failures=tuple(failures))
 
 
+def genre_of(album: Path) -> str:
+    """Read the Genre an album's tracks carry.
+
+    The one thing the playlist copies that no folder name holds, so it
+    comes from the discography's files rather than from its shelf. Read
+    per album because that is how it is written: `tags genre` gives one
+    value to everything under a path.
+
+    Args:
+        album: The album folder to read.
+
+    Returns:
+        The genre, empty when no track carries a readable one.
+    """
+    for track in album_tracks(album):
+        value: str = _tag_of(track, Tag.GENRE)
+        if value:
+            return value
+    return ""
+
+
 def identity(album: Path) -> str | None:
     """Read which album a folder holds, from the tags rather than the name.
 
@@ -469,7 +499,7 @@ def identity(album: Path) -> str | None:
         track carries a readable Album tag.
     """
     for track in album_tracks(album):
-        value: str = _album_of(track)
+        value: str = _tag_of(track, Tag.ALBUM)
         if value:
             return _bare_title(value).casefold()
     return None
@@ -618,8 +648,8 @@ def _on_disk(target: Path) -> bytes | None:
         return None
 
 
-def _album_of(track: Path) -> str:
-    """Read one track's Album tag, or nothing when it cannot be read.
+def _tag_of(track: Path, tag: Tag) -> str:
+    """Read one of a track's tags, or nothing when it cannot be read.
 
     An unreadable track is not the album's answer -- the next one may
     well be -- so it is passed over rather than raised on, the way an
@@ -627,12 +657,14 @@ def _album_of(track: Path) -> str:
 
     Args:
         track: The audio file to read.
+        tag: Which tag to read.
 
     Returns:
-        The Album tag, empty when absent or when the file will not read.
+        The tag's value, empty when absent or when the file will not
+        read.
     """
     try:
-        return metadata.read(track, [Tag.ALBUM])[Tag.ALBUM]
+        return metadata.read(track, [tag])[tag]
     except Exception:  # noqa: BLE001 - any file can fail in ways not worth enumerating
         return ""
 
