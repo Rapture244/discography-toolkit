@@ -183,8 +183,8 @@ class CoverReport:
 # ==================================================================================== #
 #                                      PUBLIC API                                      #
 # ==================================================================================== #
-def find_homes(root: Path, artist_names: Set[str]) -> dict[str, list[Path]]:
-    """Find where each artist already lives in the playlist.
+def find_homes(root: Path, artist_names: Set[str]) -> tuple[dict[str, list[Path]], list[Path]]:
+    """Find where each artist already lives in the playlist, and who else does.
 
     One artist may have several homes, or none. The playlist is a
     curation rather than a mirror -- an album filed under "Classical"
@@ -192,11 +192,16 @@ def find_homes(root: Path, artist_names: Set[str]) -> dict[str, list[Path]]:
     shelf elsewhere -- so every folder named for them is theirs, and the
     run syncs all of them against the one discography.
 
+    Folders that hold albums but answer to no name in the roster come
+    back too. They are nobody's to sync, the discography saying nothing
+    about them, but the walk passes them and staying quiet would mean a
+    whole artist sitting in the playlist that the run never mentioned.
+
     One walk for every artist rather than a walk apiece, and it stops
-    descending on two conditions: a folder that matches, since an artist
-    holds albums and never another artist, and a folder holding audio of
-    its own, which is an album or a disc and cannot contain an artist
-    either.
+    descending on three conditions: a folder that matches, since an
+    artist holds albums and never another artist; a folder holding audio
+    of its own, which is an album or a disc; and a folder whose children
+    hold audio, which is an artist by shape whatever it is called.
 
     Names are matched exactly. Nothing types these -- the fold writes
     them from the discography and a converter writes them from the tag --
@@ -209,12 +214,17 @@ def find_homes(root: Path, artist_names: Set[str]) -> dict[str, list[Path]]:
         artist_names: The names to look for, from the discography.
 
     Returns:
-        Each name mapped to the folders found for it, in walk order.
+        Each name mapped to the folders found for it, in walk order, and
+        the artist-shaped folders belonging to no name in the roster.
         A name with no folder is absent.
     """
     found: dict[str, list[Path]] = defaultdict(list)
-    _collect_homes(root, artist_names, found)
-    return dict(found)
+    strangers: list[Path] = []
+    _collect_homes(root, artist_names, found, strangers)
+
+    # The root is not a stranger to itself: pointed at a converter's drop
+    # folder it holds albums directly, which is the ordinary case.
+    return dict(found), [folder for folder in strangers if folder != root]
 
 
 def loose_albums(root: Path, homes: Iterable[Path]) -> tuple[list[Path], list[Path]]:
@@ -502,13 +512,19 @@ def album_tag(name: str) -> str:
 # ==================================================================================== #
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
-def _collect_homes(folder: Path, artist_names: Set[str], found: dict[str, list[Path]]) -> None:
-    """Descend a folder, adding the artist homes found and not stepping past them.
+def _collect_homes(
+    folder: Path,
+    artist_names: Set[str],
+    found: dict[str, list[Path]],
+    strangers: list[Path],
+) -> None:
+    """Descend a folder, adding the artists found and not stepping past them.
 
     Args:
         folder: The folder to examine.
         artist_names: The names to look for.
-        found: The mapping to append to, in place.
+        found: The mapping to append matches to, in place.
+        strangers: The list to append unrecognised artists to, in place.
     """
     if folder.name in artist_names:
         found[folder.name].append(folder)
@@ -521,8 +537,12 @@ def _collect_homes(folder: Path, artist_names: Set[str], found: dict[str, list[P
         if entry.is_dir() and not entry.name.startswith("."):
             children.append(entry)
 
+    if any(holds_audio(child) for child in children):
+        strangers.append(folder)  # its children are albums, so it is an artist
+        return
+
     for child in children:
-        _collect_homes(child, artist_names, found)
+        _collect_homes(child, artist_names, found, strangers)
 
 
 def _embedded_cover(album: Path) -> Cover | None:

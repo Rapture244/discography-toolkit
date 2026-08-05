@@ -194,10 +194,30 @@ def playlist(
         typer.secho(f"\nNothing of these artists found in {target}", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
+    typer.echo()
+    planned: list[tuple[Artist, folding.PlaylistPlan]] = []
+    for artist in workable:
+        label: str = set_cell_size(artist.name, width)
+        with make_progress(noun="albums") as progress:
+            planned.append(
+                (
+                    artist,
+                    folding.plan(
+                        artist.candidates,
+                        artist.albums,
+                        on_progress=make_bar(
+                            progress, f"Playlist: {label}", len(artist.candidates)
+                        ),
+                    ),
+                )
+            )
+
+    moves: int = sum(len(plan.pending) for _, plan in planned)
+    _echo_moves(planned)
+
     warning: str = (
-        f"This syncs {wanted} album folder(s) across {len(workable)} artist(s) against the "
-        "discography, writing their Album tag and a cover.jpg beside their tracks. "
-        "There is no dry run."
+        f"This moves {moves} album folder(s), then writes their Album tag and a "
+        "cover.jpg beside their tracks. There is no dry run."
     )
     typer.secho(f"\n{warning}", fg=typer.colors.YELLOW)
     if not typer.confirm("Proceed?"):
@@ -206,8 +226,8 @@ def playlist(
 
     typer.echo()
     results: list[Synced] = []
-    for artist in workable:
-        result: Synced = _sync(artist, width)
+    for artist, fold_plan in planned:
+        result: Synced = _sync(artist, fold_plan)
         results.append(result)
         _echo_artist(result)
 
@@ -239,8 +259,9 @@ def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Art
         target: The playlist path to search.
 
     Returns:
-        One entry per artist, in roster order, and the folders that hold
-        neither an album nor any artist the roster knows.
+        One entry per artist, in roster order, and the folders in the
+        playlist the run has nothing to say about -- an artist the
+        discography does not know, or something that is neither.
     """
     names: dict[Path, str] = {}
     for folder in roster:
@@ -252,9 +273,11 @@ def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Art
         name: (folder.parent.name if folder != disco else "") for folder, name in names.items()
     }
 
-    homes: dict[str, list[Path]] = folding.find_homes(target, set(names.values()))
+    homes, strangers = folding.find_homes(target, set(names.values()))
     settled: list[Path] = [home for found in homes.values() for home in found]
-    loose, skipped = folding.loose_albums(target, settled)
+    # Strangers count as settled for this: a region folder holding one is
+    # not a folder the run passed over, it is a folder it walked through.
+    loose, skipped = folding.loose_albums(target, [*settled, *strangers])
 
     albums: dict[str, tuple[Path, ...]] = {
         name: tuple(discover_albums(folder)) for folder, name in names.items()
@@ -289,7 +312,7 @@ def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Art
             )
         )
 
-    return artists, skipped
+    return artists, [*skipped, *strangers]
 
 
 def _assign(loose: Sequence[Path], titles: Mapping[str, set[str]]) -> dict[Path, str]:
@@ -321,29 +344,22 @@ def _assign(loose: Sequence[Path], titles: Mapping[str, set[str]]) -> dict[Path,
 # ==================================================================================== #
 #                                      SYNCING                                         #
 # ==================================================================================== #
-def _sync(artist: Artist, width: int) -> Synced:
+def _sync(artist: Artist, fold_plan: folding.PlaylistPlan) -> Synced:
     """Fold, tag and cover one artist's albums.
 
     In that order and only that order: the Album tag is read off the
     folder name the fold has just written, and the cover off the tracks
-    once they are where they belong.
+    once they are where they belong. Which is also why the plan is made
+    before the confirmation and handed in here -- the fold can be shown
+    before it happens, and the two passes that follow it cannot.
 
     Args:
         artist: The artist to sync.
-        width: The column every artist's name is padded to, so the bars
-            line up with each other and with the roster above.
+        fold_plan: What the fold worked out, already shown and agreed to.
 
     Returns:
         What the three passes did, and what they could not.
     """
-    label: str = set_cell_size(artist.name, width)
-    with make_progress(noun="albums") as progress:
-        fold_plan = folding.plan(
-            artist.candidates,
-            artist.albums,
-            on_progress=make_bar(progress, f"Playlist: {label}", len(artist.candidates)),
-        )
-
     report = folding.apply(fold_plan)
 
     # Re-read rather than trust the plan: the fold has just renamed these
@@ -494,7 +510,9 @@ def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path], width: int) 
     Args:
         artists: Every artist in the roster, with what was found for
             them.
-        skipped: Folders that hold neither an album nor a known artist.
+        skipped: Folders in the playlist the run has nothing to say
+            about -- an artist the discography does not know, or
+            something that is neither an album nor an artist.
         width: The column every artist's name is padded to. By cell
             width, not character count: a CJK name is half as many
             characters as it is columns wide, and "{:<40}" would step
@@ -530,11 +548,41 @@ def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path], width: int) 
 
     if skipped:
         typer.secho(
-            f"\n  {len(skipped)} folder(s) hold neither an album nor a known artist:",
+            f"\n  {len(skipped)} folder(s) in the playlist match no artist in the discography:",
             fg=typer.colors.YELLOW,
         )
         for folder in skipped:
             typer.secho(f"      {folder.name!r}", fg=typer.colors.BRIGHT_BLACK)
+
+
+def _echo_moves(planned: Sequence[tuple[Artist, folding.PlaylistPlan]]) -> None:
+    """Show every rename the fold would make, before it is agreed to.
+
+    The one part of the run that can be previewed, and the one that
+    moves things. The two passes after it cannot be: the Album tag is
+    read off a folder name the fold has not written yet.
+
+    Every move is listed rather than counted or truncated. A count told
+    nobody that seventeen albums were about to be folded into one folder
+    under the name of a single record; the line saying so would have.
+    Truncating would hide exactly the odd one out, which is the only line
+    worth reading.
+
+    An artist with nothing to move is left out. On a sync -- the ordinary
+    case, everything already in place -- that means this prints nothing
+    at all.
+
+    Args:
+        planned: Each artist and what the fold worked out for them.
+    """
+    for artist, fold_plan in planned:
+        if not fold_plan.pending:
+            continue
+
+        typer.secho(f"\n  {artist.name}", fg=typer.colors.CYAN, bold=True)
+        for match in fold_plan.pending:
+            typer.secho(f"      {match.album.name!r}", fg=typer.colors.BRIGHT_BLACK)
+            typer.secho(f"        \u2192 {match.target.name!r}", fg=typer.colors.GREEN)
 
 
 def _echo_artist(result: Synced) -> None:

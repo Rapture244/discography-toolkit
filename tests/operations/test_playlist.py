@@ -202,7 +202,10 @@ def test_find_homes_finds_an_artist_at_any_depth(
     root: Path = tmp_path / "playlist"
     _ = album("playlist/Region/Miles Davis/An Album", tag="An Album")
 
-    assert find_homes(root, {"Miles Davis"}) == {"Miles Davis": [root / "Region" / "Miles Davis"]}
+    homes, strangers = find_homes(root, {"Miles Davis"})
+
+    assert homes == {"Miles Davis": [root / "Region" / "Miles Davis"]}
+    assert strangers == []
 
 
 def test_find_homes_finds_one_artist_in_several_places(
@@ -218,7 +221,7 @@ def test_find_homes_finds_one_artist_in_several_places(
     _ = album("playlist/Japan/Rodrigo/One", tag="One")
     _ = album("playlist/Classical/Rodrigo/Two", tag="Two")
 
-    found: dict[str, list[Path]] = find_homes(root, {"Rodrigo"})
+    found, _strangers = find_homes(root, {"Rodrigo"})
 
     assert sorted(found["Rodrigo"]) == sorted(
         [root / "Japan" / "Rodrigo", root / "Classical" / "Rodrigo"]
@@ -238,7 +241,32 @@ def test_find_homes_does_not_look_inside_an_album(
     folder: Path = album("playlist/An Album", tag="An Album")
     (folder / "Miles Davis").mkdir()
 
-    assert find_homes(root, {"Miles Davis"}) == {}
+    homes, strangers = find_homes(root, {"Miles Davis"})
+
+    assert homes == {}
+    assert strangers == []
+
+
+def test_find_homes_names_an_artist_the_roster_does_not_know(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """An artist in the playlist the discography knows nothing about.
+
+    Nobody's to sync, but the walk goes right past them, and saying
+    nothing means a whole artist sitting in the playlist that the run
+    never mentions -- as though they were not there at all.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    root: Path = tmp_path / "playlist"
+    _ = album("playlist/Africa/(Mali) - Toumani Diabat\u00e9/02. (1988) - Kaira", tag="Kaira")
+
+    homes, strangers = find_homes(root, {"Miles Davis"})
+
+    assert homes == {}
+    assert strangers == [root / "Africa" / "(Mali) - Toumani Diabat\u00e9"]
 
 
 # ==================================================================================== #
