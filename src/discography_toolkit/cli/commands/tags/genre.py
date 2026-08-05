@@ -187,7 +187,7 @@ def genre(
     # by.
     if value is None and not force and not fallback and (target / SIDECAR_NAME).is_file():
         own: str = declarations.value(target / SIDECAR_NAME)
-        if typer.confirm(f"\nRename {own!r} here and everywhere below?"):
+        if typer.confirm(f"\nRename {_styled(own)} here and everywhere below?"):
             _rename(target, tracks, artists, own, None, dry_run=dry_run)
             raise typer.Exit(code=0)
 
@@ -263,7 +263,7 @@ def _rename(
         typer.Exit: On an empty replacement, or a user abort.
     """
     if new is None:
-        new = cast("str", typer.prompt(f"\nReplace {old!r} with"))
+        new = cast("str", typer.prompt(f"\nReplace {_styled(old)} with"))
     new = new.strip()
     if not new:
         _refuse("Genre cannot be empty.")
@@ -285,7 +285,7 @@ def _rename(
         typer.secho(f"\nNothing beneath this path carries {old!r}.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
-    summary: str = f"rename {old!r} to {new!r} in {pending} file(s)"
+    summary: str = f"rename {_styled(old)} to {_styled(new)} in {pending} file(s)"
     if edits:
         summary = f"{summary} and {len(edits)} {SIDECAR_NAME} file(s)"
     if not typer.confirm(f"\nProceed to {summary}?"):
@@ -449,7 +449,7 @@ def _echo_doomed(doomed: Sequence[Path], target: Path) -> None:
     typer.echo()
     for current, where in holdings:
         source: str = typer.style(where, fg=typer.colors.BRIGHT_BLACK)
-        typer.echo(f"{label} {current!r:<{width}}   {source}")
+        typer.echo(f"{label} {_styled(current, width)}   {source}")
 
 
 def _declare(doomed: Sequence[Path], target: Path, fallback: str) -> list[tuple[Path, str]]:
@@ -506,6 +506,27 @@ def _refuse(message: str) -> NoReturn:
 # ==================================================================================== #
 #                                      RENDERING                                       #
 # ==================================================================================== #
+def _styled(genre: str, width: int = 0) -> str:
+    """Render a genre so it reads apart from the words around it.
+
+    The value is the only part of these lines anyone is actually reading
+    -- the prose is scaffolding. Left plain it disappears into the
+    sentence, which matters most in the prompts, where it is the thing
+    being agreed to.
+
+    Padded before it is styled, never after: the escape codes count
+    towards a format width and would pull a column out of line.
+
+    Args:
+        genre: The value to render.
+        width: Column width to pad to, or none.
+
+    Returns:
+        The quoted value, styled.
+    """
+    return typer.style(f"{genre!r:<{width}}", fg=typer.colors.GREEN, bold=True)
+
+
 def _wants(declared: Mapping[Path, Declaration], fallback: str) -> tagging.Desired:
     """Build the value function: what each track's folder was told to hold.
 
@@ -573,7 +594,7 @@ def _echo_values(
     typer.echo()
     for (value, origin), count in sorted(counts.items()):
         source: str = typer.style(origin, fg=typer.colors.BRIGHT_BLACK)
-        typer.echo(f"{label} {value!r:<{width}}   {count:>{digits}} file(s)   {source}")
+        typer.echo(f"{label} {_styled(value, width)}   {count:>{digits}} file(s)   {source}")
 
 
 def _summarize(pending: int, fallback: str, doomed: Sequence[Path], target: Path) -> str:
@@ -598,7 +619,7 @@ def _summarize(pending: int, fallback: str, doomed: Sequence[Path], target: Path
     if doomed:
         parts.append(f"delete {len(doomed)} existing {SIDECAR_NAME} file(s)")
     if fallback:
-        parts.append(f"declare {fallback!r} in {target.name!r}")
+        parts.append(f"declare {_styled(fallback)} in {target.name!r}")
 
     return f"Proceed to {', '.join(parts)}?"
 
