@@ -243,7 +243,8 @@ def test_the_nearest_declaration_wins(shelf: Path) -> None:
     declare(artist, "Artist")
     declare(album, "Album")
 
-    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+    # Decline the rename offer, then confirm the tagging.
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\ny\n")
 
     assert genres_under(album) == {"Album"}
     assert genres_under(shelf / "Japan") == {"Shelf"}
@@ -258,8 +259,9 @@ def test_a_declaration_covering_everything_is_never_asked_past(shelf: Path) -> N
     """
     declare(shelf, "Jazz")
 
-    # No genre on the line and none on stdin: a prompt here would abort.
-    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+    # No genre on the line and none on stdin beyond the two confirms: a
+    # prompt for a value here would abort.
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\ny\n")
 
     assert result.exit_code == 0
     assert genres_under(shelf) == {"Jazz"}
@@ -317,12 +319,16 @@ def test_a_declaration_is_written_even_when_the_tags_are_already_right(shelf: Pa
 def test_a_declared_shelf_is_a_no_op_on_the_second_run(shelf: Path) -> None:
     """The declaration is what makes the run idempotent.
 
+    The rename offer still has to be declined: a settled shelf is asked
+    whether its answer still holds before it is told there is nothing to
+    do.
+
     Args:
         shelf: The fixture shelf.
     """
     _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
-    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)])
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\n")
 
     assert "Nothing to do" in result.output
 
@@ -366,7 +372,7 @@ def test_the_declaration_is_written_verbatim(shelf: Path) -> None:
     """
     declare(shelf, "Jazz;Jazz Fusion")
 
-    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n")
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\ny\n")
 
     assert genres_under(shelf) == {"Jazz;Jazz Fusion"}
 
@@ -501,6 +507,291 @@ def test_force_says_what_it_would_delete(shelf: Path) -> None:
 
     assert "delete 1 existing .genre file(s)" in result.output
     assert (shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]" / ".genre").exists()
+
+
+def test_a_declared_path_is_offered_a_rename(shelf: Path) -> None:
+    """With every track answered, the useful question is whether the answer still holds.
+
+    Tagged first, because a rename swaps a value the files already carry
+    -- it does not tag what was never tagged.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\ny\n")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n(JPN) Koto\ny\n")
+
+    assert "Rename '(JP) Koto'" in result.output
+    assert (shelf / ".genre").read_bytes() == b"(JPN) Koto\n"
+    assert genres_under(shelf) == {"(JPN) Koto"}
+
+
+def test_declining_the_rename_offer_tags_as_usual(shelf: Path) -> None:
+    """Saying no falls through to the run that was always going to happen.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\ny\n")
+
+    assert result.exit_code == 0
+    assert (shelf / ".genre").read_bytes() == b"(JP) Koto\n"
+    assert genres_under(shelf) == {"(JP) Koto"}
+
+
+def test_a_rename_does_not_tag_a_file_that_never_carried_the_genre(shelf: Path) -> None:
+    """A rename swaps a value; it does not put one where there was none.
+
+    The declaration is corrected either way, so the next ordinary run
+    writes it to the files.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n(JPN) Koto\ny\n")
+
+    assert (shelf / ".genre").read_bytes() == b"(JPN) Koto\n"
+    assert genres_under(shelf) == {""}
+
+
+def test_the_rename_offer_shows_the_nested_declarations_first(shelf: Path) -> None:
+    """The matches below are on screen before the question about them.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    declare(shelf, "(JP) Koto")
+    declare(artist, "(JP) Koto;Classical")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\nn\n")
+
+    assert "(JP) Koto;Classical" in result.output
+    assert result.output.index("(JP) Koto;Classical") < result.output.index("Rename ")
+
+
+def test_a_supplied_genre_is_not_offered_a_rename(shelf: Path) -> None:
+    """An answered run has nothing to ask; the offer is for the bare one.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
+
+    assert "Rename " not in result.output
+
+
+def test_an_undeclared_path_is_not_offered_a_rename(shelf: Path) -> None:
+    """Nothing to rename when the path declares nothing of its own.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="Jazz\ny\n")
+
+    assert "Rename " not in result.output
+    assert genres_under(shelf) == {"Jazz"}
+
+
+# ==================================================================================== #
+#                                       RENAMING                                       #
+# ==================================================================================== #
+def test_rename_changes_the_tags_and_the_declarations_together(shelf: Path) -> None:
+    """One correction, both stores: typing it twice is how they drift apart.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Shakuhachi")
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\ny\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "tags",
+            "genre",
+            "-p",
+            str(shelf),
+            "--rename",
+            "(JP) Shakuhachi",
+            "-g",
+            "(JPN) Shakuhachi",
+        ],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert genres_under(shelf) == {"(JPN) Shakuhachi"}
+    assert (shelf / ".genre").read_bytes() == b"(JPN) Shakuhachi\n"
+
+
+def test_rename_reaches_a_declaration_nested_below(shelf: Path) -> None:
+    """An album's own file is corrected alongside its artist's.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    artist: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    album: Path = artist / "FLAC" / "01. (1959) - Kind of Blue [FLAC]"
+    declare(artist, "(JP) Shakuhachi")
+    declare(album, "(JP) Shakuhachi;Classical")
+
+    _ = runner.invoke(
+        app,
+        [
+            "tags",
+            "genre",
+            "-p",
+            str(shelf),
+            "--rename",
+            "(JP) Shakuhachi",
+            "-g",
+            "(JPN) Shakuhachi",
+        ],
+        input="y\n",
+    )
+
+    assert (artist / ".genre").read_bytes() == b"(JPN) Shakuhachi\n"
+    assert (album / ".genre").read_bytes() == b"(JPN) Shakuhachi;Classical\n"
+
+
+def test_rename_leaves_the_other_parts_of_a_compound_value_alone(shelf: Path) -> None:
+    """Part-wise, not substring: "Classical" is not collateral damage.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    album: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    metadata.write(
+        album / "FLAC" / "01. (1959) - Kind of Blue [FLAC]" / "01.flac",
+        {Tag.GENRE: "(JP) Shakuhachi;Classical"},
+    )
+
+    _ = runner.invoke(
+        app,
+        [
+            "tags",
+            "genre",
+            "-p",
+            str(shelf),
+            "--rename",
+            "(JP) Shakuhachi",
+            "-g",
+            "(JPN) Shakuhachi",
+        ],
+        input="y\n",
+    )
+
+    assert "(JPN) Shakuhachi;Classical" in genres_under(shelf)
+
+
+def test_rename_leaves_an_unmatched_value_byte_for_byte(shelf: Path) -> None:
+    """A rename must not quietly tidy files it had no business editing.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    album: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    metadata.write(
+        album / "FLAC" / "01. (1959) - Kind of Blue [FLAC]" / "01.flac",
+        {Tag.GENRE: "Hip Hop; Soul"},
+    )
+
+    result = runner.invoke(
+        app, ["tags", "genre", "-p", str(shelf), "--rename", "Jazz", "-g", "Bebop"]
+    )
+
+    assert "Nothing beneath this path carries" in result.output
+    assert "Hip Hop; Soul" in genres_under(shelf)
+
+
+def test_rename_does_not_leave_a_duplicate_behind(shelf: Path) -> None:
+    """Renaming onto a genre a file already carries leaves one of it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    album: Path = shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]"
+    metadata.write(
+        album / "FLAC" / "01. (1959) - Kind of Blue [FLAC]" / "01.flac",
+        {Tag.GENRE: "(JP) Koto;(JPN) Koto"},
+    )
+
+    _ = runner.invoke(
+        app,
+        ["tags", "genre", "-p", str(shelf), "--rename", "(JP) Koto", "-g", "(JPN) Koto"],
+        input="y\n",
+    )
+
+    assert "(JPN) Koto" in genres_under(shelf)
+    assert "(JPN) Koto;(JPN) Koto" not in genres_under(shelf)
+
+
+def test_rename_asks_for_the_replacement_when_given_none(shelf: Path) -> None:
+    """`--rename` alone still needs to know what to replace it with.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+
+    result = runner.invoke(
+        app,
+        ["tags", "genre", "-p", str(shelf), "--rename", "(JP) Koto"],
+        input="(JPN) Koto\ny\n",
+    )
+
+    assert result.exit_code == 0
+    assert (shelf / ".genre").read_bytes() == b"(JPN) Koto\n"
+
+
+def test_rename_and_force_together_are_refused(shelf: Path) -> None:
+    """One edits the declarations, the other deletes them.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(
+        app, ["tags", "genre", "-p", str(shelf), "--rename", "Jazz", "-g", "Bebop", "--force"]
+    )
+
+    assert result.exit_code == 1
+    assert "Pick one" in result.output
+
+
+def test_rename_writes_nothing_on_a_dry_run(shelf: Path) -> None:
+    """Neither store is touched when only asked what would change.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+
+    _ = runner.invoke(
+        app,
+        [
+            "tags",
+            "genre",
+            "-p",
+            str(shelf),
+            "--rename",
+            "(JP) Koto",
+            "-g",
+            "(JPN) Koto",
+            "--dry-run",
+        ],
+    )
+
+    assert (shelf / ".genre").read_bytes() == b"(JP) Koto\n"
+    assert genres_under(shelf) == {""}
 
 
 # ==================================================================================== #

@@ -88,6 +88,13 @@ def genre(
             help='Fallback for tracks no .genre declares. Quote it: "Jazz;Fusion".',
         ),
     ] = None,
+    rename: Annotated[
+        str | None,
+        typer.Option(
+            "--rename",
+            help="Replace this genre with --genre everywhere beneath the path, tags and .genre alike.",
+        ),
+    ] = None,
     force: Annotated[
         bool,
         typer.Option(
@@ -111,6 +118,9 @@ def genre(
         path: Folder to tag beneath; prompted for if omitted.
         value: Fallback for tracks no `.genre` declares, written exactly
             as given; prompted for when one is needed and none was given.
+        rename: A genre to replace with `value` wherever it appears
+            beneath the path -- in the tags and in the `.genre` files
+            both, so a convention that changed is typed once.
         force: Delete every `.genre` beneath the path and declare the
             supplied value instead, ignoring what they said. What they
             currently hold is printed before the genre is asked for.
@@ -132,6 +142,12 @@ def genre(
     # the shelf already declares, which cannot be known without the
     # tracks in hand.
     tracks: list[Path] = require_tracks(target)
+
+    if rename is not None:
+        if force:
+            _refuse("--rename edits the declarations; --force deletes them. Pick one.")
+        _rename(target, tracks, artists, rename, value, dry_run=dry_run)
+        raise typer.Exit(code=0)
 
     # ponytail: rglob does not prune dotted folders the way
     # `layout._visible_files` does, so a repository or a virtualenv
@@ -163,6 +179,17 @@ def genre(
             raise typer.Exit(code=1)
 
     _echo_values(tracks, declared, fallback, target)
+
+    # Nothing was asked for and the path declares its own genre, so every
+    # track beneath it is already answered. The only useful question left
+    # is whether that answer is still the right one -- which is the whole
+    # of a convention changing, and the values are on screen to judge it
+    # by.
+    if value is None and not force and not fallback and (target / SIDECAR_NAME).is_file():
+        own: str = declarations.value(target / SIDECAR_NAME)
+        if typer.confirm(f"\nRename {own!r} here and everywhere below?"):
+            _rename(target, tracks, artists, own, None, dry_run=dry_run)
+            raise typer.Exit(code=0)
 
     with make_progress() as progress:
         advance = make_advancer(progress, target.name, tracks, artists)
@@ -199,6 +226,168 @@ def genre(
         report = tagging.apply(plan, on_progress=advance)
 
     echo_result("Genre", report.written, "tagged", failures=[*failures, *report.failures])
+
+
+# ==================================================================================== #
+#                                       RENAMING                                       #
+# ==================================================================================== #
+def _rename(
+    target: Path,
+    tracks: Sequence[Path],
+    artists: Sequence[Path],
+    old: str,
+    new: str | None,
+    *,
+    dry_run: bool,
+) -> None:
+    """Replace one genre with another everywhere beneath a path.
+
+    Both stores, in one pass. A convention changes once and the shelf
+    holds it in two places -- the tags and the `.genre` files -- and
+    typing the correction twice is how the two drift apart.
+
+    Find-and-replace rather than a tagging run: neither store consults
+    the other, each simply has the part swapped wherever it appears. That
+    is what makes it predictable on a shelf where most values were never
+    declared at all, which is most of them.
+
+    Args:
+        target: The folder the run is scoped to.
+        tracks: The audio files in scope.
+        artists: Artist folders beneath the target, for the progress bar.
+        old: The genre to replace.
+        new: What to replace it with; prompted for if omitted.
+        dry_run: Report what would change without writing.
+
+    Raises:
+        typer.Exit: On an empty replacement, or a user abort.
+    """
+    if new is None:
+        new = cast("str", typer.prompt(f"\nReplace {old!r} with"))
+    new = new.strip()
+    if not new:
+        _refuse("Genre cannot be empty.")
+
+    edits: list[tuple[Path, str]] = _declarations_renamed(target, old, new)
+
+    with make_progress() as progress:
+        advance = make_advancer(progress, target.name, tracks, artists)
+        plan = tagging.plan(tracks, [Tag.GENRE], _renaming(old, new), on_progress=advance)
+
+    _echo_plan(plan)
+
+    if dry_run:
+        typer.secho("\nDry run: no changes made.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    pending: int = len(plan.pending)
+    if not pending and not edits:
+        typer.secho(f"\nNothing beneath this path carries {old!r}.", fg=typer.colors.GREEN)
+        raise typer.Exit(code=0)
+
+    summary: str = f"rename {old!r} to {new!r} in {pending} file(s)"
+    if edits:
+        summary = f"{summary} and {len(edits)} {SIDECAR_NAME} file(s)"
+    if not typer.confirm(f"\nProceed to {summary}?"):
+        typer.secho("Aborted.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=0)
+
+    failures: list[tuple[Path, str]] = []
+    for sidecar, renamed in edits:
+        try:
+            _ = sidecar.write_text(f"{renamed}\n", encoding="utf-8", newline="\n")
+        except OSError as exc:
+            failures.append((sidecar, str(exc)))
+
+    with make_progress() as progress:
+        written = [outcome.path for outcome in plan.pending]
+        advance = make_advancer(progress, target.name, written, artists)
+        report = tagging.apply(plan, on_progress=advance)
+
+    echo_result("Genre", report.written, "renamed", failures=[*failures, *report.failures])
+
+
+def _declarations_renamed(target: Path, old: str, new: str) -> list[tuple[Path, str]]:
+    """Work out which declarations carry the old genre, and what they become.
+
+    Read now and written later, after the confirm, so a dry run says what
+    would change without changing it.
+
+    An unusable file is skipped rather than refused: a rename has nothing
+    to match in a file it cannot read, and stopping the run over one
+    would block a correction the rest of the shelf needs.
+
+    Args:
+        target: The folder the run is scoped to.
+        old: The genre to replace.
+        new: What to replace it with.
+
+    Returns:
+        `(path, contents)` for each declaration that would change.
+    """
+    edits: list[tuple[Path, str]] = []
+    # ponytail: rglob does not prune dotted folders, as elsewhere here. A
+    # discography holds no repository or virtualenv to walk into.
+    for sidecar in sorted(target.rglob(SIDECAR_NAME)):
+        try:
+            current: str = declarations.value(sidecar)
+        except declarations.UnusableDeclarationError:
+            continue
+        renamed: str = _swap(current, old, new)
+        if renamed != current:
+            edits.append((sidecar, renamed))
+    return edits
+
+
+def _renaming(old: str, new: str) -> tagging.Desired:
+    """Build the value function: each track's own genre, with the part swapped.
+
+    Reads `current` rather than a declaration, which is what separates a
+    rename from a tagging run. Most of what needs correcting was never
+    declared -- it came in with the rip -- so the file's own value is the
+    only thing there is to work from.
+
+    Args:
+        old: The genre to replace.
+        new: What to replace it with.
+
+    Returns:
+        A `Desired` callable reading the track's current Genre.
+    """
+
+    def desired(_track: Path, current: Mapping[Tag, str]) -> Mapping[Tag, str]:
+        return {Tag.GENRE: _swap(current.get(Tag.GENRE, ""), old, new)}
+
+    return desired
+
+
+def _swap(current: str, old: str, new: str) -> str:
+    """Replace one genre inside a value, leaving the others as they were.
+
+    Part-wise, never a substring: "(JPN) Shakuhachi;Classical" renames
+    its first half and leaves "Classical" alone, where a substring
+    replacement would reach inside neighbouring values it was never meant
+    to touch.
+
+    A value with nothing to match comes back byte for byte, so a rename
+    never quietly tidies the spacing of a file it had no business
+    editing. One that does match is rebuilt tidied, and duplicates that
+    the rename created are dropped -- renaming "(JP) Koto" onto a file
+    already carrying "(JPN) Koto" leaves one of it, not two.
+
+    Args:
+        current: The value as stored.
+        old: The genre to replace.
+        new: What to replace it with.
+
+    Returns:
+        The value with `old` swapped for `new`, or `current` untouched.
+    """
+    parts: list[str] = [part.strip() for part in current.split(";")]
+    if old not in parts:
+        return current
+    renamed: list[str] = [new if part == old else part for part in parts if part]
+    return ";".join(dict.fromkeys(renamed))
 
 
 # ==================================================================================== #
