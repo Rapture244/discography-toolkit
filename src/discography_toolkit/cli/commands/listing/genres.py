@@ -27,9 +27,11 @@ Counts therefore sum past the number of files on the shelf. A track with
 three genres is three files' worth of evidence about which conventions
 are in use, which is what the survey is for.
 
-One bar, no per-artist breakdown. A survey is asked about a path, not
-about the artists under it, and a whole discography would otherwise
-print three hundred names above a dozen result lines.
+One bar, no per-artist breakdown, and no walk to find the artists. They
+are named under the genres that carry them -- a count says a genre is
+wrong, only a name says whose folder to go and fix -- but climbed to from
+the album rather than searched for, since `is_artist_folder` reads a name
+and the paths already say it.
 
 One track per album folder is read, not every track. An album is tagged
 as a unit -- every track in it carries the same genre -- so the other
@@ -60,6 +62,7 @@ from discography_toolkit.cli.console import (
 )
 from discography_toolkit.cli.scope import require_tracks, resolve_path
 from discography_toolkit.core import declarations, metadata
+from discography_toolkit.core.layout import is_artist_folder
 from discography_toolkit.core.metadata import Tag
 
 if TYPE_CHECKING:
@@ -121,9 +124,10 @@ def genres(
             found, or a completed survey.
     """
     target: Path = resolve_path(path, "Enter the absolute path to survey beneath")
-    # No artist breakdown, and so no walk to find one. A survey answers
-    # about the path as a whole -- listing three hundred artists above a
-    # dozen result lines buries the answer under the question.
+    # Nothing under the banner: a whole discography would print three
+    # hundred artist names above a dozen result lines, burying the answer
+    # under the question. The artists that matter are named beneath the
+    # genre they carry instead.
     echo_banner("Genres", target.name)
 
     tracks: list[Path] = require_tracks(target)
@@ -135,6 +139,7 @@ def genres(
         raise typer.Exit(code=1) from exc
 
     counts: Counter[tuple[str, str]] = Counter()
+    owners: dict[tuple[str, str], set[str]] = {}
     unreadable: list[Path] = []
 
     # Grouped by folder, which is the unit a genre actually belongs to --
@@ -148,10 +153,10 @@ def genres(
     with make_progress(noun="albums") as progress:
         advance = make_bar(progress, target.name, len(folders))
         for folder, members in folders.items():
-            _tally(folder, members, declared, counts, unreadable)
+            _tally(folder, members, target, declared, counts, owners, unreadable)
             advance(folder)
 
-    _echo_genres(counts)
+    _echo_genres(counts, owners)
     echo_result("Genres", len(counts), "in use", notices=_notices(unreadable))
 
 
@@ -161,8 +166,10 @@ def genres(
 def _tally(
     folder: Path,
     members: Sequence[Path],
+    target: Path,
     declared: Mapping[Path, declarations.Declaration],
     counts: Counter[tuple[str, str]],
+    owners: dict[tuple[str, str], set[str]],
     unreadable: list[Path],
 ) -> None:
     """Count one album folder under the genre it carries.
@@ -174,13 +181,17 @@ def _tally(
     Args:
         folder: The folder holding the tracks.
         members: Its audio files, all of which are counted.
+        target: The folder the run is scoped to.
         declared: The declaration reaching each folder holding tracks.
         counts: Running tally, keyed by `(genre, origin)`.
+        owners: Artists seen under each genre, keyed the same way.
         unreadable: Collects files that would not open.
     """
+    owner: str = _owner(folder, target)
+
     declaration: declarations.Declaration | None = declared.get(folder)
     if declaration is not None:
-        _record(declaration.genre, _DECLARED, len(members), counts)
+        _record(declaration.genre, _DECLARED, len(members), owner, counts, owners)
         return
 
     # ponytail: one track answers for the folder. An album is tagged as a
@@ -194,10 +205,46 @@ def _tally(
         unreadable.append(members[0])
         return
 
-    _record(current.get(Tag.GENRE, ""), _TAGGED, len(members), counts)
+    _record(current.get(Tag.GENRE, ""), _TAGGED, len(members), owner, counts, owners)
 
 
-def _record(value: str, origin: str, files: int, counts: Counter[tuple[str, str]]) -> None:
+def _owner(folder: Path, ceiling: Path) -> str:
+    """Name the artist an album belongs to, relative to the path surveyed.
+
+    Climbed rather than searched for. `is_artist_folder` reads a name, so
+    walking up from the album costs nothing on disk, where finding the
+    artists properly would mean a second walk of the whole shelf to print
+    what the paths already say.
+
+    Named relative to the target, so a survey spanning regions reports
+    "Japan/Rodrigo Rodriguez - [...]" rather than dropping the region and
+    leaving two artists of a name indistinguishable.
+
+    Args:
+        folder: The folder holding the tracks.
+        ceiling: The folder the run is scoped to.
+
+    Returns:
+        The artist's name, or the album's own path when no labelled
+        artist stands above it -- fresh material has none, and saying
+        where the album sits beats saying nothing.
+    """
+    for parent in (folder, *folder.parents):
+        if is_artist_folder(parent):
+            return parent.name if parent == ceiling else str(parent.relative_to(ceiling))
+        if parent == ceiling:
+            break
+    return folder.name if folder == ceiling else str(folder.relative_to(ceiling))
+
+
+def _record(
+    value: str,
+    origin: str,
+    files: int,
+    owner: str,
+    counts: Counter[tuple[str, str]],
+    owners: dict[tuple[str, str], set[str]],
+) -> None:
     """Count a folder's files under every genre its value names.
 
     Each part is stripped, because the shelf carries both "Hip Hop;Soul"
@@ -213,38 +260,50 @@ def _record(value: str, origin: str, files: int, counts: Counter[tuple[str, str]
         value: The genre string as stored, possibly compound.
         origin: Whether a declaration or a tag supplied it.
         files: How many files the value answers for.
+        owner: The artist those files belong to.
         counts: Running tally, keyed by `(genre, origin)`.
+        owners: Artists seen under each genre, keyed the same way.
     """
     named: list[str] = [part.strip() for part in value.split(_SEPARATOR) if part.strip()]
     for genre in named or [""]:
         counts[genre, origin] += files
+        owners.setdefault((genre, origin), set()).add(owner)
 
 
-def _echo_genres(counts: Counter[tuple[str, str]]) -> None:
-    """Print one line per genre, sorted so near misses sit together.
+def _echo_genres(
+    counts: Counter[tuple[str, str]],
+    owners: Mapping[tuple[str, str], set[str]],
+) -> None:
+    """Print one line per genre, with the artists carrying it beneath.
 
     By value, never by count: sorting is the feature. A shelf carrying
     both "(JP) Koto" and "(JPN) Koto" shows them on adjacent lines, which
     is the cheapest possible way to catch a convention that drifted --
     no guessing at what looks similar, no threshold to tune.
 
+    The artists are what make it actionable. A count says a genre is
+    wrong; only a name says whose folder to go and fix.
+
     Untagged files sort to the top, where they read as the worklist they
     are.
 
     Args:
         counts: The tally, keyed by `(genre, origin)`.
+        owners: Artists seen under each genre, keyed the same way.
     """
-    labelled: list[tuple[str, str, int]] = sorted(
-        (value or _UNTAGGED, origin, count) for (value, origin), count in counts.items()
+    rows: list[tuple[tuple[str, str], int]] = sorted(
+        counts.items(), key=lambda row: (row[0][0] or _UNTAGGED, row[0][1])
     )
 
-    width: int = max((len(value) for value, _, _ in labelled), default=0)
-    digits: int = max((len(str(count)) for _, _, count in labelled), default=0)
+    width: int = max((len(value or _UNTAGGED) for (value, _), _ in rows), default=0)
+    digits: int = max((len(str(count)) for _, count in rows), default=0)
 
     typer.echo()
-    for value, origin, count in labelled:
+    for (value, origin), count in rows:
         source: str = typer.style(origin, fg=typer.colors.BRIGHT_BLACK)
-        typer.echo(f"  {value:<{width}}   {count:>{digits}} file(s)   {source}")
+        typer.echo(f"  {value or _UNTAGGED:<{width}}   {count:>{digits}} file(s)   {source}")
+        for artist in sorted(owners.get((value, origin), set())):
+            typer.secho(f"      {artist}", fg=typer.colors.BRIGHT_BLACK)
     typer.echo()
 
 

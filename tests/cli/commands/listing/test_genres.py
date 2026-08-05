@@ -264,6 +264,48 @@ def test_a_value_of_nothing_but_separators_still_counts_as_untagged(shelf: Path)
     assert "5 file(s)" in result.output
 
 
+def test_the_artists_carrying_a_genre_are_named(shelf: Path) -> None:
+    """A count says a genre is wrong; only a name says whose folder to fix.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf / "USA" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]", "Bebop")
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+
+    assert "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]" in result.output
+
+
+def test_an_artist_is_named_relative_to_the_path_surveyed(shelf: Path) -> None:
+    """The region is kept, or two artists of a name read as one.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf / "USA" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]", "Bebop")
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+
+    assert any(
+        line.strip().startswith("USA") and "Miles Davis" in line
+        for line in result.output.splitlines()
+    )
+
+
+def test_a_compound_genre_names_its_artist_under_each_part(shelf: Path) -> None:
+    """Splitting the value must not lose track of who carries it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf / "Japan" / "Casiopea - [1 \u2022 1F \u2022 0L \u2022 0M]", "Jazz;Fusion")
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+
+    assert result.output.count("Casiopea") == 2
+
+
 def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     """Nothing to survey is not a failure.
 
