@@ -39,8 +39,9 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 # Every other colour already means something -- green changed, blue
 # unchanged, yellow warning, red error, cyan dry run, magenta total, grey
-# dimmed -- so the banner would read as a status in any of them. Orange
-# needs Rich: typer styles with the 16-colour ANSI set, which has none.
+# dimmed, bright magenta a genre value -- so the banner would read as a
+# status in any of them. Orange needs Rich: typer styles with the
+# 16-colour ANSI set, which has none.
 BANNER_COLOR: Final[str] = "dark_orange"
 
 BAR_WIDTH: Final[int] = 50

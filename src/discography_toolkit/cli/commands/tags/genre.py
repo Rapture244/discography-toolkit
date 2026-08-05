@@ -517,6 +517,11 @@ def _styled(genre: str, width: int = 0) -> str:
     Padded before it is styled, never after: the escape codes count
     towards a format width and would pull a column out of line.
 
+    Bright magenta because the palette is spoken for -- green is changed,
+    cyan is a dry run, yellow a warning -- and a genre value is none of
+    those, it is the subject the line is about. Plain magenta means a
+    total on a result line; the bright variant carries no meaning yet.
+
     Args:
         genre: The value to render.
         width: Column width to pad to, or none.
@@ -524,7 +529,7 @@ def _styled(genre: str, width: int = 0) -> str:
     Returns:
         The quoted value, styled.
     """
-    return typer.style(f"{genre!r:<{width}}", fg=typer.colors.GREEN, bold=True)
+    return typer.style(f"{genre!r:<{width}}", fg=typer.colors.BRIGHT_MAGENTA, bold=True)
 
 
 def _wants(declared: Mapping[Path, Declaration], fallback: str) -> tagging.Desired:
