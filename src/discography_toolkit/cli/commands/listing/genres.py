@@ -16,6 +16,17 @@ misses land next to each other -- "(JP) Shakuhachi" directly above
 "(JPN) Shakuhachi" -- so a convention that drifted announces itself
 without anything having to guess at what looks similar.
 
+A value is split on ";" before it is counted: "(JP) Shakuhachi;Classical"
+is two genres, not one, and an album carrying it belongs under both.
+Only here. `tags genre` still writes the string verbatim, because what a
+player makes of the separator is its own setting -- reading the shelf and
+tagging it are different questions, and only the first has an opinion
+about ";".
+
+Counts therefore sum past the number of files on the shelf. A track with
+three genres is three files' worth of evidence about which conventions
+are in use, which is what the survey is for.
+
 One bar, no per-artist breakdown. A survey is asked about a path, not
 about the artists under it, and a whole discography would otherwise
 print three hundred names above a dozen result lines.
@@ -67,6 +78,13 @@ _TAGGED: str = "tagged"
 # quotes and read as a genre someone had set to nothing.
 _UNTAGGED: str = "(none)"
 
+# What separates one genre from the next inside a single value. The
+# toolkit writes one string per file, so a compound genre is punctuation
+# rather than several values -- which is what survives a conversion
+# unchanged, where multi-value depends on every tool in the chain
+# preserving it.
+_SEPARATOR: str = ";"
+
 
 # ==================================================================================== #
 #                                    PUBLIC COMMAND                                    #
@@ -91,6 +109,9 @@ def genres(
     searched no higher than the path given. Where none reaches a track,
     the tag is read from one file per album folder -- an album is tagged
     as a unit, so the rest say nothing the first did not.
+
+    A value holding ";" counts under each genre it names, so the totals
+    sum past the number of files on the shelf.
 
     Args:
         path: Folder to survey beneath; prompted for if omitted.
@@ -159,7 +180,7 @@ def _tally(
     """
     declaration: declarations.Declaration | None = declared.get(folder)
     if declaration is not None:
-        counts[declaration.genre, _DECLARED] += len(members)
+        _record(declaration.genre, _DECLARED, len(members), counts)
         return
 
     # ponytail: one track answers for the folder. An album is tagged as a
@@ -173,7 +194,30 @@ def _tally(
         unreadable.append(members[0])
         return
 
-    counts[current.get(Tag.GENRE, "").strip(), _TAGGED] += len(members)
+    _record(current.get(Tag.GENRE, ""), _TAGGED, len(members), counts)
+
+
+def _record(value: str, origin: str, files: int, counts: Counter[tuple[str, str]]) -> None:
+    """Count a folder's files under every genre its value names.
+
+    Each part is stripped, because the shelf carries both "Hip Hop;Soul"
+    and "Hip Hop; Conscious Hip Hop" -- without it the same genre would
+    appear twice, once with a leading space, which is the opposite of
+    what a survey is for.
+
+    A value that is empty, or nothing but separators, counts once as
+    untagged rather than vanishing: a file with no genre is the worklist,
+    and dropping it would report a tidier shelf than the one that exists.
+
+    Args:
+        value: The genre string as stored, possibly compound.
+        origin: Whether a declaration or a tag supplied it.
+        files: How many files the value answers for.
+        counts: Running tally, keyed by `(genre, origin)`.
+    """
+    named: list[str] = [part.strip() for part in value.split(_SEPARATOR) if part.strip()]
+    for genre in named or [""]:
+        counts[genre, origin] += files
 
 
 def _echo_genres(counts: Counter[tuple[str, str]]) -> None:

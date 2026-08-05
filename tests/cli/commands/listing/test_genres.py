@@ -215,6 +215,55 @@ def test_one_track_answers_for_its_album(shelf: Path) -> None:
     assert "2 file(s)" in result.output
 
 
+def test_a_compound_value_counts_under_each_genre_it_names(shelf: Path) -> None:
+    """A value naming two genres belongs under both, not under itself.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf / "USA" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]", "Jazz;Bebop")
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+    lines: list[str] = result.output.splitlines()
+
+    assert any(line.strip().startswith("Bebop") for line in lines)
+    assert any(line.strip().startswith("Jazz") for line in lines)
+    assert not any("Jazz;Bebop" in line for line in lines)
+
+
+def test_the_spacing_around_a_separator_is_not_a_genre(shelf: Path) -> None:
+    """The shelf carries "A;B" and "A; B" alike; they must not read as three.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf / "USA" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]", "Jazz;Bebop")
+    declare(shelf / "Japan" / "Casiopea - [1 \u2022 1F \u2022 0L \u2022 0M]", "Jazz; Bebop")
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+
+    # Jazz, Bebop, and the loose track's absent tag -- not five.
+    assert "3 in use" in result.output
+    # Two files under each artist, both genres reaching both.
+    assert "4 file(s)" in result.output
+
+
+def test_a_value_of_nothing_but_separators_still_counts_as_untagged(shelf: Path) -> None:
+    """A file with no usable genre is the worklist, so it must not vanish.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    album: Path = shelf / "USA" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]" / "FLAC"
+    metadata.write(album / "01. (1959) - Album [FLAC]" / "01.flac", {Tag.GENRE: ";;"})
+
+    result = runner.invoke(app, ["list", "genres", "-p", str(shelf)])
+
+    assert "(none)" in result.output
+    # The two Miles tracks join the three that were never tagged at all.
+    assert "5 file(s)" in result.output
+
+
 def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     """Nothing to survey is not a failure.
 
