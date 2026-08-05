@@ -27,9 +27,13 @@ The physical layer is documented per shelf below, as each is settled.
 
 **Countries use ISO 3166-1 alpha-3.** `(JPN)`, `(CHN)`, `(AUS)`, `(GIN)`. Alpha-2 was tried and abandoned: too many codes are English words or audio jargon — `(CD)` is DR Congo, `(ML)` is Mali, `(IN)` is India. These are read by a person at a glance, which is what scoreboards use three letters for.
 
-**Where ISO has no answer, write the place's name.** `(Tibet)`, `(Sápmi)`, `(Kurdistan)`. The rule is "name the origin"; ISO is the shorthand where one exists. Mixed widths are the price of never being stuck. ISO 3166-3 codes for former countries are not used — nobody reads `SUHH` and thinks USSR.
+**Where ISO has no answer, write the place's name.** `(Tibet)`, `(Sapmi)`, `(Kurdistan)`. The rule is "name the origin"; ISO is the shorthand where one exists. Mixed widths are the price of never being stuck. ISO 3166-3 codes for former countries are not used — nobody reads `SUHH` and thinks USSR.
 
-**General before specific.** Where one genre contains another, the broader leads: `(Mandé) Djembe;(GIN) Djembe`, `Indigenous;(AUS) Didgeridoo`. The umbrella gathers everything of its kind in one place, and the narrow term sits inside it rather than scattering the family down the alphabet.
+**Genre values are plain ASCII.** `Mande`, not `Mandé`. `(Sapmi)`, not `(Sápmi)`. A tag has to survive the FLAC → Opus conversion and whatever encoding the phone assumes, and accented letters sort unpredictably — some collations file `é` after `z`, which would strand a genre at the bottom of the list away from its family. Prose about the music can spell things properly; the tag cannot afford to.
+
+**General before specific.** Where one genre contains another, the broader leads: `Mande;(GIN) Djembe`, `Indigenous;(AUS) Didgeridoo`. The umbrella gathers everything of its kind in one place, and the country-plus-instrument sits inside it rather than scattering the family down the alphabet. The umbrella is named once and not repeated — `Mande;(MLI) Kora`, never `(Mande) Kora;(MLI) Kora`.
+
+**Parentheses are for places, bare words for traditions.** `(MLI)`, `(JPN)`, `(Tibet)`, `(Sapmi)` say where something is from. `Mande`, `Indigenous`, `Throat-Singing`, `Classical` say what it is.
 
 **Where neither contains the other, the browse bucket leads.** A crossover names two independent facts, not a general and a specific one — `(JPN) Shakuhachi;Classical` is Bach played on shakuhachi, and neither term is a subset of the other. First position then goes to the axis you would actually reach for it under, which for that record is the instrument: it sits with the other shakuhachi, and `Classical` records where the tunes came from.
 
@@ -55,7 +59,8 @@ The region folder says where the music comes from, not where the artist happens 
 
 | Artist            | Genre                         |
 |-------------------|-------------------------------|
-| Mamady Keita      | `(Mandé) Djembe;(GIN) Djembe` |
+| Mamady Keita      | `Mande;(GIN) Djembe`          |
+| Toumani Diabate   | `Mande;(MLI) Kora`            |
 | David Hudson      | `Indigenous;(AUS) Didgeridoo` |
 | Lyu Hong Jun      | `(CHN) Classical`             |
 | Kohachiro Miyata  | `(JPN) Shakuhachi`            |
@@ -64,27 +69,34 @@ The region folder says where the music comes from, not where the artist happens 
 | Huun Huur Tu      | `Throat-Singing`              |
 | Imre Peemot       | `Throat-Singing`              |
 
+Two albums append `;Classical` at album level — one of Rodrigo Rodriguez's, one of Toumani Diabate's — which is the whole reason declarations resolve nearest-first. The artist is settled once and the exception sits inside it.
+
+**Settled.** Every album on this shelf is declared, and the ten genres in use are exactly the ten in the table below. Nothing here is read from a tag any more, which is what makes `list genres` on this path instant.
+
 ---
 
 ## 🏷️ Confirmed genres
 
 The vocabulary in use. Reach for one of these before writing a new one.
 
-| Genre              | Means                                                                        |
-|--------------------|------------------------------------------------------------------------------|
-| `(AUS) Didgeridoo` | Aboriginal Australian didgeridoo, solo or with percussion                    |
-| `(CHN) Classical`  | Chinese art music — court, literati, and reconstructions of it               |
-| `(GIN) Djembe`     | Guinean-style Malinké djembe over a dunun ensemble                           |
-| `(Mandé) Djembe`   | The djembe tradition whole, across every country that plays it               |
-| `(JPN) Koto`       | Japanese zither, traditional or contemporary repertoire                      |
-| `(JPN) Shakuhachi` | Japanese end-blown bamboo flute, Zen and folk repertoire                     |
-| `Classical`        | Western art music — Bach, Mozart, the standard repertoire                    |
-| `Indigenous`       | Minority or first peoples' music, any continent                              |
-| `Throat-Singing`   | Overtone singing — Tuvan khoomei, Mongolian khöömii, Sardinian tenores, kin  |
+| Genre              | Means                                                                       |
+|--------------------|-----------------------------------------------------------------------------|
+| `(AUS) Didgeridoo` | Aboriginal Australian didgeridoo, solo or with percussion                   |
+| `(CHN) Classical`  | Chinese art music — court, literati, and reconstructions of it              |
+| `(GIN) Djembe`     | Guinean-style Malinké djembe over a dunun ensemble                          |
+| `(JPN) Koto`       | Japanese zither, traditional or contemporary repertoire                     |
+| `(JPN) Shakuhachi` | Japanese end-blown bamboo flute, Zen and folk repertoire                    |
+| `(MLI) Kora`       | Malian kora, the 21-string Mande harp-lute                                  |
+| `Classical`        | Western art music — Bach, Mozart, the standard repertoire                   |
+| `Indigenous`       | Minority or first peoples' music, any continent                             |
+| `Mande`            | The West African Mande tradition — kora, djembe, ngoni, balafon             |
+| `Throat-Singing`   | Overtone singing — Tuvan khoomei, Mongolian khöömii, Sardinian tenores, kin |
 
 **On `Throat-Singing` carrying no country.** Settled, not open: the technique crosses far too many for one to lead — Tuva, Mongolia, Altai, Khakassia, Tibet, Sardinia, the Xhosa, the Inuit. It is the umbrella, so it leads, and a country follows only if one ever earns it: `Throat-Singing;(Tuva)`, `Throat-Singing;(MNG)`. Nothing needs restructuring when the second tradition arrives.
 
-**On the djembe carrying both a tradition and a country.** The instrument is Mandé, not Guinean — Mali, Burkina Faso, Ivory Coast and Senegal all play it — but the styles genuinely differ, Guinean playing having come through Sékou Touré's state ensembles into something more arranged than Malian. So both are kept, umbrella first: `(Mandé) Djembe;(GIN) Djembe`, and a Malian djembefola would read `(Mandé) Djembe;(MLI) Djembe`. Every djembe record gathers under the tradition, and the country still says which style. `(Mandé)` takes the same slot as `(Sápmi)` and `(Tibet)`: a cultural region ISO has no code for.
+**On `Mande` as an umbrella.** The kora and the djembe are Mande instruments, not Malian or Guinean ones — Mali, Guinea, Senegal, Gambia and Guinea-Bissau all play them — but the styles genuinely differ, Guinean djembe having come through Sékou Touré's state ensembles into something more arranged than Malian. So the tradition leads and the country says which style: `Mande;(GIN) Djembe`, `Mande;(MLI) Kora`. Nothing is lost by having no kora-wide entry, since the kora is played nowhere outside Mande cultures anyway, and `Mande` gathers the ngoni and balafon players besides.
+
+**Not yet needed: `Griot`.** A social role rather than an instrument or a place — hereditary praise-singers and historians across the Mande world, playing kora, ngoni or balafon by family. Toumani Diabate was one, of a line he counted at seventy-one generations; Mamady Keita was not, being a djembefola from outside the caste. It would earn its place the day two griots of different instruments are on the shelf, which is one more than there are.
 
 ---
 
