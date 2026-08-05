@@ -41,8 +41,10 @@ from discography_toolkit.core import artwork, metadata, names
 from discography_toolkit.core.layout import (
     AUDIO_EXTENSIONS,
     QUALITY_TAG,
+    album_tracks,
     detect_tier,
     find_audio_files,
+    holds_audio,
     rename,
 )
 from discography_toolkit.core.metadata import Tag
@@ -216,13 +218,23 @@ def find_homes(root: Path, artist_names: Set[str]) -> dict[str, list[Path]]:
     return dict(found)
 
 
-def loose_albums(root: Path, homes: Iterable[Path]) -> list[Path]:
-    """Find the album folders sitting in the playlist path itself.
+def loose_albums(root: Path, homes: Iterable[Path]) -> tuple[list[Path], list[Path]]:
+    """Sort the playlist path's own children into albums and the unreadable.
 
     What a converter leaves behind: album folders dropped directly into
     one place, belonging to no artist folder yet. A playlist that has
     been tidied has none of these, and a fresh drop folder is nothing
     but.
+
+    An album is a folder holding audio of its own, directly or one disc
+    down. A folder whose audio lies deeper is not one, and must never be
+    treated as one: moving it would take everything beneath it along.
+
+    Such a folder is usually a region -- "Africa" holding the artists who
+    hold the albums -- and there is nothing to report about it, since the
+    artists inside were already found by walking through it. Only a
+    folder holding neither audio of its own nor any artist is genuinely
+    passed over, and only those come back.
 
     Direct children only. An album deeper down is inside somebody's
     folder already, and moving it would be deciding where it lives.
@@ -233,14 +245,22 @@ def loose_albums(root: Path, homes: Iterable[Path]) -> list[Path]:
             albums.
 
     Returns:
-        Loose album folders, sorted by path.
+        The loose albums, and the folders that are neither an album nor
+        anything holding a known artist, each sorted by path.
     """
     settled: set[Path] = set(homes)
-    return sorted(
-        entry
-        for entry in root.iterdir()
-        if entry.is_dir() and not entry.name.startswith(".") and entry not in settled
-    )
+    albums: list[Path] = []
+    unreadable: list[Path] = []
+
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir() or entry.name.startswith(".") or entry in settled:
+            continue
+        if holds_audio(entry):
+            albums.append(entry)
+        elif not any(home.is_relative_to(entry) for home in settled):
+            unreadable.append(entry)
+
+    return albums, unreadable
 
 
 def plan(
@@ -416,6 +436,12 @@ def identity(album: Path) -> str | None:
     The first readable Album tag settles it -- the tracks of one folder
     are one album, so a second opinion would only cost a file open.
 
+    Reads the folder's own tracks, and those one disc down, rather than
+    everything beneath it. Handed something that merely holds albums, a
+    recursive read would find a track several levels down and report one
+    confident identity for the whole tree, which is how a container comes
+    to be matched and moved as though it were an album.
+
     Args:
         album: The converted folder to read.
 
@@ -423,7 +449,7 @@ def identity(album: Path) -> str | None:
         The album's title, casefolded for matching, or `None` when no
         track carries a readable Album tag.
     """
-    for track in find_audio_files(album):
+    for track in album_tracks(album):
         value: str = _album_of(track)
         if value:
             return _bare_title(value).casefold()

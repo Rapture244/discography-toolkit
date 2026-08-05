@@ -460,7 +460,7 @@ def _is_album(folder: Path) -> bool:
     """
     if _DISC_FOLDER_RE.match(folder.name) is not None:
         return False
-    if _holds_audio(folder):
+    if holds_audio(folder):
         return True
     if ALBUM_INDEX_RE.match(folder.name) is None:
         return False
@@ -507,8 +507,13 @@ def _parts_hold_audio(folder: Path) -> bool:
     return False
 
 
-def _holds_audio(folder: Path) -> bool:
+def holds_audio(folder: Path) -> bool:
     """Report whether a folder holds audio directly or one disc down.
+
+    The toolkit's definition of "this is an album, not something holding
+    albums". A folder whose audio lies deeper than a disc is a container
+    of some sort -- an artist, a region, a converter's output folder --
+    and treating it as an album would move the whole thing.
 
     Args:
         folder: The folder to test.
@@ -531,6 +536,36 @@ def _holds_audio(folder: Path) -> bool:
         ):
             return True
     return False
+
+
+def album_tracks(album: Path) -> list[Path]:
+    """Collect the audio an album holds itself, and no deeper.
+
+    Unlike `find_audio_files`, which descends without limit, this reaches
+    exactly as far as an album does: its own files, and those one disc
+    down. Handed something that merely contains albums, it finds nothing
+    rather than reaching in and reporting the first track it meets as
+    though the whole tree were one album.
+
+    Args:
+        album: The album folder to read.
+
+    Returns:
+        Its tracks, sorted by path.
+    """
+    found: list[Path] = []
+    for entry in album.iterdir():
+        if entry.name.startswith("."):
+            continue
+        if entry.is_file() and entry.suffix.lower() in AUDIO_EXTENSIONS:
+            found.append(entry)
+        elif entry.is_dir() and _DISC_FOLDER_RE.match(entry.name) is not None:
+            found.extend(
+                part
+                for part in entry.iterdir()
+                if part.is_file() and part.suffix.lower() in AUDIO_EXTENSIONS
+            )
+    return sorted(found)
 
 
 # ==================================================================================== #

@@ -55,9 +55,9 @@ from discography_toolkit.cli.console import (
 )
 from discography_toolkit.cli.scope import resolve_path
 from discography_toolkit.core.layout import (
+    album_tracks,
     discover_albums,
     find_artist_folders,
-    find_audio_files,
     owning_folder,
 )
 from discography_toolkit.core.metadata import Tag
@@ -96,6 +96,9 @@ class Synced:
 
     Attributes:
         name: The artist's name.
+        matched: How many folders were placed against a discography
+            album. Zero with candidates present means nothing could be
+            settled, which is a different thing from nothing to do.
         folded: How many album folders were moved or renamed.
         tagged: How many tracks had their Album tag written.
         covered: How many loose covers were written.
@@ -104,6 +107,7 @@ class Synced:
     """
 
     name: str
+    matched: int = 0
     folded: int = 0
     tagged: int = 0
     covered: int = 0
@@ -174,8 +178,8 @@ def playlist(
 
     echo_banner("Playlist", target.name, children=[str(disco), str(target)])
 
-    artists: list[Artist] = _gather(roster, target)
-    _echo_found(artists)
+    artists, skipped = _gather(roster, target)
+    _echo_found(artists, skipped)
 
     workable: list[Artist] = [artist for artist in artists if artist.candidates]
     wanted: int = sum(len(artist.candidates) for artist in workable)
@@ -206,7 +210,7 @@ def playlist(
 # ==================================================================================== #
 #                                      GATHERING                                       #
 # ==================================================================================== #
-def _gather(roster: Sequence[Path], target: Path) -> list[Artist]:
+def _gather(roster: Sequence[Path], target: Path) -> tuple[list[Artist], list[Path]]:
     """Work out, for every artist, which folders this run should place.
 
     Two kinds of candidate, told apart by where they sit. One already
@@ -226,7 +230,8 @@ def _gather(roster: Sequence[Path], target: Path) -> list[Artist]:
         target: The playlist path to search.
 
     Returns:
-        One entry per artist, in roster order.
+        One entry per artist, in roster order, and the folders that hold
+        neither an album nor any artist the roster knows.
     """
     names: dict[Path, str] = {}
     for folder in roster:
@@ -236,7 +241,7 @@ def _gather(roster: Sequence[Path], target: Path) -> list[Artist]:
 
     homes: dict[str, list[Path]] = folding.find_homes(target, set(names.values()))
     settled: list[Path] = [home for found in homes.values() for home in found]
-    loose: list[Path] = folding.loose_albums(target, settled)
+    loose, skipped = folding.loose_albums(target, settled)
 
     albums: dict[str, tuple[Path, ...]] = {
         name: tuple(discover_albums(folder)) for folder, name in names.items()
@@ -270,7 +275,7 @@ def _gather(roster: Sequence[Path], target: Path) -> list[Artist]:
             )
         )
 
-    return artists
+    return artists, skipped
 
 
 def _assign(loose: Sequence[Path], titles: Mapping[str, set[str]]) -> dict[Path, str]:
@@ -336,6 +341,7 @@ def _sync(artist: Artist) -> Synced:
 
     return Synced(
         name=artist.name,
+        matched=len(fold_plan.matches),
         folded=report.moved,
         tagged=tagged,
         covered=covered,
@@ -347,13 +353,19 @@ def _sync(artist: Artist) -> Synced:
 def _write_tags(settled: Sequence[Path]) -> tuple[int, tuple[tuple[Path, str], ...]]:
     """Write the Album tag of every track, read off its settled folder.
 
+    Reads each album's own tracks, and those one disc down, rather than
+    everything beneath it. A recursive read would give one album's tag to
+    every track under it, however deep -- which is how a folder wrongly
+    matched once cost an entire artist their Album tags, each track
+    stamped with the name of the album the folder had been mistaken for.
+
     Args:
         settled: The artist's album folders, as they now stand.
 
     Returns:
         How many tracks were written, and what failed.
     """
-    tracks: list[Path] = [track for album in settled for track in find_audio_files(album)]
+    tracks: list[Path] = [track for album in settled for track in album_tracks(album)]
     if not tracks:
         return 0, ()
 
@@ -446,7 +458,7 @@ def _fold_notices(fold_plan: folding.PlaylistPlan) -> tuple[Notice, ...]:
     return tuple(notices)
 
 
-def _echo_found(artists: Sequence[Artist]) -> None:
+def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path]) -> None:
     """Print what the roster turned up, before anything is agreed to.
 
     Every artist the discography path covers, and where each stands in
@@ -458,6 +470,7 @@ def _echo_found(artists: Sequence[Artist]) -> None:
     Args:
         artists: Every artist in the roster, with what was found for
             them.
+        skipped: Folders that hold neither an album nor a known artist.
     """
     typer.echo()
     # Padded by cell width, not character count: a CJK name is half as
@@ -485,6 +498,14 @@ def _echo_found(artists: Sequence[Artist]) -> None:
             fg=typer.colors.CYAN,
         )
 
+    if skipped:
+        typer.secho(
+            f"\n  {len(skipped)} folder(s) hold neither an album nor a known artist:",
+            fg=typer.colors.YELLOW,
+        )
+        for folder in skipped:
+            typer.secho(f"      {folder.name!r}", fg=typer.colors.BRIGHT_BLACK)
+
 
 def _echo_artist(result: Synced) -> None:
     """Print one artist's line, with anything needing an eye beneath it.
@@ -499,8 +520,12 @@ def _echo_artist(result: Synced) -> None:
             f"{result.folded} folded, {result.tagged} tagged, {result.covered} cover(s) written"
         )
         typer.secho(f"      {counts}", fg=typer.colors.GREEN)
-    else:
+    elif result.matched:
         typer.secho("      already in step with the discography", fg=typer.colors.BRIGHT_BLACK)
+    else:
+        typer.secho(
+            "      nothing here could be matched to the discography", fg=typer.colors.YELLOW
+        )
 
     if result.failures:
         typer.secho(f"      {len(result.failures)} operation(s) failed", fg=typer.colors.RED)
