@@ -58,7 +58,7 @@ from discography_toolkit.core.layout import (
     album_tracks,
     discover_albums,
     find_artist_folders,
-    owning_folder,
+    holding_album,
 )
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import album_title, strip_artist_label
@@ -403,19 +403,20 @@ def _write_covers(
 
 
 def _wants(albums: Sequence[Path]) -> tagging.Desired:
-    """Build the value function: each track named for its settled folder.
+    """Build the value function: each track named for the album holding it.
 
     Args:
         albums: The playlist's album folders.
 
     Returns:
-        A `Desired` callable returning nothing for a track under none of
-        them, which leaves it untouched.
+        A `Desired` callable returning nothing for a track no album
+        directly holds, which leaves it untouched.
     """
+    held: set[Path] = set(albums)
 
     def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        folder: Path | None = owning_folder(track, albums)
-        return {} if folder is None else {Tag.ALBUM: folding.album_tag(folder.name)}
+        album: Path | None = holding_album(track, held)
+        return {} if album is None else {Tag.ALBUM: folding.album_tag(album.name)}
 
     return desired
 

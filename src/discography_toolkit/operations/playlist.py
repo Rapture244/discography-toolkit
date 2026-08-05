@@ -43,7 +43,6 @@ from discography_toolkit.core.layout import (
     QUALITY_TAG,
     album_tracks,
     detect_tier,
-    find_audio_files,
     holds_audio,
     rename,
 )
@@ -538,6 +537,12 @@ def _embedded_cover(album: Path) -> Cover | None:
     tracks already hold, so in practice this is the embedded image
     written out rather than anything re-encoded.
 
+    Reads the album's own tracks, and those one disc down, rather than
+    everything beneath it -- the same limit `identity` keeps, and for the
+    same reason: handed a folder that merely holds albums, a recursive
+    read would take art from some track buried inside it and write it out
+    as though it belonged to the whole tree.
+
     Args:
         album: The album folder to read.
 
@@ -545,7 +550,7 @@ def _embedded_cover(album: Path) -> Cover | None:
         The cover to write, or `None` when no track carries readable art
         or the bytes will not convert.
     """
-    for track in find_audio_files(album):
+    for track in album_tracks(album):
         cover: Cover | None = _cover_of(track)
         if cover is not None:
             return artwork.as_jpeg(artwork.for_embedding(cover))

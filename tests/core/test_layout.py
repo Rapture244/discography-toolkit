@@ -26,6 +26,7 @@ from discography_toolkit.core.layout import (
     find_audio_files,
     find_containers,
     find_cover_images,
+    holding_album,
     is_artist_folder,
     is_flac_container,
     owning_folder,
@@ -502,6 +503,56 @@ def test_find_cover_images_looks_no_deeper(tmp_path: Path) -> None:
     (tmp_path / "Scans" / "cover.jpg").touch()
 
     assert find_cover_images(tmp_path) == []
+
+
+def test_holding_album_takes_the_track_s_own_folder(tmp_path: Path) -> None:
+    """A track in an album belongs to it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = tmp_path / "01. (1959) - Kind of Blue [FLAC]"
+
+    assert holding_album(album / "01.flac", {album}) == album
+
+
+def test_holding_album_reaches_one_disc_down(tmp_path: Path) -> None:
+    """A multi-disc album's tracks are a level down and still its own.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    album: Path = tmp_path / "01. (1970) - Bitches Brew [FLAC]"
+
+    assert holding_album(album / "CD 2" / "01.flac", {album}) == album
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        # A folder that merely holds albums, whose tracks are further down.
+        "nested/Davis - 1959 - Kind of Blue/01.flac",
+        # A subfolder that is not a disc: scans, extras, anything.
+        "Scans/01.flac",
+        # Deeper still.
+        "CD 2/inner/01.flac",
+    ],
+)
+def test_holding_album_refuses_anything_further_out(tmp_path: Path, relative: str) -> None:
+    """A name is written from this, so reaching too far rewrites the wrong files.
+
+    `owning_folder` would answer with the album for every one of these,
+    being any-ancestor. That is right for placing a track and wrong for
+    naming one: it is how a folder mistaken for an album gave its name to
+    every track beneath it.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+        relative: Where the track sits, below the album folder.
+    """
+    album: Path = tmp_path / "01. (1959) - Kind of Blue [FLAC]"
+
+    assert holding_album(album / relative, {album}) is None
 
 
 # ==================================================================================== #

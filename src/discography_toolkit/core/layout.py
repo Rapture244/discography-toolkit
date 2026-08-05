@@ -21,7 +21,7 @@ from discography_toolkit.core.metadata import SUPPORTED_EXTENSIONS
 from discography_toolkit.core.names import ALBUM_INDEX_RE, ARTIST_LABEL_RE
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Container, Iterator, Mapping, Sequence
     from pathlib import Path
 
 # ==================================================================================== #
@@ -286,6 +286,32 @@ def owning_folder(path: Path, candidates: Sequence[Path]) -> Path | None:
     """
     parents = set(path.parents)
     return next((folder for folder in candidates if folder in parents), None)
+
+
+def holding_album(track: Path, albums: Container[Path]) -> Path | None:
+    """Find which album a track is actually in, refusing anything further out.
+
+    The strict counterpart to `owning_folder`, which accepts any ancestor
+    however distant. That is the right answer when placing a track in a
+    shelf; it is the wrong one when writing a value read off the folder's
+    name, since a folder wrongly taken for an album would give its name
+    to every track beneath it, at any depth.
+
+    A track belongs to an album when it sits in it, or one disc down --
+    the same reach `album_tracks` has, and no further.
+
+    Args:
+        track: The audio file to place.
+        albums: The album folders it might belong to.
+
+    Returns:
+        The album holding it, or `None` when nothing does directly.
+    """
+    if track.parent in albums:
+        return track.parent
+    if _DISC_FOLDER_RE.match(track.parent.name) is not None and track.parent.parent in albums:
+        return track.parent.parent
+    return None
 
 
 def find_cover_images(album: Path) -> list[Path]:
