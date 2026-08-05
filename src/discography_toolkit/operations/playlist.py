@@ -248,6 +248,13 @@ def loose_albums(root: Path, homes: Iterable[Path]) -> tuple[list[Path], list[Pa
     Direct children only. An album deeper down is inside somebody's
     folder already, and moving it would be deciding where it lives.
 
+    Nothing at all is loose when the playlist path is itself an artist's
+    folder, which is what a settled playlist looks like once it has been
+    moved somewhere permanent and pointed at directly. Its children are
+    that artist's albums, gathered already from the home they sit in, and
+    counting them a second time here would have every album contest
+    itself and settle nothing.
+
     Args:
         root: The playlist path.
         homes: Every artist folder found beneath it, which are not
@@ -258,6 +265,9 @@ def loose_albums(root: Path, homes: Iterable[Path]) -> tuple[list[Path], list[Pa
         anything holding a known artist, each sorted by path.
     """
     settled: set[Path] = set(homes)
+    if root in settled:
+        return [], []
+
     albums: list[Path] = []
     unreadable: list[Path] = []
 

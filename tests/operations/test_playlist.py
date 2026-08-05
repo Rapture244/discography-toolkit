@@ -269,6 +269,33 @@ def test_find_homes_names_an_artist_the_roster_does_not_know(
     assert strangers == [root / "Africa" / "(Mali) - Toumani Diabat\u00e9"]
 
 
+def test_the_playlist_path_may_be_the_artist_folder_itself(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """A settled playlist moved somewhere permanent is pointed at directly.
+
+    The artist folder is then the root, and its children are that
+    artist's albums -- gathered from the home they sit in. Counted a
+    second time as loose, every album would claim itself, contest
+    itself, and settle nothing.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    root: Path = tmp_path / "Mamady Keita"
+    _ = album("Mamady Keita/Keita - 1989 - Wassolon", tag="Wassolon")
+    _ = album("Mamady Keita/Keita - 1992 - Nankama", tag="Nankama")
+
+    homes, strangers = find_homes(root, {"Mamady Keita"})
+    albums, unreadable = loose_albums(root, [home for found in homes.values() for home in found])
+
+    assert homes == {"Mamady Keita": [root]}
+    assert strangers == []
+    assert albums == []
+    assert unreadable == []
+
+
 # ==================================================================================== #
 #                                       NAMING                                         #
 # ==================================================================================== #
