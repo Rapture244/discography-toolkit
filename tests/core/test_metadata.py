@@ -15,6 +15,7 @@ import base64
 from collections.abc import Callable
 import io
 import shutil
+import signal
 import subprocess
 from typing import TYPE_CHECKING, cast
 
@@ -39,6 +40,7 @@ from discography_toolkit.core.metadata import (
     read,
     read_cover,
     supports_cover,
+    uninterrupted,
     write,
     write_cover,
 )
@@ -58,6 +60,47 @@ TESTABLE: dict[str, str] = {
     ".wav": "WAV",
     ".aiff": "AIFF",
 }
+
+
+# ==================================================================================== #
+#                                    INTERRUPTION                                      #
+# ==================================================================================== #
+def test_an_interrupt_during_a_write_is_deferred() -> None:
+    """Ctrl-C waits for the write rather than cutting the file in half.
+
+    A tag save rewrites the file in place, so an interrupt landing inside
+    one leaves new data running into old and the track unreadable. The
+    guard holds the signal and raises it the moment the block is done.
+    """
+    finished: list[bool] = []
+
+    def write() -> None:
+        with uninterrupted():
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)  # the Ctrl-C arrives mid-write
+            finished.append(True)
+
+    with pytest.raises(KeyboardInterrupt):
+        write()
+
+    assert finished == [True], "the write was cut short instead of being allowed to finish"
+
+
+def test_the_previous_handler_is_put_back() -> None:
+    """The guard covers one write, not the rest of the run."""
+    before = signal.getsignal(signal.SIGINT)
+
+    with uninterrupted():
+        pass
+
+    assert signal.getsignal(signal.SIGINT) is before
+
+
+def test_a_write_nobody_interrupts_raises_nothing() -> None:
+    """The ordinary case costs nothing and changes nothing."""
+    with uninterrupted():
+        pass
 
 
 # ==================================================================================== #

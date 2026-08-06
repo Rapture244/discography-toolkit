@@ -23,7 +23,9 @@ specifications and mutagen's API but are not covered by tests.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 from enum import StrEnum
+import signal
 from typing import TYPE_CHECKING, Final
 
 from mutagen import MutagenError
@@ -46,8 +48,9 @@ from discography_toolkit.core import artwork
 from discography_toolkit.core.artwork import PNG
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Generator, Iterable, Mapping
     from pathlib import Path
+    from types import FrameType
 
     from discography_toolkit.core.artwork import Cover
 
@@ -189,6 +192,57 @@ def family_of(path: Path) -> Family:
     return family
 
 
+@contextmanager
+def uninterrupted() -> Generator[None]:
+    """Hold off Ctrl-C until the block finishes.
+
+    Saving a tag is not atomic. A comment header that changes size means
+    every page after it moves, so mutagen rewrites the file in place --
+    and a Ctrl-C landing in the middle leaves new data running into old,
+    unreadable by anything. It has happened: an Opus track cut off
+    mid-rewrite, its picture comment sitting where an audio page should
+    be.
+
+    One file's write takes milliseconds, so waiting that long costs a
+    person nothing and saves the file. The interrupt is not swallowed --
+    it is raised the moment the write is done, so a run still stops when
+    asked, just between files rather than inside one.
+
+    Only the main thread can install a handler, and only there does
+    Python deliver the signal, so anywhere else this does nothing and
+    says so by simply running the block.
+
+    The window is one write. A save that hangs cannot be interrupted, and
+    nothing here bounds it -- but a hang is mutagen's or the disk's, and
+    a corrupt file is worse than a wait.
+
+    Yields:
+        Nothing; the block runs with SIGINT held.
+
+    Raises:
+        KeyboardInterrupt: After the block, if one arrived during it.
+    """
+    arrived: list[tuple[int, FrameType | None]] = []
+
+    def defer(number: int, frame: FrameType | None) -> None:
+        arrived.append((number, frame))
+
+    try:
+        previous = signal.signal(signal.SIGINT, defer)
+    except ValueError:
+        yield  # not the main thread: nothing to defer
+        return
+
+    try:
+        yield
+    finally:
+        _ = signal.signal(signal.SIGINT, previous)
+        if arrived:
+            if callable(previous):
+                previous(*arrived[-1])
+            raise KeyboardInterrupt
+
+
 def read(path: Path, tags: Iterable[Tag]) -> dict[Tag, str]:
     """Read tags from a file.
 
@@ -235,7 +289,8 @@ def write(path: Path, values: Mapping[Tag, str]) -> None:
     audio = _open(path, family)
     for tag, value in values.items():
         _write_one(audio, family, tag, value)
-    audio.save()
+    with uninterrupted():
+        audio.save()
 
 
 # ==================================================================================== #
@@ -335,14 +390,17 @@ def write_cover(path: Path, cover: Cover) -> None:
         msg = f"Cover art is not supported for {path.suffix}"
         raise UnsupportedFormatError(msg)
 
-    if family is Family.MP4:
-        _write_mp4_cover(path, cover)
-    elif family is Family.ID3:
-        _write_id3_cover(path, cover)
-    elif path.suffix.lower() == ".flac":
-        _write_flac_cover(path, cover)
-    else:
-        _write_ogg_cover(path, cover)
+    # Each writer saves the file itself, so the guard wraps the dispatch
+    # rather than being repeated five times inside it.
+    with uninterrupted():
+        if family is Family.MP4:
+            _write_mp4_cover(path, cover)
+        elif family is Family.ID3:
+            _write_id3_cover(path, cover)
+        elif path.suffix.lower() == ".flac":
+            _write_flac_cover(path, cover)
+        else:
+            _write_ogg_cover(path, cover)
 
 
 # ==================================================================================== #
