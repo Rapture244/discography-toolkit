@@ -253,6 +253,7 @@ KEEP_CAPS: Final[frozenset[str]] = frozenset(
         "CD",
         "DVD",
         "SACD",
+        "HD",
         "HDCD",
         "VHS",
         "VBR",

@@ -1056,6 +1056,10 @@ def test_title_case_normalizes_lowercase(text: str, expected: str) -> None:
         ("live at BBC", "Live at BBC"),
         ("recorded in usa", "Recorded in USA"),
         ("a flac rip", "A FLAC Rip"),
+        # An acronym standing alone among lower-case words is the case
+        # the taming pass would otherwise lower and re-cap as "Hd".
+        ("an hd remaster", "An HD Remaster"),
+        ("an HD remaster", "An HD Remaster"),
         # Roman numerals stay capital; a word that merely looks like one
         # does not.
         ("it's standard time, vol. II", "It's Standard Time, Vol. II"),
@@ -1077,6 +1081,16 @@ def test_title_case_keeps_acronyms_romans_and_codes(text: str, expected: str) ->
         expected: How it should read.
     """
     assert title_case(text) == expected
+
+
+def test_title_case_keeps_an_acronym_through_the_taming_pass() -> None:
+    """Shouting comes down, but a keep-caps word inside it does not.
+
+    The taming pass lowers every needless all-caps word so the caser will
+    lift it back up; a word worth keeping has to survive that, or it
+    comes back capitalised like any other -- "HD" as "Hd".
+    """
+    assert title_case("AN HD REMASTER") == "An HD Remaster"
 
 
 def test_title_case_normalizes_shouting() -> None:
