@@ -211,7 +211,7 @@ def genre(
         typer.secho("\nEvery file already carries its Genre. Nothing to do.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\n{_summarize(pending, fallback, doomed, target)}"):
+    if not typer.confirm(f"\n{_summarize(pending, fallback, doomed, target, declared)}"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
@@ -602,7 +602,13 @@ def _echo_values(
         typer.echo(f"{label} {_styled(value, width)}   {count:>{digits}} file(s)   {source}")
 
 
-def _summarize(pending: int, fallback: str, doomed: Sequence[Path], target: Path) -> str:
+def _summarize(
+    pending: int,
+    fallback: str,
+    doomed: Sequence[Path],
+    target: Path,
+    declared: Mapping[Path, Declaration],
+) -> str:
     """Phrase the confirmation, naming everything the run would do.
 
     The deletions especially: they are the one thing here that destroys
@@ -614,19 +620,53 @@ def _summarize(pending: int, fallback: str, doomed: Sequence[Path], target: Path
         fallback: The value that would be declared, empty when none.
         doomed: Declarations that would be deleted.
         target: The folder the declaration would be left in.
+        declared: The declaration reaching each folder holding tracks.
 
     Returns:
         The question to put, ending in a question mark.
     """
     parts: list[str] = []
     if pending:
-        parts.append(f"write Genre to {pending} file(s)")
+        parts.append(_writing(pending, fallback, declared))
     if doomed:
         parts.append(f"delete {len(doomed)} existing {SIDECAR_NAME} file(s)")
     if fallback:
         parts.append(f"declare {_styled(fallback)} in {target.name!r}")
 
     return f"Proceed to {', '.join(parts)}?"
+
+
+def _writing(pending: int, fallback: str, declared: Mapping[Path, Declaration]) -> str:
+    """Phrase the tag-writing half, saying what is being written where it can.
+
+    "Write Genre to 47 file(s)" reads as a fresh instruction, arriving
+    three lines under a declaration it never mentions. What is actually
+    happening is narrower: those 47 do not yet carry what their folder
+    already says, and the other 151 do.
+
+    So the genre is named when a run has only one, which is the common
+    case and the one where the question is otherwise most disconnected
+    from the answer above it. Where a shelf declares several, no single
+    value is the run's, and the reconciliation is described instead.
+
+    Args:
+        pending: How many tracks need their tag written.
+        fallback: The supplied value, empty when everything was declared.
+        declared: The declaration reaching each folder holding tracks.
+
+    Returns:
+        The clause, without a leading capital or a question mark.
+    """
+    # A supplied value is already spelled out by the "declare X in Y"
+    # clause beside this one, so naming it twice in one sentence would
+    # be noise rather than clarity.
+    if fallback:
+        return f"write Genre to {pending} file(s)"
+
+    genres: set[str] = {declaration.genre for declaration in declared.values()}
+    if len(genres) == 1:
+        return f"write {_styled(next(iter(genres)))} to {pending} file(s)"
+    return f"bring {pending} file(s) in line with their declarations"
 
 
 def _echo_plan(plan: tagging.TagPlan) -> None:

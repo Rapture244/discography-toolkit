@@ -601,6 +601,53 @@ def test_an_undeclared_path_is_not_offered_a_rename(shelf: Path) -> None:
     assert genres_under(shelf) == {"Jazz"}
 
 
+def test_the_confirm_names_the_genre_when_a_run_has_only_one(shelf: Path) -> None:
+    """The question has to connect to the declaration three lines above it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "Soul - Southern")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\nn\n")
+
+    assert "write 'Soul - Southern' to" in result.output
+
+
+def test_the_confirm_describes_the_work_when_a_run_has_several(shelf: Path) -> None:
+    """With several declarations, no single value is the run's to name.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "Soul - Southern")
+    declare(shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]", "Soul - Northern")
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\nn\n")
+
+    assert "in line with their declarations" in result.output
+
+
+def test_the_confirm_does_not_name_a_supplied_genre_twice(shelf: Path) -> None:
+    """The "declare X in Y" clause beside it already says which value.
+
+    Asserted against the confirmation line alone, and with a genre that
+    is not the shelf's name: the fixture shelf is called "Jazz", so a
+    genre of "Jazz" would match the folder name in the same sentence and
+    prove nothing.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Bebop"], input="n\n")
+    confirm: str = next(
+        line for line in result.output.splitlines() if line.startswith("Proceed to")
+    )
+
+    assert "write Genre to" in confirm
+    assert confirm.count("'Bebop'") == 1
+
+
 # ==================================================================================== #
 #                                       RENAMING                                       #
 # ==================================================================================== #
