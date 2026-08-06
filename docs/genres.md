@@ -47,9 +47,44 @@ Either way the list is flat and sorts alphabetically, so whatever leads is the o
 
 **Reuse a genre before inventing one.** The table below is the vocabulary. A new genre is worth adding when nothing there fits; a near-miss of something already listed is drift.
 
+**A family either shares an umbrella or shares a prefix.** Both make a group findable on a phone, and they trade off differently:
+
+- **Umbrella** — `Mande;(GIN) Djembe`. One entry gathers the whole family however its members are named. The cost is that the umbrella sorts wherever its own name falls, nowhere near its members.
+- **Prefix** — `Soul - Southern`, `Soul - Psychedelic`. The family sorts adjacent and reads down as a block. The cost is no single entry holding all of it.
+
+Traditional Sounds uses umbrellas, Soul uses prefixes. That is a genuine inconsistency, kept on purpose: soul has many subgenres of one thing and wants them clustered, while `Mande` gathers instruments too unlike each other to share a prefix. Pick one per shelf and stay with it — mixing them inside a shelf is the drift `list genres` exists to catch.
+
 ---
 
 ## 📚 Shelves
+
+### 🎤 Soul
+
+American soul, roughly 1960 to the present. Organised by subgenre, then artist — `Soul/<Soul - X>/<Artist>/` — which is a different shape from Traditional Sounds and deliberately so: soul divides by sound rather than by place, so the sound is what the folders name.
+
+The subgenre in the folder is the tag. One part per artist — no crossing terms so far, though the second layer is there if a record ever needs to sit beside another shelf.
+
+Note that `Southern` and `Northern` are styles here, not places. Southern soul is the gospel-derived vocal over Memphis and Muscle Shoals horns; Northern soul is the uptempo 60s sound named after the English clubs that championed it. Both describe music, the way Delta blues or Chicago house do — a record made anywhere in that style still takes the name.
+
+| Artist          | Genre                |
+|-----------------|----------------------|
+| Ann Peebles     | `Soul - Southern`    |
+| Baby Huey       | `Soul - Psychedelic` |
+| Carol Woods     | `Soul - Uptown`      |
+| Curtis Mayfield | `Soul - Psychedelic` |
+| Doris Duke      | `Soul - Southern`    |
+| Erykah Badu     | `Soul - Neo`         |
+| Gil Scott-Heron | `Soul - Progressive` |
+| Laura Lee       | `Soul - Southern`    |
+| Lee Moses       | `Soul - Southern`    |
+| Little Ann      | `Soul - Northern`    |
+| Marvin Gaye     | `Soul - Progressive` |
+| Otis Redding    | `Soul - Southern`    |
+| Wendy Rene      | `Soul - Southern`    |
+
+**On Carol Woods.** One album, *Out of the Woods* (1972), and the thinnest paper trail on the shelf — but the credits settle it. Cut at Bell Sound Studios in New York with Beau Ray Fleming producing, vocals and horns overdubbed in London by Ember's Mike Berry. A Queens singer, church-choir trained, covering Goffin and King and a Clarence Paul song first recorded by Marvin Gaye. Contemporary write-ups describe a full, rich voice and a post-Supremes feel. Arranged, pop-facing, and nowhere near the South: `Soul - Uptown`.
+
+**Deliberately not split: `Deep`.** Deep soul names the rawest, most gospel-drenched end, and Lee Moses and Doris Duke sit there. But the South is where the gospel is — that voice is not a separate category from Southern soul, it is what Southern soul means. Splitting them would carve one thing in two and leave every future artist to be assigned by feel.
 
 ### 🪘 Traditional Sounds
 
@@ -71,7 +106,7 @@ The region folder says where the music comes from, not where the artist happens 
 
 Two albums append `;Classical` at album level — one of Rodrigo Rodriguez's, one of Toumani Diabate's — which is the whole reason declarations resolve nearest-first. The artist is settled once and the exception sits inside it.
 
-**Settled.** Every album on this shelf is declared, and the ten genres in use are exactly the ten in the table below. Nothing here is read from a tag any more, which is what makes `list genres` on this path instant.
+**Settled.** Every album on this shelf is declared. Nothing here is read from a tag any more, which is what makes `list genres` on this path instant.
 
 ---
 
@@ -79,24 +114,32 @@ Two albums append `;Classical` at album level — one of Rodrigo Rodriguez's, on
 
 The vocabulary in use. Reach for one of these before writing a new one.
 
-| Genre              | Means                                                                       |
-|--------------------|-----------------------------------------------------------------------------|
-| `(AUS) Didgeridoo` | Aboriginal Australian didgeridoo, solo or with percussion                   |
-| `(CHN) Classical`  | Chinese art music — court, literati, and reconstructions of it              |
-| `(GIN) Djembe`     | Guinean-style Malinké djembe over a dunun ensemble                          |
-| `(JPN) Koto`       | Japanese zither, traditional or contemporary repertoire                     |
-| `(JPN) Shakuhachi` | Japanese end-blown bamboo flute, Zen and folk repertoire                    |
-| `(MLI) Kora`       | Malian kora, the 21-string Mande harp-lute                                  |
-| `Classical`        | Western art music — Bach, Mozart, the standard repertoire                   |
-| `Indigenous`       | Minority or first peoples' music, any continent                             |
-| `Mande`            | The West African Mande tradition — kora, djembe, ngoni, balafon             |
-| `Throat-Singing`   | Overtone singing — Tuvan khoomei, Mongolian khöömii, Sardinian tenores, kin |
+| Genre                | Means                                                                       |
+|----------------------|-----------------------------------------------------------------------------|
+| `(AUS) Didgeridoo`   | Aboriginal Australian didgeridoo, solo or with percussion                   |
+| `(CHN) Classical`    | Chinese art music — court, literati, and reconstructions of it              |
+| `(GIN) Djembe`       | Guinean-style Malinké djembe over a dunun ensemble                          |
+| `(JPN) Koto`         | Japanese zither, traditional or contemporary repertoire                     |
+| `(JPN) Shakuhachi`   | Japanese end-blown bamboo flute, Zen and folk repertoire                    |
+| `(MLI) Kora`         | Malian kora, the 21-string Mande harp-lute                                  |
+| `Classical`          | Western art music — Bach, Mozart, the standard repertoire                   |
+| `Indigenous`         | Minority or first peoples' music, any continent                             |
+| `Mande`              | The West African Mande tradition — kora, djembe, ngoni, balafon             |
+| `Soul - Neo`         | Live-band soul with hip-hop rhythm and jazz phrasing, 1995 onward           |
+| `Soul - Northern`    | Uptempo 60s soul, named for the English clubs that championed it            |
+| `Soul - Progressive` | Album-length, socially serious soul — the early-70s turn                    |
+| `Soul - Psychedelic` | Wah-wah, fuzz and extended arrangements, late 60s into the 70s              |
+| `Soul - Southern`    | Gospel-derived vocal over Memphis and Muscle Shoals horns                   |
+| `Soul - Uptown`      | Arranged, pop-facing soul — New York rather than the South                  |
+| `Throat-Singing`     | Overtone singing — Tuvan khoomei, Mongolian khöömii, Sardinian tenores, kin |
 
 **On `Throat-Singing` carrying no country.** Settled, not open: the technique crosses far too many for one to lead — Tuva, Mongolia, Altai, Khakassia, Tibet, Sardinia, the Xhosa, the Inuit. It is the umbrella, so it leads, and a country follows only if one ever earns it: `Throat-Singing;(Tuva)`, `Throat-Singing;(MNG)`. Nothing needs restructuring when the second tradition arrives.
 
 **On `Mande` as an umbrella.** The kora and the djembe are Mande instruments, not Malian or Guinean ones — Mali, Guinea, Senegal, Gambia and Guinea-Bissau all play them — but the styles genuinely differ, Guinean djembe having come through Sékou Touré's state ensembles into something more arranged than Malian. So the tradition leads and the country says which style: `Mande;(GIN) Djembe`, `Mande;(MLI) Kora`. Nothing is lost by having no kora-wide entry, since the kora is played nowhere outside Mande cultures anyway, and `Mande` gathers the ngoni and balafon players besides.
 
 **Not yet needed: `Griot`.** A social role rather than an instrument or a place — hereditary praise-singers and historians across the Mande world, playing kora, ngoni or balafon by family. Toumani Diabate was one, of a line he counted at seventy-one generations; Mamady Keita was not, being a djembefola from outside the caste. It would earn its place the day two griots of different instruments are on the shelf, which is one more than there are.
+
+**On the word order.** Nobody outside this library writes `Soul - Psychedelic` — the terms are "psychedelic soul", "Southern soul", "neo-soul". The concepts are all standard; the formatting is not. Reversing them is what makes the family sort as a block, and matching Discogs matters less here than being able to find things.
 
 ---
 
