@@ -29,6 +29,7 @@ from discography_toolkit.core.names import (
     strip_quality_tag,
     title_case,
     title_case_filename,
+    track_number,
     with_artist_label,
     wrappers_balanced,
 )
@@ -1018,6 +1019,63 @@ def test_conforms_unnumbered_tidies_a_marked_name_as_it_reads_it() -> None:
     assert conforms_unnumbered("\u00a9 (1959) - Kind  of Blue")
     assert conforms_unnumbered("\u2717 (1959) - Kind  of Blue")
     assert not conforms_unnumbered("01. (1959) - Kind  of Blue")
+
+
+# ==================================================================================== #
+#                                    TRACK NUMBERS                                     #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1", "01"),
+        ("01", "01"),
+        ("9", "09"),
+        ("10", "10"),
+        # Past ninety-nine the padding stops rather than truncating: a
+        # box set's hundredth track is not "00".
+        ("100", "100"),
+        # ID3 carries "track of total"; the total is nobody's business
+        # here, and no other tag in the collection holds one.
+        ("5/12", "05"),
+        ("12/12", "12"),
+        (" 7 ", "07"),
+        # Leading zeros beyond the width are not a wider number.
+        ("007", "07"),
+    ],
+)
+def test_track_number_settles_to_two_digits(raw: str, expected: str) -> None:
+    """One form for every track number, whatever the ripper wrote.
+
+    Args:
+        raw: The number as a file carries it.
+        expected: What it should settle to.
+    """
+    assert track_number(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "   ",
+        # A vinyl side, which is a real thing to find on a rip.
+        "A1",
+        "one",
+        "/12",
+        "-3",
+    ],
+)
+def test_track_number_refuses_what_it_cannot_settle(raw: str) -> None:
+    """Nothing to settle is a person's to look at, not a rule's to guess.
+
+    Inventing a number would be inventing a running order, and a file
+    with none sorts wrong in every player -- which is worth reporting
+    rather than papering over.
+
+    Args:
+        raw: A track number that is not one.
+    """
+    assert track_number(raw) is None
 
 
 # ==================================================================================== #

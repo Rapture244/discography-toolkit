@@ -252,7 +252,7 @@ def test_writing_one_tag_leaves_the_others(
 
 @pytest.mark.parametrize("extension", list(TESTABLE))
 def test_every_tag_has_its_own_slot(make_track: Callable[[str], Path], extension: str) -> None:
-    """Writing all five at once keeps them distinct.
+    """Writing every tag at once keeps them distinct.
 
     A round-trip proves nothing about which key a tag uses: a wrong key
     still reads back what it wrote. Writing every field together is what
@@ -267,8 +267,10 @@ def test_every_tag_has_its_own_slot(make_track: Callable[[str], Path], extension
         Tag.ALBUM: "Nefertiti",
         Tag.ALBUM_ARTIST: "Miles Davis",
         Tag.DATE: "1968",
+        Tag.DISC: "2",
         Tag.GENRE: "Jazz",
         Tag.TITLE: "Fall",
+        Tag.TRACK: "05",
     }
 
     write(track, values)

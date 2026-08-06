@@ -878,6 +878,37 @@ def wrappers_balanced(text: str) -> bool:
 
 
 # ==================================================================================== #
+#                                    TRACK NUMBERS                                     #
+# ==================================================================================== #
+def track_number(raw: str) -> str | None:
+    """Settle a track number into the one form the collection uses.
+
+    Two digits, zero-padded, and nothing else: "1" and "5/12" both come
+    out "05". The total is dropped -- a track's own number is what a
+    player sorts on, and how many siblings it has is answered by looking
+    at the folder. Keeping it would put something in this tag that no
+    other tag carries.
+
+    Padding is to two digits at least, never to exactly two: a box set's
+    hundredth track stays "100" rather than being cut to fit.
+
+    Args:
+        raw: The track number as the file carries it.
+
+    Returns:
+        The settled number, or `None` when there is nothing to settle --
+        an empty tag, or one holding something that is not a number at
+        all. Both are a person's to look at rather than a rule's to
+        guess, so neither is written.
+    """
+    number, _, _total = raw.strip().partition("/")
+    number = number.strip()
+    if not number.isdigit():
+        return None
+    return f"{int(number):02d}"
+
+
+# ==================================================================================== #
 #                                     TITLE CASING                                     #
 # ==================================================================================== #
 def title_case(text: str) -> str:

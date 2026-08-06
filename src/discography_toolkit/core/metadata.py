@@ -61,8 +61,10 @@ class Tag(StrEnum):
     ALBUM = "album"
     ALBUM_ARTIST = "album_artist"
     DATE = "date"
+    DISC = "disc"
     GENRE = "genre"
     TITLE = "title"
+    TRACK = "track"
 
 
 class Family(StrEnum):
@@ -128,7 +130,28 @@ _KEYS: Final[dict[Tag, dict[Family, str]]] = {
         Family.APEV2: "Title",
         Family.ASF: "Title",
     },
+    Tag.TRACK: {
+        Family.VORBIS: "tracknumber",
+        Family.ID3: "TRCK",
+        Family.MP4: "trkn",
+        Family.APEV2: "Track",
+        Family.ASF: "WM/TrackNumber",
+    },
+    Tag.DISC: {
+        Family.VORBIS: "discnumber",
+        Family.ID3: "TPOS",
+        Family.MP4: "disk",
+        Family.APEV2: "Disc",
+        Family.ASF: "WM/PartOfSet",
+    },
 }
+
+# The two tags MP4 stores as numbers rather than strings -- a
+# (number, total) pair in an atom, with nowhere to put a leading zero.
+# Mapped to the width each is read back at, so a padded track number
+# written here compares equal on the next run instead of being rewritten
+# every time. A disc number is never padded, and so is read back plain.
+_MP4_NUMERIC: Final[dict[Tag, int]] = {Tag.TRACK: 2, Tag.DISC: 1}
 
 
 # Families whose picture storage is well enough specified to write.
@@ -402,6 +425,9 @@ def _read_one(audio, family: Family, tag: Tag) -> str:
     """
     key: str = _KEYS[tag][family]
 
+    if family is Family.MP4 and tag in _MP4_NUMERIC:
+        return _read_mp4_number(audio, key, _MP4_NUMERIC[tag])
+
     if family is Family.ID3:
         frame = audio.tags.get(key) if audio.tags is not None else None
         text = getattr(frame, "text", None)
@@ -411,6 +437,27 @@ def _read_one(audio, family: Family, tag: Tag) -> str:
     if not values:
         return ""
     return str(values[0] if isinstance(values, list) else values)
+
+
+def _read_mp4_number(audio, key: str, width: int) -> str:
+    """Read an MP4 numeric atom, which holds a `(number, total)` pair.
+
+    Args:
+        audio: An open MP4 file object.
+        key: The atom name.
+        width: How many digits to pad the number to.
+
+    Returns:
+        The number alone, empty when absent or malformed. The total is
+        dropped: a track's own number is what any of this sorts on, and
+        the count of its siblings is derivable by looking.
+    """
+    pairs = audio.get(key)
+    if not pairs:
+        return ""
+    first = pairs[0]
+    number = first[0] if isinstance(first, tuple) and first else first
+    return f"{int(number):0{width}d}" if isinstance(number, int) else ""
 
 
 def _write_one(audio, family: Family, tag: Tag, value: str) -> None:
@@ -423,6 +470,13 @@ def _write_one(audio, family: Family, tag: Tag, value: str) -> None:
         value: The new value; empty clears the field.
     """
     key: str = _KEYS[tag][family]
+
+    if family is Family.MP4 and tag in _MP4_NUMERIC:
+        if value.isdigit():
+            audio[key] = [(int(value), 0)]
+        elif key in audio:
+            del audio[key]
+        return
 
     match family:
         case Family.ID3:
