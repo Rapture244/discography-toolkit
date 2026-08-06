@@ -57,6 +57,32 @@ def fresh_shelf(tmp_path: Path) -> Callable[[], Path]:
 
 
 # ==================================================================================== #
+#                                      REFUSALS                                        #
+# ==================================================================================== #
+def test_a_refused_artist_is_left_out_of_the_tag_half(tmp_path: Path) -> None:
+    """A refusal has to mean both halves, or it is not a refusal.
+
+    Layout skipped the artist and the tag pass then re-found every album
+    beneath the target and wrote to them anyway -- a shelf declared not
+    understood, tagged from the folders that were not understood.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Otis Redding - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    album: Path = artist / "01. (1965) - Otis Blue [FLAC]"
+    first: Path = album / "CD 1" / "01.flac"
+    silence(first)
+    silence(album / "CD 2" / "01.flac")
+
+    result = runner.invoke(app, ["organize", "--path", str(artist)], input="y\n")
+
+    assert "split across disc folders" in result.output
+    assert metadata.read(first, [Tag.ALBUM])[Tag.ALBUM] == ""
+    assert not (album / "cover.jpg").exists()
+
+
+# ==================================================================================== #
 #                                     END TO END                                       #
 # ==================================================================================== #
 def test_fresh_material_is_laid_out_and_tagged(fresh_shelf: Callable[[], Path]) -> None:

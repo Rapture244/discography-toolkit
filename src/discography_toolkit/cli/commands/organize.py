@@ -7,6 +7,10 @@ only that order -- layout is the pass that labels the artists, and
 align-tags finds them by their labels, so the tags can only be read once
 the folders have been settled.
 
+An artist the layout half refuses is dropped from the tag half too. A
+refusal says the shelf was not understood well enough to write to it,
+and writing tags to it anyway would be worse than not refusing at all.
+
 That ordering is why this exists as its own command rather than a note in
 the README: on fresh material align-tags has nothing to find until layout
 has run, and running them by hand means pointing at the same folder
@@ -111,9 +115,16 @@ def organize(
     root: Path = target
     if not target.exists() and results:
         root = results[0].artist
-    labelled: list[Path] = find_artist_folders(root)
-    albums: list[Path] = find_albums(root)
-    tracks: list[Path] = find_audio_files(root)
+
+    # A refused artist is left untouched, and that has to mean by both
+    # halves: layout skipping one and the tag pass writing to it anyway
+    # is worse than not refusing at all, since the refusal says the
+    # shelf was not understood. Refusals happen before the first write,
+    # so their folders were never renamed and their paths still hold.
+    refused: list[Path] = [refusal.artist for refusal in skipped]
+    labelled: list[Path] = _outside(find_artist_folders(root), refused)
+    albums: list[Path] = _outside(find_albums(root), refused)
+    tracks: list[Path] = _outside(find_audio_files(root), refused)
 
     if not albums:
         _echo_summary(results, skipped, tagged=0, settled=0, failures=0)
@@ -125,6 +136,24 @@ def organize(
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
     failures: int = len(cover_report.failures) + len(tag_report.failures)
     _echo_summary(results, skipped, tagged=tag_report.written, settled=settled, failures=failures)
+
+
+# ==================================================================================== #
+#                                      REFUSALS                                        #
+# ==================================================================================== #
+def _outside(found: list[Path], refused: list[Path]) -> list[Path]:
+    """Drop everything sitting under an artist the layout half refused.
+
+    Args:
+        found: Paths discovered beneath the target.
+        refused: The artist folders that were skipped.
+
+    Returns:
+        Those under none of them.
+    """
+    if not refused:
+        return found
+    return [path for path in found if not any(path.is_relative_to(folder) for folder in refused)]
 
 
 # ==================================================================================== #
