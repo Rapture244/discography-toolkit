@@ -20,20 +20,26 @@ beside the others.
 What the discography does decide is everything about the name: the
 index, the year, the front mark, the availability marker, an "(EP)".
 Only the quality word is read from the playlist's own files, since a
-FLAC album arrives here as Opus. The genre is the one thing copied that
-no folder name holds, so it comes from the discography's own tracks --
-retag it there and the next run brings it across.
+FLAC album arrives here as Opus.
+
+The tags are read straight off the discography's own tracks, paired
+within the album by disc and track number. A converter copies them once,
+at the moment it runs; anything retagged upstream afterwards only
+reaches here by being read again. The Album tag is the one exception,
+built from the folder name instead -- the discography writes the bare
+title, being shared, while a playlist wants the pinned and dated form a
+player sorts on.
 
 That is what makes a second run a sync: rename or renumber an album in
 the discography, run again, and the playlist follows -- and unpin one
 there and the pin comes off here.
 
-Three passes per artist, in an order that cannot change: fold, then
-write the tags off the folder the fold has just named, then write
-a cover.jpg from the art the tracks carry. That order is why there is no
-dry run -- a preview of the tag pass would describe folders that do not
-exist yet -- so the fold alone is shown before a single confirmation, as
-`layout` and `organize` have.
+Four passes per artist, in an order that cannot change: fold, then write
+the tags, then put a disc number on the filenames of a multi-disc album,
+then write a cover.jpg from the art the tracks carry. That order is why
+there is no dry run -- a preview of the tag pass would describe folders
+that do not exist yet -- so the fold alone is shown before a single
+confirmation, as `layout` and `organize` have.
 """
 
 from __future__ import annotations
@@ -62,11 +68,10 @@ from discography_toolkit.core.layout import (
     album_tracks,
     discover_albums,
     find_artist_folders,
-    holding_album,
 )
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import album_title, strip_artist_label
-from discography_toolkit.operations import playlist as folding, tagging
+from discography_toolkit.operations import discs, playlist as folding, tagging
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -108,7 +113,8 @@ class Synced:
             album. Zero with candidates present means nothing could be
             settled, which is a different thing from nothing to do.
         folded: How many album folders were moved or renamed.
-        tagged: How many tracks had their Album tag written.
+        tagged: How many tracks had their tags written.
+        prefixed: How many filenames took a disc number.
         covered: How many loose covers were written.
         notices: What the run saw but would not act on.
         failures: `(path, reason)` for each operation that failed.
@@ -118,6 +124,7 @@ class Synced:
     matched: int = 0
     folded: int = 0
     tagged: int = 0
+    prefixed: int = 0
     covered: int = 0
     notices: tuple[Notice, ...] = ()
     failures: tuple[tuple[Path, str], ...] = field(default=())
@@ -125,7 +132,7 @@ class Synced:
     @property
     def changed(self) -> bool:
         """Whether anything about this artist actually moved."""
-        return bool(self.folded or self.tagged or self.covered)
+        return bool(self.folded or self.tagged or self.prefixed or self.covered)
 
 
 # ==================================================================================== #
@@ -212,8 +219,9 @@ def playlist(
     _echo_moves(planned)
 
     warning: str = (
-        f"This moves {moves} album folder(s), then writes their Album tag, their Genre "
-        "from the discography, and a cover.jpg beside their tracks. There is no dry run."
+        f"This moves {moves} album folder(s), then writes their tags from the discography, "
+        "prefixes any multi-disc filenames, and writes a cover.jpg beside their tracks. "
+        "There is no dry run."
     )
     typer.secho(f"\n{warning}", fg=typer.colors.YELLOW)
     if not typer.confirm("Proceed?"):
@@ -380,93 +388,126 @@ def _sync(
     report = folding.apply(fold_plan)
 
     placed: list[folding.Match] = [match for match in fold_plan.matches if match.target.is_dir()]
+    settled: list[Path] = sorted({match.target for match in placed})
 
     tagged, tag_notices, tag_failures = _write_tags(placed, advance)
-    covered, art_notices, art_failures = _write_covers(
-        sorted({match.target for match in placed}), advance
-    )
+    prefixed, disc_failures = _prefix_discs(settled)
+    covered, art_notices, art_failures = _write_covers(settled, advance)
 
     return Synced(
         name=artist.name,
         matched=len(fold_plan.matches),
         folded=report.moved,
         tagged=tagged,
+        prefixed=prefixed,
         covered=covered,
         notices=(*_fold_notices(fold_plan), *tag_notices, *art_notices),
-        failures=(*report.failures, *tag_failures, *art_failures),
+        failures=(*report.failures, *tag_failures, *disc_failures, *art_failures),
     )
+
+
+def _prefix_discs(settled: Sequence[Path]) -> tuple[int, tuple[tuple[Path, str], ...]]:
+    """Put each multi-disc track's number at the front of its filename.
+
+    The same pass the discography gets, for the same reason: a converter
+    writes one flat folder whatever the album was, and a flat folder
+    sorted by name is the only view a phone offers. Run after the tags,
+    since the number it puts on the filename is the settled one just
+    written.
+
+    Args:
+        settled: The playlist's album folders, as they now stand.
+
+    Returns:
+        How many files took a prefix, and what failed.
+    """
+    if not settled:
+        return 0, ()
+
+    tracks: list[Path] = [track for album in settled for track in album_tracks(album)]
+    report = discs.apply(discs.plan(settled, tracks))
+    return report.renamed, report.failures
 
 
 def _write_tags(
     placed: Sequence[folding.Match],
     advance: Callable[[Path], None],
 ) -> tuple[int, tuple[Notice, ...], tuple[tuple[Path, str], ...]]:
-    """Write the Album tag and the Genre of every track in one pass.
+    """Write each converted track's tags from the track it came from.
 
-    Two values from two sources, written together because they are one
-    write. The Album comes off the folder the fold has just named; the
-    Genre has no folder to come from and is read out of the discography's
-    own tracks, which is what lets a genre changed there reach the
-    playlist on the next run.
+    The playlist is a subset of the discography, so it says what the
+    discography says. A converter copies the tags once and they drift the
+    moment anything is retagged upstream; this reads them again and puts
+    them back.
 
-    Only folders that are actually on disk are read, since one of the
-    fold's renames may have failed and what is there is what the tags are
-    written from.
-
-    A discography album carrying no genre leaves the playlist's alone
-    rather than clearing it: nothing to copy is not the same as an
-    instruction to empty the field.
-
-    The genre is read from the discography's tracks rather than from the
-    `.genre` files that decide it there. A declaration is what the
-    discography was told; a tag is what it holds, and the playlist
-    mirrors what it holds. Reading declarations would put the playlist
-    ahead of its own source -- a genre on the phone that the discography
-    has not been given yet -- so the order stays: declare, run `tags
-    genre`, then sync.
+    The Album tag is the one exception, built from the folder the fold has
+    just named rather than copied. The discography's is the bare title,
+    being shared; the playlist's carries the pin, the year and the format
+    a player sorts on. It follows the discography all the same -- through
+    the folder name, which the fold takes from it.
 
     Args:
         placed: The matches whose folders are in place.
         advance: The run's progress callback, called per track read.
 
     Returns:
-        How many tracks were written, what had no genre to copy, and
-        what failed.
+        How many tracks were written, what could not be paired, and what
+        failed.
     """
     wanted: dict[Path, dict[Tag, str]] = {}
-    ungenred: list[Path] = []
+    spoiled: list[tuple[Path, int, int]] = []
 
     for match in placed:
-        values: dict[Tag, str] = {Tag.ALBUM: folding.album_tag(match.target.name)}
-        genre: str = folding.genre_of(match.source)
-        if genre:
-            values[Tag.GENRE] = genre
-        else:
-            ungenred.append(match.target)
-        wanted[match.target] = values
+        mirrored, missing = folding.mirror(match)
+        album: str = folding.album_tag(match.target.name)
+        for track, values in mirrored.items():
+            wanted[track] = {**values, Tag.ALBUM: album}
+        if missing:
+            spoiled.append((match.target, len(missing), len(mirrored) + len(missing)))
 
-    tracks: list[Path] = [track for album in wanted for track in album_tracks(album)]
-    if not tracks:
-        return 0, (), ()
+    if not wanted:
+        return 0, _unpaired_notice(spoiled), ()
 
-    # Barred on the read rather than the write: opening every track to
-    # see what it already holds is where the time goes, and it is the
-    # pause a run would otherwise sit through in silence.
-    plan = tagging.plan(tracks, [Tag.ALBUM, Tag.GENRE], _wants(wanted), on_progress=advance)
+    plan = tagging.plan(
+        list(wanted),
+        [Tag.ALBUM, *folding.MIRRORED],
+        lambda track, _current: wanted.get(track, {}),
+        on_progress=advance,
+    )
     report = tagging.apply(plan)
 
-    notices: tuple[Notice, ...] = ()
-    if ungenred:
-        notices = (
-            Notice(
-                summary=(
-                    f"{len(ungenred)} album(s) carry no Genre in the discography "
-                    "-- run `rapt tags genre` there first"
-                ),
-                details=tuple(f"{album.name!r}" for album in ungenred),
+    return report.written, _unpaired_notice(spoiled), report.failures
+
+
+def _unpaired_notice(spoiled: Sequence[tuple[Path, int, int]]) -> tuple[Notice, ...]:
+    """Name the albums holding tracks no discography track answers for.
+
+    Grouped by album and counted against its size, because that is what
+    tells the two cases apart. A few tracks of one album is a conversion
+    that skipped some, or leftovers from an older run. Every track of an
+    album is the pairing itself failing -- most often because one side
+    carries no track numbers at all -- and a flat list of forty-seven
+    filenames hides which of the two it is.
+
+    Args:
+        spoiled: Each album, how many of its tracks went unpaired, and
+            how many it holds.
+
+    Returns:
+        One notice when there were any, empty otherwise.
+    """
+    if not spoiled:
+        return ()
+
+    total: int = sum(count for _, count, _ in spoiled)
+    return (
+        Notice(
+            summary=f"{total} track(s) match no track in the discography",
+            details=tuple(
+                f"{album.name!r} -- {count} of {held} track(s)" for album, count, held in spoiled
             ),
-        )
-    return report.written, notices, report.failures
+        ),
+    )
 
 
 def _write_covers(
@@ -497,31 +538,6 @@ def _write_covers(
             ),
         )
     return report.written, notices, report.failures
-
-
-def _wants(wanted: Mapping[Path, Mapping[Tag, str]]) -> tagging.Desired:
-    """Build the value function: each track given what its album should hold.
-
-    A track must be in the album, or one disc down. `owning_folder` would
-    accept any ancestor however distant, which is how one wrongly matched
-    folder came to stamp its name on every track beneath it. The limit
-    belongs here as well as at discovery, because this is where the value
-    is decided: a wrong match should cost a folder move, which is undone
-    by moving it back, and never the tags, which are not.
-
-    Args:
-        wanted: Each album folder mapped to the tags it should write.
-
-    Returns:
-        A `Desired` callable returning nothing for a track no album
-        directly holds, which leaves it untouched.
-    """
-
-    def desired(track: Path, _current: Mapping[Tag, str]) -> Mapping[Tag, str]:
-        album: Path | None = holding_album(track, wanted)
-        return {} if album is None else wanted[album]
-
-    return desired
 
 
 # ==================================================================================== #
@@ -664,10 +680,11 @@ def _echo_artist(result: Synced) -> None:
     typer.secho(f"  {result.name!r}", fg=typer.colors.CYAN, bold=True)
 
     if result.changed:
-        counts: str = (
-            f"{result.folded} folded, {result.tagged} tagged, {result.covered} cover(s) written"
+        done: str = f"{result.folded} folded, {result.tagged} tagged"
+        typer.secho(
+            f"      {done}, {result.prefixed} prefixed, {result.covered} cover(s) written",
+            fg=typer.colors.GREEN,
         )
-        typer.secho(f"      {counts}", fg=typer.colors.GREEN)
     elif result.matched:
         typer.secho("      already in step with the discography", fg=typer.colors.BRIGHT_BLACK)
     else:

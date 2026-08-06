@@ -49,8 +49,13 @@ def album(tmp_path: Path) -> Callable[..., Path]:
         for index in range(tracks):
             track: Path = folder / f"{index + 1:02d}.flac"
             silence(track)
+            # A track number as well as the album: the tags are mirrored
+            # from the discography track this one pairs with, and the
+            # pairing is by disc and track within the album.
+            values: dict[Tag, str] = {Tag.TRACK: f"{index + 1:02d}"}
             if tag is not None:
-                metadata.write(track, {Tag.ALBUM: tag})
+                values[Tag.ALBUM] = tag
+            metadata.write(track, values)
         return folder
 
     return build
@@ -115,14 +120,15 @@ def test_a_folder_holding_albums_is_left_entirely_alone(
 #                                       FOLDING                                        #
 # ==================================================================================== #
 def test_a_loose_album_is_filed_and_tagged(album: Callable[..., Path], tmp_path: Path) -> None:
-    """The ordinary case: a conversion takes the discography's name.
+    """The ordinary case: a conversion takes the discography's name and tags.
 
     Args:
         album: Factory building an album folder.
         tmp_path: Pytest's per-test temporary directory.
     """
-    disco: Path = tmp_path / "disco" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
-    (disco / "\u00a901. (1959) - Kind of Blue [FLAC]").mkdir(parents=True)
+    artist: str = "disco/Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    disco: Path = tmp_path / artist
+    _ = album(f"{artist}/\u00a901. (1959) - Kind of Blue [FLAC]", tag="Kind of Blue")
 
     playlist: Path = tmp_path / "playlist"
     playlist.mkdir()

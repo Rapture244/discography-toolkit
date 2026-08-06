@@ -57,6 +57,20 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
+# The tags a playlist track takes from the discography track it came
+# from. Album is absent on purpose: the discography writes the bare
+# title, being shared, while the playlist writes the pinned and dated
+# form a player sorts on -- so it is built from the folder name the fold
+# has settled rather than copied, and follows the discography that way.
+MIRRORED: Final[tuple[Tag, ...]] = (
+    Tag.ALBUM_ARTIST,
+    Tag.DATE,
+    Tag.DISC,
+    Tag.GENRE,
+    Tag.TITLE,
+    Tag.TRACK,
+)
+
 # The name a folder wears mid-move, for a change that only alters case.
 # Hidden, and distinct enough that no album is it.
 _STAGING_PREFIX: str = ".__playlist__"
@@ -79,9 +93,9 @@ class Match:
         album: The converted folder as it stands.
         target: Where it belongs -- inside the artist folder, under the
             discography's name for it with its own quality word.
-        source: The discography album it matched. Kept because not
-            everything the playlist copies is in a folder name: the genre
-            has to be read from the discography's own tracks.
+        source: The discography album it matched. Kept because the tags
+            are read off its own tracks rather than derived, so a run
+            has to be able to get back to them.
     """
 
     album: Path
@@ -458,25 +472,45 @@ def apply_covers(
     return CoverReport(written=written, failures=tuple(failures))
 
 
-def genre_of(album: Path) -> str:
-    """Read the Genre an album's tracks carry.
+def mirror(match: Match) -> tuple[dict[Path, dict[Tag, str]], tuple[Path, ...]]:
+    """Read what each converted track's discography track says.
 
-    The one thing the playlist copies that no folder name holds, so it
-    comes from the discography's files rather than from its shelf. Read
-    per album because that is how it is written: `tags genre` gives one
-    value to everything under a path.
+    The playlist is a subset of the discography, so it should say what
+    the discography says. A converter copies the tags once, at the moment
+    it runs; anything changed afterwards only reaches here by being read
+    again.
+
+    Tracks are paired within the album by disc and track number, which is
+    the one key both sides share -- filenames differ by extension and
+    separator, and titles repeat across the discs of a set. The numbers
+    are settled before comparing, so a playlist still carrying the "01"
+    it was converted with pairs with a discography since settled to "1".
+
+    A track that pairs with nothing, or with more than one, is left
+    untouched and returned. Writing another track's tags onto it would be
+    worse than leaving it as the converter found it.
 
     Args:
-        album: The album folder to read.
+        match: A converted album and the discography album it came from.
 
     Returns:
-        The genre, empty when no track carries a readable one.
+        Each converted track mapped to the tags it should carry, and the
+        tracks that could not be paired.
     """
-    for track in album_tracks(album):
-        value: str = _tag_of(track, Tag.GENRE)
-        if value:
-            return value
-    return ""
+    source, _source_loose = _keyed(album_tracks(match.source))
+    target, target_loose = _keyed(album_tracks(match.target))
+
+    wanted: dict[Path, dict[Tag, str]] = {}
+    unpaired: list[Path] = list(target_loose)
+
+    for key, track in target.items():
+        twin: Path | None = source.get(key)
+        if twin is None:
+            unpaired.append(track)
+            continue
+        wanted[track] = _read(twin)
+
+    return wanted, tuple(sorted(unpaired))
 
 
 def identity(album: Path) -> str | None:
@@ -646,6 +680,71 @@ def _on_disk(target: Path) -> bytes | None:
         return target.read_bytes()
     except OSError:
         return None
+
+
+def _keyed(tracks: Sequence[Path]) -> tuple[dict[tuple[str, str], Path], list[Path]]:
+    """Key an album's tracks by disc and track number, settled.
+
+    The disc counts toward the key only where the album has more than
+    one, which is the same rule the discography settles by: one disc
+    says nothing, so it is cleared there. A converted copy taken before
+    that clearing still carries its "01", and keying on it literally
+    would pair nothing -- the discography saying no disc and the playlist
+    saying disc one, for the same track.
+
+    Args:
+        tracks: One album's audio files.
+
+    Returns:
+        Each usable key mapped to its track, and the tracks with no
+        usable key -- no track number, or a key two of them share.
+    """
+    read: list[tuple[Path, str, str | None]] = []
+    for track in tracks:
+        current: dict[Tag, str] = _read(track, (Tag.DISC, Tag.TRACK))
+        read.append(
+            (
+                track,
+                names.disc_number(current.get(Tag.DISC, "")) or "",
+                names.track_number(current.get(Tag.TRACK, "")),
+            )
+        )
+
+    split: bool = len({disc for _, disc, _ in read if disc}) > 1
+
+    keyed: dict[tuple[str, str], Path] = {}
+    clashing: set[tuple[str, str]] = set()
+    loose: list[Path] = []
+
+    for track, disc, number in read:
+        if number is None:
+            loose.append(track)
+            continue
+
+        key: tuple[str, str] = (disc if split else "", number)
+        if key in keyed:
+            clashing.add(key)
+        keyed[key] = track
+
+    loose.extend(keyed.pop(key) for key in clashing)
+
+    return keyed, loose
+
+
+def _read(track: Path, tags: Sequence[Tag] = MIRRORED) -> dict[Tag, str]:
+    """Read a track's tags, or nothing when the file will not open.
+
+    Args:
+        track: The audio file to read.
+        tags: Which fields to read.
+
+    Returns:
+        Each tag mapped to its value, empty throughout when unreadable.
+    """
+    try:
+        return metadata.read(track, tags)
+    except Exception:  # noqa: BLE001 - any file can fail in ways not worth enumerating
+        return dict.fromkeys(tags, "")
 
 
 def _tag_of(track: Path, tag: Tag) -> str:
