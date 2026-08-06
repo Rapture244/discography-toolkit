@@ -339,6 +339,31 @@ def test_a_notice_names_the_albums_it_means(tmp_path: Path) -> None:
     assert "'(1985) - M - Decoy'" in result.stdout
 
 
+def test_an_album_split_across_disc_folders_is_refused(tmp_path: Path) -> None:
+    """A shape nothing downstream handles, and one only a person can settle.
+
+    Two discs each starting at track one produce two files of the same
+    name once flattened, and the disc number telling them apart lives in
+    tags this pass neither reads nor writes. Flattening means trusting
+    those tags, with no way back once the folders are gone.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Otis Redding"
+    album: Path = artist / "(1965) - Otis Blue"
+    flac(album / "CD 1")
+    flac(album / "CD 2")
+
+    result = runner.invoke(app, ["layout", "--path", str(artist), "--yes"])
+
+    assert result.exit_code == 0
+    assert "split across disc folders" in result.stdout
+    assert "'(1965) - Otis Blue' -- 2 disc folder(s)" in result.stdout
+    # Refused before the first write, so the shelf is exactly as it was.
+    assert album.is_dir()
+
+
 def test_a_refusal_is_repeated_in_the_summary(tmp_path: Path) -> None:
     """A run of sixty needs its refusals gathered where the totals are.
 

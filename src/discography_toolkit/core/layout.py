@@ -288,6 +288,27 @@ def owning_folder(path: Path, candidates: Sequence[Path]) -> Path | None:
     return next((folder for folder in candidates if folder in parents), None)
 
 
+def disc_folders(album: Path) -> list[Path]:
+    """Find an album's disc subfolders.
+
+    The shape a multi-disc rip arrives in: "CD 1" and "CD 2" beside each
+    other, each holding its own tracks. Recognised by name, which is what
+    `_DISC_FOLDER_RE` is for and carries that pattern's ceiling with it.
+
+    Args:
+        album: The album folder to inspect.
+
+    Returns:
+        Its disc subfolders, sorted by path, empty for the ordinary
+        album whose tracks sit directly in it.
+    """
+    return sorted(
+        entry
+        for entry in album.iterdir()
+        if entry.is_dir() and _DISC_FOLDER_RE.match(entry.name) is not None
+    )
+
+
 def holding_album(track: Path, albums: Container[Path]) -> Path | None:
     """Find which album a track is actually in, refusing anything further out.
 

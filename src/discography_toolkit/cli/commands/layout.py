@@ -18,10 +18,12 @@ An artist is checked before any of it runs, and skipped whole where the
 check fails. Two FLAC containers cannot be merged without guessing. An
 album held twice cannot be numbered into one sequence -- one copy would
 take a place that is not its own, and which to keep is not the tool's
-call. And a name the rebuild would not settle into the convention is
-worth a person's eye rather than a shelf that quietly reads wrong:
-naming plans without writing, so what it would produce can be held to
-the pattern before a single folder moves.
+call. An album split across disc subfolders has a shape nothing here
+handles yet, and flattening it means trusting disc numbers the pass
+cannot check. And a name the rebuild would not settle into the
+convention is worth a person's eye rather than a shelf that quietly
+reads wrong: naming plans without writing, so what it would produce can
+be held to the pattern before a single folder moves.
 
 Skipping before the first write is what keeps a refused artist untouched
 rather than half laid out, and the run carries on to the rest.
@@ -48,6 +50,7 @@ from discography_toolkit.cli.console import Notice, echo_banner, echo_failures, 
 from discography_toolkit.cli.scope import resolve_path
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
+    disc_folders,
     discover_albums,
     find_artists,
     find_audio_files,
@@ -235,6 +238,15 @@ def _check(artist: Path) -> Skipped | None:
         # real one, so the artist is skipped whole.
         return Skipped(artist=artist, reason="more than one FLAC container")
 
+    split: tuple[str, ...] = _split_across_discs(artist)
+    if split:
+        trouble: str = f"{len(split)} album(s) split across disc folders"
+        return Skipped(
+            artist=artist,
+            reason=f"{trouble} -- flatten them and check their disc numbers",
+            details=split,
+        )
+
     repeats: tuple[tuple[Path, ...], ...] = _unresolved_duplicates(artist)
     if repeats:
         return Skipped(
@@ -252,6 +264,31 @@ def _check(artist: Path) -> Skipped | None:
         )
 
     return None
+
+
+def _split_across_discs(artist: Path) -> tuple[str, ...]:
+    """Find albums whose tracks sit in disc subfolders.
+
+    Nothing downstream handles that shape. Track filenames are built per
+    folder, so two discs each starting at track one produce two files of
+    the same name; and the disc number that would tell them apart lives
+    only in the tags, which this pass neither reads nor writes.
+
+    Flattening is the fix, and it is a person's: it means trusting the
+    disc numbers already on the tracks, and there is no way back once the
+    folders that carried the distinction are gone.
+
+    Args:
+        artist: The artist folder to inspect.
+
+    Returns:
+        One line per split album, naming it and how many discs it holds.
+    """
+    return tuple(
+        f"{album.name!r} -- {len(discs)} disc folder(s)"
+        for album in discover_albums(artist)
+        if (discs := disc_folders(album))
+    )
 
 
 def _unresolved_duplicates(artist: Path) -> tuple[tuple[Path, ...], ...]:
