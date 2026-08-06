@@ -22,17 +22,16 @@ reports how many files each tag touched.
 
 Two of those tags are settled in place rather than derived. A track
 number is padded to the collection's width and stripped of the "of
-total" some rippers append. A disc number is cleared, since one disc is
-the ordinary case and saying so tells nobody anything -- but that is the
-one tag a track cannot answer for alone, whether its "1" means anything
-depending on whether a "2" exists elsewhere in the album. So the albums
-are read whole first, and any holding more than one disc is left exactly
-as it is and reported.
+total" some rippers append. A disc number is the one tag a track cannot
+answer for alone -- whether its "1" means anything depends on whether a
+"2" exists elsewhere in the album -- so the albums are read whole first.
+One disc means the tag is cleared, saying so telling nobody anything;
+several means the numbers stay, settled to their bare form, and go on
+the front of each filename afterwards. That last pass runs at the end,
+once the tags it reads from have been written.
 """
 
 from __future__ import annotations
-
-from collections import defaultdict
 
 # Runtime import, not a type-checking one: Typer resolves annotations
 # with get_type_hints() when it builds the command, so every name used in
@@ -52,14 +51,14 @@ from discography_toolkit.cli.console import (
     make_progress,
 )
 from discography_toolkit.cli.scope import require_albums, require_tracks, resolve_path
-from discography_toolkit.core import derivation, metadata
-from discography_toolkit.core.layout import find_artist_folders, holding_album
+from discography_toolkit.core import derivation
+from discography_toolkit.core.layout import find_artist_folders
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import title_case, track_number
-from discography_toolkit.operations import covers, tagging
+from discography_toolkit.operations import covers, discs, tagging
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Container, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
 # The text tags read off the folders, each with its display name and how
 # its count reads. Genre is not here -- it cannot be derived -- and the
@@ -70,7 +69,7 @@ _TAG_LABELS: Final[tuple[tuple[Tag, str, str], ...]] = (
     (Tag.DATE, "Year", "dated"),
     (Tag.TITLE, "Title", "recased"),
     (Tag.TRACK, "Track", "numbered"),
-    (Tag.DISC, "Disc", "cleared"),
+    (Tag.DISC, "Disc", "settled"),
 )
 _TEXT_TAGS: Final[tuple[Tag, ...]] = tuple(tag for tag, _, _ in _TAG_LABELS)
 
@@ -142,8 +141,8 @@ def align_tags(
         raise typer.Exit(code=0)
 
     typer.echo()
-    cover_report, tag_report = run(albums, tracks, artists, credit)
-    _echo_summary(cover_report, tag_report)
+    cover_report, tag_report, disc_report = run(albums, tracks, artists, credit)
+    _echo_summary(cover_report, tag_report, disc_report)
 
 
 def run(
@@ -151,7 +150,7 @@ def run(
     tracks: Sequence[Path],
     artists: Sequence[Path],
     credit: str | None = None,
-) -> tuple[covers.CoverReport, tagging.WriteReport]:
+) -> tuple[covers.CoverReport, tagging.WriteReport, discs.DiscReport]:
     """Settle the covers, then write the tags, each pass in sight.
 
     The work the command runs after confirming, lifted out so the
@@ -165,11 +164,11 @@ def run(
             one read from the folder above it; `None` derives it as usual.
 
     Returns:
-        What the cover pass and the tag pass each did.
+        What the cover pass, the tag pass and the disc prefixing each did.
     """
     cover_report: covers.CoverReport = _run_covers(albums, artists)
-    tag_report: tagging.WriteReport = _run_tags(tracks, albums, artists, credit)
-    return cover_report, tag_report
+    tag_report, disc_report = _run_tags(tracks, albums, artists, credit)
+    return cover_report, tag_report, disc_report
 
 
 # ==================================================================================== #
@@ -179,7 +178,7 @@ def _wants(
     albums: Sequence[Path],
     artists: Sequence[Path],
     credit: str | None,
-    clear_disc: Container[Path],
+    disc_plan: discs.DiscPlan,
 ) -> tagging.Desired:
     """Build the value function for every text tag written in one pass.
 
@@ -202,9 +201,9 @@ def _wants(
         albums: The album folders in scope.
         artists: The artist folders in scope.
         credit: An Album Artist to force, or `None` to derive it.
-        clear_disc: Tracks whose disc number should be emptied, worked
-            out per album beforehand -- it is the one tag a track cannot
-            answer for alone.
+        disc_plan: What the albums' disc numbers were found to say --
+            the one tag a track cannot answer for alone, worked out per
+            album beforehand.
 
     Returns:
         A `Desired` callable for the combined tagging pass.
@@ -239,8 +238,13 @@ def _wants(
         if number is not None:
             wanted[Tag.TRACK] = number
 
-        if track in clear_disc:
+        # Cleared where the album holds one disc, settled to its bare
+        # form where it holds several. Never chosen: which disc a track
+        # belongs to is the ripper's answer and the only record of it.
+        if track in disc_plan.clear:
             wanted[Tag.DISC] = ""
+        elif track in disc_plan.settle:
+            wanted[Tag.DISC] = disc_plan.settle[track]
 
         return wanted
 
@@ -280,7 +284,7 @@ def _run_tags(
     albums: Sequence[Path],
     artists: Sequence[Path],
     credit: str | None = None,
-) -> tagging.WriteReport:
+) -> tuple[tagging.WriteReport, discs.DiscReport]:
     """Read all four tags in one scan and write them in one save per file.
 
     Rewriting a lossless file once for four fields rather than four times
@@ -295,16 +299,16 @@ def _run_tags(
         credit: An Album Artist to force on every track, or `None`.
 
     Returns:
-        What the pass did, counted in files written.
+        What the tag pass and the disc prefixing each did.
     """
     with make_progress() as progress:
         advance = make_advancer(progress, "Discs: reading", tracks, artists)
-        clear_disc, split = _disc_decisions(albums, tracks, advance)
+        disc_plan = discs.plan(albums, tracks, on_progress=advance)
 
     with make_progress() as progress:
         advance = make_advancer(progress, "Tags: scanning", tracks, artists)
         plan = tagging.plan(
-            tracks, _TEXT_TAGS, _wants(albums, artists, credit, clear_disc), on_progress=advance
+            tracks, _TEXT_TAGS, _wants(albums, artists, credit, disc_plan), on_progress=advance
         )
 
     breakdown: dict[Tag, int] = _breakdown(plan)
@@ -317,87 +321,67 @@ def _run_tags(
     _echo_breakdown(
         breakdown,
         report.failures,
-        {Tag.TRACK: _unnumbered(plan), Tag.DISC: split},
+        {Tag.TRACK: _unnumbered(plan), Tag.DISC: _disc_notices(disc_plan)},
     )
+    return report, _prefix_discs(disc_plan, artists)
+
+
+def _prefix_discs(disc_plan: discs.DiscPlan, artists: Sequence[Path]) -> discs.DiscReport:
+    """Put each multi-disc track's number at the front of its filename.
+
+    Last, and after the tags: a flat folder sorted by name is the only
+    view with nothing else to go on, and the number it wears has to be
+    the settled one the tag pass has just written.
+
+    Args:
+        disc_plan: What the albums' disc numbers were found to say.
+        artists: The artist folders, for the per-artist sub-bars.
+
+    Returns:
+        What the prefixing did.
+    """
+    if not disc_plan.pending:
+        return discs.DiscReport()
+
+    with make_progress() as progress:
+        renaming: list[Path] = [prefix.track for prefix in disc_plan.pending]
+        advance = make_advancer(progress, "Discs: prefixing", renaming, artists)
+        report = discs.apply(disc_plan, on_progress=advance)
+
+    echo_result("Disc names", report.renamed, "prefixed", failures=report.failures)
     return report
 
 
-def _disc_decisions(
-    albums: Sequence[Path],
-    tracks: Sequence[Path],
-    on_progress: Callable[[Path], None] | None = None,
-) -> tuple[set[Path], tuple[Notice, ...]]:
-    """Decide, per album, which tracks should lose their disc number.
+def _disc_notices(disc_plan: discs.DiscPlan) -> tuple[Notice, ...]:
+    """Phrase what the disc pass saw but would not settle.
 
-    The one tag a track cannot answer for alone. Whether its "1" means
-    anything depends on whether a "2" exists elsewhere in the album, so
-    the album is read whole before a single value is settled -- which is
-    why this runs as its own pass ahead of the others rather than inside
-    the value function.
-
-    An album carrying at most one distinct number has it cleared from
-    every track: one disc is the ordinary case, and saying so in a tag
-    tells nobody anything. "1 everywhere" and "1 on some, blank on the
-    rest" are the same album and are treated alike, which is what keeps
-    the second from being left half-tagged forever.
-
-    An album carrying two or more is left entirely alone and reported.
-    Those numbers are the only thing keeping its discs apart once the
-    folders that used to are gone.
+    An album holding several discs keeps its numbers, and is named --
+    they are all that keeps its discs apart once the folders that used to
+    are gone, so it is worth seeing that they are still there and
+    plausible.
 
     Args:
-        albums: The album folders in scope.
-        tracks: Every audio file in scope.
-        on_progress: Called with each track as it is read.
+        disc_plan: What the albums' disc numbers were found to say.
 
     Returns:
-        The tracks to clear, and a notice naming the albums left alone.
+        One notice per kind there was, empty when there was none.
     """
-    held: set[Path] = set(albums)
-    by_album: defaultdict[Path, list[tuple[Path, str]]] = defaultdict(list)
-
-    for track in tracks:
-        album: Path | None = holding_album(track, held)
-        if album is not None:
-            by_album[album].append((track, _disc_of(track)))
-        if on_progress is not None:
-            on_progress(track)
-
-    clear: set[Path] = set()
-    split: list[str] = []
-
-    for album, entries in by_album.items():
-        found: set[str] = {value for _, value in entries if value}
-        if len(found) > 1:
-            split.append(f"{album.name!r} -- discs {', '.join(sorted(found))}")
-            continue
-        clear.update(track for track, value in entries if value)
-
-    if not split:
-        return clear, ()
-
-    return clear, (
-        Notice(
-            summary=f"{len(split)} album(s) hold more than one disc -- left as they are",
-            details=tuple(split),
-        ),
-    )
-
-
-def _disc_of(track: Path) -> str:
-    """Read one track's disc number, or nothing when it cannot be read.
-
-    Args:
-        track: The audio file to read.
-
-    Returns:
-        Its disc number, empty when absent or when the file will not
-        read -- an unreadable track cannot argue that its album is split.
-    """
-    try:
-        return metadata.read(track, [Tag.DISC])[Tag.DISC]
-    except Exception:  # noqa: BLE001 - any file can fail in ways not worth enumerating
-        return ""
+    notices: list[Notice] = []
+    if disc_plan.split:
+        notices.append(
+            Notice(
+                summary=f"{len(disc_plan.split)} album(s) hold more than one disc",
+                details=disc_plan.split,
+            )
+        )
+    if disc_plan.unreadable:
+        notices.append(
+            Notice(
+                summary=f"{len(disc_plan.unreadable)} file(s) carry no usable disc number",
+                details=tuple(f"{str(track)!r}" for track in disc_plan.unreadable),
+            )
+        )
+    return tuple(notices)
 
 
 def _unnumbered(plan: tagging.TagPlan) -> tuple[Notice, ...]:
@@ -498,34 +482,56 @@ def _preview(
 
     with make_progress() as progress:
         advance = make_advancer(progress, "Discs: reading", tracks, artists)
-        clear_disc, split = _disc_decisions(albums, tracks, advance)
+        disc_plan = discs.plan(albums, tracks, on_progress=advance)
 
     with make_progress() as progress:
         advance = make_advancer(progress, "Tags: scanning", tracks, artists)
         plan = tagging.plan(
-            tracks, _TEXT_TAGS, _wants(albums, artists, credit, clear_disc), on_progress=advance
+            tracks, _TEXT_TAGS, _wants(albums, artists, credit, disc_plan), on_progress=advance
         )
 
     breakdown: dict[Tag, int] = _breakdown(plan)
-    beneath: dict[Tag, Sequence[Notice]] = {Tag.TRACK: _unnumbered(plan), Tag.DISC: split}
+    beneath: dict[Tag, Sequence[Notice]] = {
+        Tag.TRACK: _unnumbered(plan),
+        Tag.DISC: _disc_notices(disc_plan),
+    }
     for tag, name, _verb in _TAG_LABELS:
         echo_result(name, breakdown[tag], "to write", beneath.get(tag, ()))
 
+    echo_result("Disc names", len(disc_plan.pending), "to prefix")
 
-def _echo_summary(cover_report: covers.CoverReport, tag_report: tagging.WriteReport) -> None:
-    """Print the closing totals across both passes.
+
+def _echo_summary(
+    cover_report: covers.CoverReport,
+    tag_report: tagging.WriteReport,
+    disc_report: discs.DiscReport,
+) -> None:
+    """Print the closing totals across every pass.
+
+    Only what happened is named. A run over a settled shelf says so in
+    one clause rather than three zeroes, and a run that renamed forty
+    files no longer reports itself as having changed nothing.
 
     Args:
         cover_report: What the cover pass did.
         tag_report: What the tag pass did.
+        disc_report: What the disc prefixing did.
     """
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
-    failures: int = len(cover_report.failures) + len(tag_report.failures)
-
-    typer.secho(
-        f"\nDone. {settled} cover change(s) settled, {tag_report.written} file(s) tagged.",
-        fg=typer.colors.GREEN,
-        bold=True,
+    failures: int = (
+        len(cover_report.failures) + len(tag_report.failures) + len(disc_report.failures)
     )
+
+    parts: list[str] = []
+    if settled:
+        parts.append(f"{settled} cover change(s) settled")
+    if tag_report.written:
+        parts.append(f"{tag_report.written} file(s) tagged")
+    if disc_report.renamed:
+        parts.append(f"{disc_report.renamed} file(s) prefixed with their disc")
+
+    closing: str = ", ".join(parts) if parts else "nothing to change"
+    typer.secho(f"\nDone. {closing}.", fg=typer.colors.GREEN, bold=True)
+
     if failures:
         typer.secho(f"{failures} operation(s) failed during writing.", fg=typer.colors.RED)

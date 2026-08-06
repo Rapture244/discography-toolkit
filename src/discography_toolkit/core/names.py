@@ -878,8 +878,34 @@ def wrappers_balanced(text: str) -> bool:
 
 
 # ==================================================================================== #
-#                                    TRACK NUMBERS                                     #
+#                                 TRACK AND DISC NUMBERS                               #
 # ==================================================================================== #
+def disc_number(raw: str) -> str | None:
+    """Settle a disc number into the one form the collection uses.
+
+    The bare integer, never padded: "01" and "1/2" both come out "1".
+    Unlike a track number there is nothing to line up -- a disc number is
+    read one at a time, at the front of a filename, where a leading zero
+    only makes two discs of one album look unlike each other.
+
+    The number itself is never decided here. Which disc a track belongs
+    to is the ripper's answer and the only record of it; this settles how
+    that answer is spelled and nothing more.
+
+    Args:
+        raw: The disc number as the file carries it.
+
+    Returns:
+        The settled number, or `None` when there is nothing to settle --
+        an empty tag, or one holding something that is not a number.
+    """
+    number, _, _total = raw.strip().partition("/")
+    number = number.strip()
+    if not number.isdigit():
+        return None
+    return str(int(number))
+
+
 def track_number(raw: str) -> str | None:
     """Settle a track number into the one form the collection uses.
 

@@ -127,15 +127,24 @@ def organize(
     tracks: list[Path] = _outside(find_audio_files(root), refused)
 
     if not albums:
-        _echo_summary(results, skipped, tagged=0, settled=0, failures=0)
+        _echo_summary(results, skipped, tagged=0, settled=0, prefixed=0, failures=0)
         return
 
     typer.secho("\nTags", fg=typer.colors.CYAN, bold=True)
-    cover_report, tag_report = align_tags.run(albums, tracks, labelled, credit)
+    cover_report, tag_report, disc_report = align_tags.run(albums, tracks, labelled, credit)
 
     settled: int = cover_report.written + cover_report.renamed + cover_report.embedded
-    failures: int = len(cover_report.failures) + len(tag_report.failures)
-    _echo_summary(results, skipped, tagged=tag_report.written, settled=settled, failures=failures)
+    failures: int = (
+        len(cover_report.failures) + len(tag_report.failures) + len(disc_report.failures)
+    )
+    _echo_summary(
+        results,
+        skipped,
+        tagged=tag_report.written,
+        settled=settled,
+        prefixed=disc_report.renamed,
+        failures=failures,
+    )
 
 
 # ==================================================================================== #
@@ -165,22 +174,42 @@ def _echo_summary(
     *,
     tagged: int,
     settled: int,
+    prefixed: int,
     failures: int,
 ) -> None:
     """Print the closing totals across both halves.
 
+    The scope comes first and the changes after, only what happened being
+    named. "0 of 1 artist(s) laid out" read as a run that did nothing,
+    for a run that had checked an artist, found its folders settled, and
+    renamed forty of its files.
+
     Args:
         results: What each laid-out artist changed.
         skipped: Artists the layout half refused, each carrying its own
-            reason -- two containers, or an album held more than once.
+            reason -- two containers, an album split across discs, or an
+            album held more than once.
         tagged: How many files the tag pass wrote.
         settled: How many cover changes were settled.
+        prefixed: How many files took a disc prefix.
         failures: How many write operations failed across the run.
     """
     changed: int = sum(1 for result in results if result.changed)
 
-    summary: str = f"\nDone. {changed} of {len(results)} artist(s) laid out; {settled} cover change(s) settled, {tagged} file(s) tagged."
-    typer.secho(summary, fg=typer.colors.GREEN, bold=True)
+    parts: list[str] = []
+    if changed:
+        parts.append(f"{changed} artist(s) laid out")
+    if settled:
+        parts.append(f"{settled} cover change(s) settled")
+    if tagged:
+        parts.append(f"{tagged} file(s) tagged")
+    if prefixed:
+        parts.append(f"{prefixed} file(s) prefixed with their disc")
+
+    checked: str = f"{len(results)} artist(s) checked"
+    closing: str = f"{checked}; {', '.join(parts)}" if parts else f"{checked}, nothing to change"
+    typer.secho(f"\nDone. {closing}.", fg=typer.colors.GREEN, bold=True)
+
     layout.echo_skipped(skipped)
     if failures:
         typer.secho(f"{failures} operation(s) failed during writing.", fg=typer.colors.RED)

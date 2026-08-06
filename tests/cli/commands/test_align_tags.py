@@ -142,7 +142,7 @@ def test_running_twice_settles(shelf: Callable[..., Path]) -> None:
     second = runner.invoke(app, ["align-tags", "--path", str(root)], input="y\n")
 
     assert second.exit_code == 0
-    assert "0 file(s) tagged" in second.stdout
+    assert "nothing to change" in second.stdout
 
 
 def test_each_pass_shows_by_name(shelf: Callable[..., Path]) -> None:
