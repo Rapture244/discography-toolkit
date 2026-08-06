@@ -100,8 +100,10 @@ class DiscPlan:
         settle: Each track of a multi-disc album mapped to its number in
             settled form, for the caller to write where it differs.
         prefixes: The filename each multi-disc track should carry.
-        split: One line per album left carrying its numbers, naming it
-            and the discs it holds.
+        split: Each album left carrying its numbers, with the numbers it
+            holds. Returned as facts rather than a phrase: naming which
+            artist an album belongs to is the caller's, being the only
+            one that knows them.
         unreadable: Tracks in a multi-disc album whose own number will
             not settle -- neither written nor renamed, since guessing
             which disc they belong to would scatter the album.
@@ -110,7 +112,7 @@ class DiscPlan:
     clear: frozenset[Path] = frozenset()
     settle: dict[Path, str] = field(default_factory=dict)
     prefixes: tuple[Prefix, ...] = ()
-    split: tuple[str, ...] = ()
+    split: tuple[tuple[Path, tuple[str, ...]], ...] = ()
     unreadable: tuple[Path, ...] = ()
 
     @property
@@ -164,7 +166,7 @@ def plan(
     clear: set[Path] = set()
     settle: dict[Path, str] = {}
     prefixes: list[Prefix] = []
-    split: list[str] = []
+    split: list[tuple[Path, tuple[str, ...]]] = []
     unreadable: list[Path] = []
 
     for album, entries in sorted(by_album.items()):
@@ -183,7 +185,7 @@ def plan(
             prefixes.append(Prefix(track=track, disc=number))
             numbers.append(number)
 
-        split.append(f"{album.name!r} -- discs {', '.join(sorted(set(numbers)))}")
+        split.append((album, tuple(sorted(set(numbers)))))
 
     return DiscPlan(
         clear=frozenset(clear),

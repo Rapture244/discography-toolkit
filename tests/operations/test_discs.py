@@ -115,7 +115,7 @@ def test_several_discs_keep_their_numbers(album: Callable[..., Path]) -> None:
 
     assert plan.clear == frozenset()
     assert [prefix.disc for prefix in plan.prefixes] == ["1", "2"]
-    assert plan.split == ("'02. (1965) - Otis Blue [FLAC]' -- discs 1, 2",)
+    assert plan.split == ((folder, ("1", "2")),)
 
 
 def test_a_disc_number_is_settled_without_padding(album: Callable[..., Path]) -> None:

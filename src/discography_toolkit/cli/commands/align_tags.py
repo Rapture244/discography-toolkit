@@ -52,9 +52,9 @@ from discography_toolkit.cli.console import (
 )
 from discography_toolkit.cli.scope import require_albums, require_tracks, resolve_path
 from discography_toolkit.core import derivation
-from discography_toolkit.core.layout import find_artist_folders
+from discography_toolkit.core.layout import find_artist_folders, owning_folder
 from discography_toolkit.core.metadata import Tag
-from discography_toolkit.core.names import title_case, track_number
+from discography_toolkit.core.names import strip_artist_label, title_case, track_number
 from discography_toolkit.operations import covers, discs, tagging
 
 if TYPE_CHECKING:
@@ -321,7 +321,7 @@ def _run_tags(
     _echo_breakdown(
         breakdown,
         report.failures,
-        {Tag.TRACK: _unnumbered(plan), Tag.DISC: _disc_notices(disc_plan)},
+        {Tag.TRACK: _unnumbered(plan), Tag.DISC: _disc_notices(disc_plan, artists)},
     )
     return report, _prefix_discs(disc_plan, artists)
 
@@ -352,7 +352,7 @@ def _prefix_discs(disc_plan: discs.DiscPlan, artists: Sequence[Path]) -> discs.D
     return report
 
 
-def _disc_notices(disc_plan: discs.DiscPlan) -> tuple[Notice, ...]:
+def _disc_notices(disc_plan: discs.DiscPlan, artists: Sequence[Path]) -> tuple[Notice, ...]:
     """Phrase what the disc pass saw but would not settle.
 
     An album holding several discs keeps its numbers, and is named --
@@ -360,8 +360,14 @@ def _disc_notices(disc_plan: discs.DiscPlan) -> tuple[Notice, ...]:
     are gone, so it is worth seeing that they are still there and
     plausible.
 
+    Named with its artist, since a run over a shelf of thirteen reports
+    two albums out of a hundred and forty and an album title alone says
+    nothing about where to go and look.
+
     Args:
         disc_plan: What the albums' disc numbers were found to say.
+        artists: The artist folders in scope, for naming which one holds
+            each album.
 
     Returns:
         One notice per kind there was, empty when there was none.
@@ -371,7 +377,10 @@ def _disc_notices(disc_plan: discs.DiscPlan) -> tuple[Notice, ...]:
         notices.append(
             Notice(
                 summary=f"{len(disc_plan.split)} album(s) hold more than one disc",
-                details=disc_plan.split,
+                details=tuple(
+                    f"{_artist_of(album, artists)}: {album.name!r} -- discs {', '.join(found)}"
+                    for album, found in disc_plan.split
+                ),
             )
         )
     if disc_plan.unreadable:
@@ -382,6 +391,23 @@ def _disc_notices(disc_plan: discs.DiscPlan) -> tuple[Notice, ...]:
             )
         )
     return tuple(notices)
+
+
+def _artist_of(album: Path, artists: Sequence[Path]) -> str:
+    """Name the artist holding an album, for a line that reports on it.
+
+    Args:
+        album: The album folder.
+        artists: The artist folders in scope.
+
+    Returns:
+        The artist's name without its count label, or the album's parent
+        folder when no artist in scope holds it.
+    """
+    folder: Path | None = owning_folder(album, artists)
+    if folder is None:
+        return album.parent.name
+    return strip_artist_label(folder.name) or folder.name
 
 
 def _unnumbered(plan: tagging.TagPlan) -> tuple[Notice, ...]:
@@ -493,7 +519,7 @@ def _preview(
     breakdown: dict[Tag, int] = _breakdown(plan)
     beneath: dict[Tag, Sequence[Notice]] = {
         Tag.TRACK: _unnumbered(plan),
-        Tag.DISC: _disc_notices(disc_plan),
+        Tag.DISC: _disc_notices(disc_plan, artists),
     }
     for tag, name, _verb in _TAG_LABELS:
         echo_result(name, breakdown[tag], "to write", beneath.get(tag, ()))
