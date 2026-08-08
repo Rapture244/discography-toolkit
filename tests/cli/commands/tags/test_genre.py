@@ -505,7 +505,7 @@ def test_force_says_what_it_would_delete(shelf: Path) -> None:
         app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz", "--force"], input="n\n"
     )
 
-    assert "delete 1 existing .genre file(s)" in result.output
+    assert "1 '.genre' file(s) beneath this path will be deleted" in result.output
     assert (shelf / "USA" / "Miles Davis - [2 \u2022 2F \u2022 0L \u2022 0M]" / ".genre").exists()
 
 
@@ -523,7 +523,7 @@ def test_a_declared_path_is_offered_a_rename(shelf: Path) -> None:
 
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="y\n(JPN) Koto\ny\n")
 
-    assert "Rename '(JP) Koto'" in result.output
+    assert "Replace it?" in result.output
     assert (shelf / ".genre").read_bytes() == b"(JPN) Koto\n"
     assert genres_under(shelf) == {"(JPN) Koto"}
 
@@ -573,7 +573,7 @@ def test_the_rename_offer_shows_the_nested_declarations_first(shelf: Path) -> No
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\nn\n")
 
     assert "(JP) Koto;Classical" in result.output
-    assert result.output.index("(JP) Koto;Classical") < result.output.index("Rename ")
+    assert result.output.index("(JP) Koto;Classical") < result.output.index("Replace it?")
 
 
 def test_a_supplied_genre_is_not_offered_a_rename(shelf: Path) -> None:
@@ -586,7 +586,7 @@ def test_a_supplied_genre_is_not_offered_a_rename(shelf: Path) -> None:
 
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Jazz"], input="y\n")
 
-    assert "Rename " not in result.output
+    assert "Replace it?" not in result.output
 
 
 def test_an_undeclared_path_is_not_offered_a_rename(shelf: Path) -> None:
@@ -597,7 +597,7 @@ def test_an_undeclared_path_is_not_offered_a_rename(shelf: Path) -> None:
     """
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="Jazz\ny\n")
 
-    assert "Rename " not in result.output
+    assert "Replace it?" not in result.output
     assert genres_under(shelf) == {"Jazz"}
 
 
@@ -611,7 +611,7 @@ def test_the_confirm_names_the_genre_when_a_run_has_only_one(shelf: Path) -> Non
 
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\nn\n")
 
-    assert "write 'Soul - Southern' to" in result.output
+    assert "do not yet carry 'Soul - Southern'" in result.output
 
 
 def test_the_confirm_describes_the_work_when_a_run_has_several(shelf: Path) -> None:
@@ -625,27 +625,27 @@ def test_the_confirm_describes_the_work_when_a_run_has_several(shelf: Path) -> N
 
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="n\nn\n")
 
-    assert "in line with their declarations" in result.output
+    assert "do not match what their folder declares" in result.output
 
 
-def test_the_confirm_does_not_name_a_supplied_genre_twice(shelf: Path) -> None:
-    """The "declare X in Y" clause beside it already says which value.
+def test_the_intent_does_not_name_a_supplied_genre_twice(shelf: Path) -> None:
+    """The "will be declared" sentence beside it already says which value.
 
-    Asserted against the confirmation line alone, and with a genre that
-    is not the shelf's name: the fixture shelf is called "Jazz", so a
-    genre of "Jazz" would match the folder name in the same sentence and
-    prove nothing.
+    Asserted against the two lines rather than the whole output, and with
+    a genre that is not the shelf's name: the fixture shelf is called
+    "Jazz", so a genre of "Jazz" would match the folder name in the same
+    sentence and prove nothing.
 
     Args:
         shelf: The fixture shelf.
     """
     result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Bebop"], input="n\n")
-    confirm: str = next(
-        line for line in result.output.splitlines() if line.startswith("Proceed to")
-    )
+    lines: list[str] = result.output.splitlines()
+    written: str = next(line for line in lines if "will have their Genre written" in line)
+    declared: str = next(line for line in lines if "will be declared" in line)
 
-    assert "write Genre to" in confirm
-    assert confirm.count("'Bebop'") == 1
+    assert "Bebop" not in written
+    assert "'Bebop'" in declared
 
 
 # ==================================================================================== #

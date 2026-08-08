@@ -184,10 +184,13 @@ def genre(
     # track beneath it is already answered. The only useful question left
     # is whether that answer is still the right one -- which is the whole
     # of a convention changing, and the values are on screen to judge it
-    # by.
+    # by. Phrased as a replacement rather than a rename: answering yes
+    # asks for the new value, and "rename X" reads as though X were the
+    # value about to be applied.
     if value is None and not force and not fallback and (target / SIDECAR_NAME).is_file():
         own: str = declarations.value(target / SIDECAR_NAME)
-        if typer.confirm(f"\nRename {_styled(own)} here and everywhere below?"):
+        _echo_replacement(own)
+        if typer.confirm("Replace it?"):
             _rename(target, tracks, artists, own, None, dry_run=dry_run)
             raise typer.Exit(code=0)
 
@@ -211,7 +214,8 @@ def genre(
         typer.secho("\nEvery file already carries its Genre. Nothing to do.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\n{_summarize(pending, fallback, doomed, target, declared)}"):
+    _echo_intent(pending, len(tracks), fallback, doomed, target, declared)
+    if not typer.confirm("Proceed?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 
@@ -282,12 +286,12 @@ def _rename(
 
     pending: int = len(plan.pending)
     if not pending and not edits:
-        typer.secho(f"\nNothing beneath this path carries {old!r}.", fg=typer.colors.GREEN)
+        typer.secho(f"\nNothing beneath this path carries {_styled(old)}", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
     summary: str = f"rename {_styled(old)} to {_styled(new)} in {pending} file(s)"
     if edits:
-        summary = f"{summary} and {len(edits)} {SIDECAR_NAME} file(s)"
+        summary = f"{summary} and {len(edits)} {SIDECAR_NAME!r} file(s)"
     if not typer.confirm(f"\nProceed to {summary}?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
@@ -602,14 +606,48 @@ def _echo_values(
         typer.echo(f"{label} {_styled(value, width)}   {count:>{digits}} file(s)   {source}")
 
 
-def _summarize(
+def _echo_replacement(own: str) -> None:
+    """Say what both answers mean, before asking.
+
+    The prompt on its own named the old value and nothing else, so it
+    read as an offer to apply it. What answering yes actually does is ask
+    for a new genre and swap this one for it in two stores at once, one
+    of which is a hidden file.
+
+    And no is not nothing: the run carries on and writes the declared
+    genre to whatever is missing it. A prompt naming only what yes does
+    reads as though no were the way out, when it is simply the ordinary
+    run.
+
+    Args:
+        own: The genre the path declares.
+    """
+    holds: str = f"Everything beneath this path already carries {_styled(own)}"
+    typer.secho(f"\n{holds}, declared by its {SIDECAR_NAME!r}", fg=typer.colors.YELLOW)
+
+    swap: str = "Saying yes asks for a new genre and swaps this one for it everywhere below"
+    typer.secho(
+        f"{swap} -- in the tags and in every {SIDECAR_NAME!r}", fg=typer.colors.BRIGHT_BLACK
+    )
+    typer.secho(
+        "Saying no keeps it, and writes it to any file below still missing it",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+
+def _echo_intent(
     pending: int,
+    total: int,
     fallback: str,
     doomed: Sequence[Path],
     target: Path,
     declared: Mapping[Path, Declaration],
-) -> str:
-    """Phrase the confirmation, naming everything the run would do.
+) -> None:
+    """Say what the run will do, a sentence per thing, before it asks.
+
+    One compound question naming three actions is read as a formality and
+    agreed to unseen. The actions are said as sentences instead and the
+    prompt left as the yes or no it is.
 
     The deletions especially: they are the one thing here that destroys
     something hand-written, and a person cannot weigh a prompt that does
@@ -617,56 +655,64 @@ def _summarize(
 
     Args:
         pending: How many tracks need their tag written.
+        total: How many tracks are in scope, so the count reads as the
+            shortfall it is rather than as a quantity of work.
         fallback: The value that would be declared, empty when none.
         doomed: Declarations that would be deleted.
         target: The folder the declaration would be left in.
         declared: The declaration reaching each folder holding tracks.
-
-    Returns:
-        The question to put, ending in a question mark.
     """
-    parts: list[str] = []
-    if pending:
-        parts.append(_writing(pending, fallback, declared))
+    typer.echo()
     if doomed:
-        parts.append(f"delete {len(doomed)} existing {SIDECAR_NAME} file(s)")
+        typer.secho(
+            f"{len(doomed)} {SIDECAR_NAME!r} file(s) beneath this path will be deleted",
+            fg=typer.colors.YELLOW,
+        )
+    if pending:
+        typer.secho(_shortfall(pending, total, fallback, declared), fg=typer.colors.YELLOW)
     if fallback:
-        parts.append(f"declare {_styled(fallback)} in {target.name!r}")
+        left: str = f"{_styled(fallback)} will be declared in {target.name!r}"
+        typer.secho(f"{left}, so the next run does not ask", fg=typer.colors.YELLOW)
 
-    return f"Proceed to {', '.join(parts)}?"
 
-
-def _writing(pending: int, fallback: str, declared: Mapping[Path, Declaration]) -> str:
-    """Phrase the tag-writing half, saying what is being written where it can.
+def _shortfall(
+    pending: int, total: int, fallback: str, declared: Mapping[Path, Declaration]
+) -> str:
+    """Phrase the tag-writing half, saying what is written and why that many.
 
     "Write Genre to 47 file(s)" reads as a fresh instruction, arriving
     three lines under a declaration it never mentions. What is actually
     happening is narrower: those 47 do not yet carry what their folder
-    already says, and the other 151 do.
+    already says, and the other 151 do. Said against the total, the
+    number explains itself.
 
-    So the genre is named when a run has only one, which is the common
-    case and the one where the question is otherwise most disconnected
-    from the answer above it. Where a shelf declares several, no single
-    value is the run's, and the reconciliation is described instead.
+    The genre is named when a run has only one, which is the common case
+    and the one where the question is otherwise most disconnected from
+    the answer above it. Where a shelf declares several, no single value
+    is the run's, and the reconciliation is described instead.
 
     Args:
         pending: How many tracks need their tag written.
+        total: How many tracks are in scope.
         fallback: The supplied value, empty when everything was declared.
         declared: The declaration reaching each folder holding tracks.
 
     Returns:
-        The clause, without a leading capital or a question mark.
+        One sentence, without a trailing stop: these lines end in a
+        quoted value or a filename, and a full stop against `'.genre'`
+        reads as part of it.
     """
-    # A supplied value is already spelled out by the "declare X in Y"
-    # clause beside this one, so naming it twice in one sentence would
-    # be noise rather than clarity.
+    # A supplied value is spelled out by the "will be declared" sentence
+    # beside this one, so naming it twice would be noise rather than
+    # clarity.
     if fallback:
-        return f"write Genre to {pending} file(s)"
+        return f"{pending} of {total} file(s) will have their Genre written"
 
     genres: set[str] = {declaration.genre for declaration in declared.values()}
     if len(genres) == 1:
-        return f"write {_styled(next(iter(genres)))} to {pending} file(s)"
-    return f"bring {pending} file(s) in line with their declarations"
+        held: str = _styled(next(iter(genres)))
+        return f"{pending} of {total} file(s) do not yet carry {held}, which their folder declares"
+    return f"{pending} of {total} file(s) do not match what their folder declares"
 
 
 def _echo_plan(plan: tagging.TagPlan) -> None:
