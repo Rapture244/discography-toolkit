@@ -255,11 +255,22 @@ def test_split_index_sets_aside_the_prefix(name: str, index: str, remainder: str
 def test_extract_year_reads_a_month_beside_the_year() -> None:
     """A month is the only thing that can order two albums from one year.
 
-    Wrapped only: a bare "2017-04" in a title is as likely to be a
-    catalogue number or a range as a date.
+    Read from all three shapes a year is written in, so a name typed
+    without brackets settles the same way as one with them.
     """
     assert extract_year("01. (2017-04) - Perfect Timing [FLAC]") == "2017-04"
-    assert extract_year("03. (2017-10) - Too Hard [FLAC]") == "2017-10"
+    assert extract_year("03. [2017-10] - Too Hard [FLAC]") == "2017-10"
+    assert extract_year("Perfect Timing 2017-04") == "2017-04"
+
+
+def test_a_range_is_not_a_month() -> None:
+    """A span of years is two years, and the second is not December.
+
+    The month pattern admits 01 through 12 and nothing else, so
+    "1999-2001" resolves to its first year and the rest stays in the
+    title where it can be seen.
+    """
+    assert extract_year("Anthology 1999-2001") == "1999"
 
 
 def test_a_month_orders_two_albums_from_one_year() -> None:
@@ -294,9 +305,9 @@ def test_a_month_orders_two_albums_from_one_year() -> None:
 def test_a_bad_month_leaves_the_year_alone(name: str) -> None:
     """An impossible month is not silently taken as one.
 
-    The wrapped pattern simply does not match, so the bare year inside is
-    found instead and what follows stays in the title -- visible in the
-    rename preview rather than written as a date nothing can read.
+    The month group simply does not match, so the year alone is found and
+    what follows stays in the title -- visible in the rename preview
+    rather than written as a date nothing can read.
 
     Args:
         name: An album folder name carrying an impossible month.

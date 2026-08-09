@@ -75,21 +75,22 @@ _SORT_MARKER_RE: Final[re.Pattern[str]] = re.compile(r"^(\([^)]*\)\s*-\s*)(?:⚠
 _YEAR_CORE: Final[str] = r"\d{2}[\dx]{2}"
 
 # An optional month after the year, for the one thing a year alone cannot
-# say: which of two albums from the same year came first. Only where the
-# year is wrapped, since that is where the convention puts it and a bare
-# "2017-04" in a title is as likely to be a catalogue number or a range.
+# say: which of two albums from the same year came first.
 #
 # Ordering falls out of the string without a rule: ")" sorts below "-",
 # so a bare "(2017)" leads the dated ones, and "(2017-03)" leads
 # "(2017-10)". A shelf can be dated where it matters and left alone
 # everywhere else.
+#
+# A range is not a month, since the pattern only admits 01 through 12:
+# "1999-2001" resolves to "1999" and the rest stays in the title.
 _MONTH_SUFFIX: Final[str] = r"(?:-(?:0[1-9]|1[0-2]))?"
 _YEAR_TOKEN: Final[str] = rf"{_YEAR_CORE}{_MONTH_SUFFIX}"
 
 _YEAR_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(
     rf"\((?:{_YEAR_TOKEN})\)|\[(?:{_YEAR_TOKEN})\]"
 )
-_YEAR_BARE_RE: Final[re.Pattern[str]] = re.compile(rf"(?<!\d){_YEAR_CORE}(?!\d)")
+_YEAR_BARE_RE: Final[re.Pattern[str]] = re.compile(rf"(?<!\d){_YEAR_TOKEN}(?!\d)")
 
 # The "missing album" marker: an album known to exist but not held keeps
 # an empty placeholder folder, marked between the year and the title. A
@@ -519,9 +520,10 @@ def split_year(name: str) -> tuple[str | None, str]:
     convention puts the release over a reissue. The remainder is tidied,
     ready for the next thing to be read off its front.
 
-    A wrapped year may carry a month -- "(2017-04)" -- for albums a year
-    alone cannot order. The month is part of the token, so it reaches the
-    Date tag and the rebuilt folder name together.
+    A wrapped year may carry a month -- "(2017-04)", "[2017-04]" -- for
+    albums a year alone cannot order, and so may a bare one. The month is
+    part of the token, so it reaches the Date tag and the rebuilt folder
+    name together.
 
     Args:
         name: The album folder's name.
