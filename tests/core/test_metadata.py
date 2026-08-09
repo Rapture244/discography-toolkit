@@ -309,6 +309,7 @@ def test_every_tag_has_its_own_slot(make_track: Callable[[str], Path], extension
     values: dict[Tag, str] = {
         Tag.ALBUM: "Nefertiti",
         Tag.ALBUM_ARTIST: "Miles Davis",
+        Tag.ARTIST: "Miles Davis Quintet",
         Tag.DATE: "1968",
         Tag.DISC: "2",
         Tag.GENRE: "Jazz",

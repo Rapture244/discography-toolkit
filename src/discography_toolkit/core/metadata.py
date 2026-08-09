@@ -63,6 +63,7 @@ class Tag(StrEnum):
 
     ALBUM = "album"
     ALBUM_ARTIST = "album_artist"
+    ARTIST = "artist"
     DATE = "date"
     DISC = "disc"
     GENRE = "genre"
@@ -111,6 +112,13 @@ _KEYS: Final[dict[Tag, dict[Family, str]]] = {
         Family.MP4: "aART",
         Family.APEV2: "Album Artist",
         Family.ASF: "WM/AlbumArtist",
+    },
+    Tag.ARTIST: {
+        Family.VORBIS: "artist",
+        Family.ID3: "TPE1",
+        Family.MP4: "\xa9ART",
+        Family.APEV2: "Artist",
+        Family.ASF: "Author",
     },
     Tag.DATE: {
         Family.VORBIS: "date",

@@ -62,8 +62,14 @@ if TYPE_CHECKING:
 # title, being shared, while the playlist writes the pinned and dated
 # form a player sorts on -- so it is built from the folder name the fold
 # has settled rather than copied, and follows the discography that way.
+#
+# Artist is here though `align-tags` never writes it. That command
+# derives from folders, and no folder can say who played on one track of
+# a collaboration; this one copies, so it carries whatever the
+# discography holds -- including a performer credited by hand.
 MIRRORED: Final[tuple[Tag, ...]] = (
     Tag.ALBUM_ARTIST,
+    Tag.ARTIST,
     Tag.DATE,
     Tag.DISC,
     Tag.GENRE,
