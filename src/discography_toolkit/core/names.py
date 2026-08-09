@@ -73,7 +73,22 @@ _SORT_MARKER_RE: Final[re.Pattern[str]] = re.compile(r"^(\([^)]*\)\s*-\s*)(?:⚠
 # "17.01.2002", "Helen 12 Trees" -- cannot outrank the real year in
 # brackets beside it.
 _YEAR_CORE: Final[str] = r"\d{2}[\dx]{2}"
-_YEAR_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(rf"\((?:{_YEAR_CORE})\)|\[(?:{_YEAR_CORE})\]")
+
+# An optional month after the year, for the one thing a year alone cannot
+# say: which of two albums from the same year came first. Only where the
+# year is wrapped, since that is where the convention puts it and a bare
+# "2017-04" in a title is as likely to be a catalogue number or a range.
+#
+# Ordering falls out of the string without a rule: ")" sorts below "-",
+# so a bare "(2017)" leads the dated ones, and "(2017-03)" leads
+# "(2017-10)". A shelf can be dated where it matters and left alone
+# everywhere else.
+_MONTH_SUFFIX: Final[str] = r"(?:-(?:0[1-9]|1[0-2]))?"
+_YEAR_TOKEN: Final[str] = rf"{_YEAR_CORE}{_MONTH_SUFFIX}"
+
+_YEAR_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(
+    rf"\((?:{_YEAR_TOKEN})\)|\[(?:{_YEAR_TOKEN})\]"
+)
 _YEAR_BARE_RE: Final[re.Pattern[str]] = re.compile(rf"(?<!\d){_YEAR_CORE}(?!\d)")
 
 # The "missing album" marker: an album known to exist but not held keeps
@@ -214,9 +229,9 @@ _MULTI_SPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s{2,}")
 # the optional groups behind it win a trailing "(EP)" or "[FLAC]" rather
 # than the title swallowing them.
 ALBUM_BODY_RE: Final[re.Pattern[str]] = re.compile(
-    r"""
+    rf"""
     ^
-    \((?P<year>\d{2}[\dx]{2})\)[ ]-[ ]        # (1994) -
+    \((?P<year>{_YEAR_TOKEN})\)[ ]-[ ]         # (1994) - or (1994-03) -
     (?:(?P<marker>⚠|M)[ ]-[ ])?               # M -
     (?P<title>.+?)                            # Album Name
     (?:[ ]\(EP\))?                            # (EP)
@@ -504,13 +519,17 @@ def split_year(name: str) -> tuple[str | None, str]:
     convention puts the release over a reissue. The remainder is tidied,
     ready for the next thing to be read off its front.
 
+    A wrapped year may carry a month -- "(2017-04)" -- for albums a year
+    alone cannot order. The month is part of the token, so it reaches the
+    Date tag and the rebuilt folder name together.
+
     Args:
         name: The album folder's name.
 
     Returns:
-        A `(year, remainder)` pair. `year` is the four-character token --
-        "1994", "199x" -- or `None` when the name carries none, in which
-        case `remainder` is the name unchanged.
+        A `(year, remainder)` pair. `year` is the token -- "1994",
+        "199x", "2017-04" -- or `None` when the name carries none, in
+        which case `remainder` is the name unchanged.
     """
     match: re.Match[str] | None = _YEAR_WRAPPED_RE.search(name)
     if match is None:

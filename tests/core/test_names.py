@@ -252,6 +252,58 @@ def test_split_index_sets_aside_the_prefix(name: str, index: str, remainder: str
     assert rest == remainder
 
 
+def test_extract_year_reads_a_month_beside_the_year() -> None:
+    """A month is the only thing that can order two albums from one year.
+
+    Wrapped only: a bare "2017-04" in a title is as likely to be a
+    catalogue number or a range as a date.
+    """
+    assert extract_year("01. (2017-04) - Perfect Timing [FLAC]") == "2017-04"
+    assert extract_year("03. (2017-10) - Too Hard [FLAC]") == "2017-10"
+
+
+def test_a_month_orders_two_albums_from_one_year() -> None:
+    """Sorting needs no rule for it: the string already carries the order.
+
+    ")" sorts below "-", so an undated album leads the dated ones of its
+    year rather than landing among them alphabetically.
+    """
+    names: list[str] = [
+        "(2017-10) - Too Hard",
+        "(2017-03) - Perfect Timing",
+        "(2017) - An Undated One",
+    ]
+
+    assert sorted(names, key=sort_key) == [
+        "(2017) - An Undated One",
+        "(2017-03) - Perfect Timing",
+        "(2017-10) - Too Hard",
+    ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Not a month: the range only runs to twelve.
+        "01. (2017-13) - Album",
+        "01. (2017-00) - Album",
+        # Two digits are required, so a lone "4" is not April.
+        "01. (2017-4) - Album",
+    ],
+)
+def test_a_bad_month_leaves_the_year_alone(name: str) -> None:
+    """An impossible month is not silently taken as one.
+
+    The wrapped pattern simply does not match, so the bare year inside is
+    found instead and what follows stays in the title -- visible in the
+    rename preview rather than written as a date nothing can read.
+
+    Args:
+        name: An album folder name carrying an impossible month.
+    """
+    assert extract_year(name) == "2017"
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -976,6 +1028,8 @@ def test_drop_unpaired_wrappers_leaves_a_balanced_name_alone() -> None:
         "(1994) - Zomba (EP) [FLAC]",
         "(1994) - Zomba (EP)",
         "(199x) - Unknown Decade",  # an approximate year is still a year
+        # A month, for two albums a year alone cannot order.
+        "(2017-04) - Perfect Timing [FLAC]",
         "(1963) - Live at Birdland [Live] [FLAC]",  # a bracket the title owns
         # A title may hold " - " of its own: the marker group takes only
         # "M" or "\u26a0", so anything else after the year is simply title.
@@ -1008,6 +1062,7 @@ def test_conforms_body_accepts_a_settled_name(body: str) -> None:
         "(1959) - Kind  of Blue",  # spacing a rebuild would have closed
         "(1959) - Kind of Blue ",  # an untrimmed end
         "(1959) - Kind of Blue]",  # an orphan the peel left behind
+        "(2017-13) - Album",  # not a month
         "Singles [FLAC]",  # one pile per artist, so it carries no tag
         "singles",  # the title is cased by the time it is judged
         "",
