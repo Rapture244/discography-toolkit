@@ -88,6 +88,17 @@ def test_strip_artist_label_returns_none_without_one(folder_name: str) -> None:
     assert strip_artist_label(folder_name) is None
 
 
+def test_strip_artist_label_closes_a_doubled_space() -> None:
+    """A typo in the folder must not travel into the tag or the playlist.
+
+    "Young  Thug" reaches the Album Artist tag and names the playlist
+    folder the artist is filed under, where an exact-match search then
+    misses the "Young Thug" already there and files everything a level
+    deeper.
+    """
+    assert strip_artist_label("Young  Thug - [29 \u2022 28F \u2022 1L \u2022 0M]") == "Young Thug"
+
+
 def test_format_artist_label_reads_as_a_breakdown() -> None:
     """The label states the total and its three parts, in that shape."""
     assert format_artist_label(90, 60, 0, 30) == "[90 \u2022 60F \u2022 0L \u2022 30M]"
@@ -120,6 +131,31 @@ def test_with_artist_label_settles_on_one_label(name: str) -> None:
     label: str = format_artist_label(5, 3, 1, 1)
 
     assert with_artist_label(name, label) == f"Charlie Mariano - {label}"
+
+
+def test_with_artist_label_closes_a_doubled_space() -> None:
+    """The artist folder is the one name nothing else tidies.
+
+    An album's is rebuilt through `clean_name` and a track's through
+    `title_case_filename`, so a doubled space in either is closed by the
+    pass that touches it. Nothing rebuilt the artist folder, so a typo
+    there survived every run.
+    """
+    label: str = format_artist_label(29, 28, 1, 0)
+
+    assert with_artist_label("Young  Thug", label) == f"Young Thug - {label}"
+    assert with_artist_label(f"Young  Thug - {label}", label) == f"Young Thug - {label}"
+
+
+def test_with_artist_label_keeps_edge_punctuation() -> None:
+    """Only whitespace is collapsed, not the stops an artist is entitled to.
+
+    `clean_name` would take the trailing stop as a leftover separator and
+    hand back "R.E.M", which is a different band's name.
+    """
+    label: str = format_artist_label(1, 1, 0, 0)
+
+    assert with_artist_label("R.E.M.", label) == f"R.E.M. - {label}"
 
 
 def test_with_artist_label_keeps_a_real_bracket_in_the_name() -> None:

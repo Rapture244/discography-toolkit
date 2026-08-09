@@ -317,7 +317,11 @@ def strip_artist_label(folder_name: str) -> str | None:
     stripped: str = ARTIST_LABEL_RE.sub("", folder_name).strip()
     if stripped == folder_name.strip() or not stripped:
         return None
-    return stripped
+    # Collapsed after the check, not before: comparing a tidied name
+    # against an untidied one would read a doubled space as a label
+    # having been removed, and hand back a name for a folder that has no
+    # label at all.
+    return _MULTI_SPACE_RE.sub(" ", stripped)
 
 
 def format_artist_label(total: int, flac: int, lossy: int, missing: int) -> str:
@@ -349,6 +353,17 @@ def with_artist_label(name: str, label: str) -> str:
     one. A bracket that is part of the artist's real name -- "[Live]" --
     is left alone, since the label pattern requires a leading digit.
 
+    Doubled spaces are closed while the name is in hand. Every other name
+    on the shelf is tidied as it is rebuilt -- an album's through
+    `clean_name`, a track's through `title_case_filename` -- and the
+    artist folder was the one nothing touched, so a typo in it survived
+    every pass and travelled into the Album Artist tag and the playlist
+    folder named after it.
+
+    Only whitespace is collapsed, not the edge punctuation `clean_name`
+    also takes: an artist is entitled to a trailing stop, and "R.E.M."
+    must not come back as "R.E.M".
+
     Args:
         name: The artist folder's current name.
         label: The label to attach, as built by `format_artist_label`.
@@ -356,7 +371,7 @@ def with_artist_label(name: str, label: str) -> str:
     Returns:
         The name carrying exactly one label, at the end.
     """
-    stripped: str = ARTIST_LABEL_RE.sub("", name).rstrip()
+    stripped: str = _MULTI_SPACE_RE.sub(" ", ARTIST_LABEL_RE.sub("", name)).strip()
     return f"{stripped} - {label}"
 
 
