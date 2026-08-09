@@ -241,9 +241,9 @@ def test_split_index_leaves_an_unnumbered_name(name: str) -> None:
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("\u00a901. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue [flac]"),
-        ("\u271701. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue [flac]"),
-        ("05. (1959) - So What [FLAC]", "(1959) - so what [flac]"),
+        ("\u00a901. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue"),
+        ("\u271701. (1997) - M - Kind of Blue [FLAC]", "(1997) - kind of blue"),
+        ("05. (1959) - So What [FLAC]", "(1959) - so what"),
         # The conflict glyph is stripped the same as the plain marker.
         ("12. (1980) - \u26a0 - Decoy", "(1980) - decoy"),
         # A name with none of the strippable parts casefolds as it is.
@@ -251,7 +251,7 @@ def test_split_index_leaves_an_unnumbered_name(name: str) -> None:
     ],
 )
 def test_sort_key_ignores_what_should_not_move_an_album(name: str, expected: str) -> None:
-    """The key is year and title, with mark, index and marker taken out.
+    """The key is year and title, with everything else taken out.
 
     Args:
         name: The raw album folder name.
@@ -298,6 +298,32 @@ def test_sort_key_orders_by_year_then_title() -> None:
         "02. (1959) - So What",
         "01. (1970) - Bitches Brew",
     ]
+
+
+def test_sort_key_puts_a_sequel_after_the_album_it_follows() -> None:
+    """The quality word must not decide a tie between two titles.
+
+    "Slime Season" and "Slime Season 2" agree as far as the sequel's
+    number, and there the first compares its "[" against the second's
+    "2" -- which sorts "[" the higher and puts the sequel first.
+    Numbering then hands the sequel the lower index, and the shelf reads
+    with the second tape ahead of the first.
+
+    Any album whose title is another's with something appended has the
+    same fault, which is why the tag comes out of the key rather than
+    this one pair being special-cased.
+    """
+    sequel: str = "12. (2015) - Slime Season 2 [FLAC]"
+    first: str = "13. (2015) - Slime Season [FLAC]"
+
+    assert sorted([sequel, first], key=sort_key) == [first, sequel]
+
+
+def test_sort_key_is_blind_to_the_quality_word() -> None:
+    """How a copy was ripped says nothing about where the album belongs."""
+    assert sort_key("01. (1959) - Kind of Blue [FLAC]") == sort_key(
+        "01. (1959) - Kind of Blue [OPUS]"
+    )
 
 
 @pytest.mark.parametrize(

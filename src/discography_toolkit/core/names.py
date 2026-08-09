@@ -418,14 +418,22 @@ def sort_key(name: str) -> str:
 
     Numbering runs down an artist's albums in this order and assigns
     "01.", "02." in turn, so the key has to leave out anything that is
-    not the album's identity: the verdict mark, any existing index, and
-    the "M"/"⚠" availability marker. Dropping the mark keeps a verdict
-    from renumbering the shelf -- pinning a favourite or writing off a
-    dud says nothing about where the album belongs in sequence. Dropping
-    the availability marker keeps the sequence stable the same way: an
-    album that gains or loses audio holds its place instead of jumping to
-    wherever the glyph happens to sort. The year is kept, so albums order
-    by year and then title.
+    not the album's identity: the verdict mark, any existing index, the
+    "M"/"⚠" availability marker, and the quality word. Dropping the mark
+    keeps a verdict from renumbering the shelf -- pinning a favourite or
+    writing off a dud says nothing about where the album belongs in
+    sequence. Dropping the availability marker keeps the sequence stable
+    the same way: an album that gains or loses audio holds its place
+    instead of jumping to wherever the glyph happens to sort.
+
+    The quality word has to go for a subtler reason. It is not an
+    identity, but left in it decides ties: "Slime Season [FLAC]" and
+    "Slime Season 2 [FLAC]" agree up to the sequel's number, and there
+    the one compares "[" against the other's "2" -- which sorts the
+    sequel first, ahead of the album it follows. Any album whose title is
+    another's with something appended has the same fault.
+
+    The year is kept, so albums order by year and then title.
 
     Args:
         name: The raw album folder name.
@@ -435,7 +443,8 @@ def sort_key(name: str) -> str:
     """
     _, rest = split_front_mark(name)
     _, rest = split_index(rest)
-    return _SORT_MARKER_RE.sub(r"\1", rest, count=1).casefold()
+    rest = _SORT_MARKER_RE.sub(r"\1", rest, count=1)
+    return strip_quality_tag(rest).casefold()
 
 
 def is_singles(name: str) -> bool:
