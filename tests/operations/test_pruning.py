@@ -191,10 +191,14 @@ def test_duplicates_finds_none_among_distinct_albums(shelf: Callable[..., Path])
     assert pruning.duplicates([first, second]) == ()
 
 
-def test_duplicates_looks_past_the_index_and_the_ep_marker(
+def test_duplicates_settles_where_the_ep_marker_was_typed(
     shelf: Callable[..., Path],
 ) -> None:
-    """Identity is the year and the title, and nothing that dresses them.
+    """Identity is the year and title; where the marker sat is not part of it.
+
+    `album_title` lifts the marker from wherever it was written and puts
+    it back in one place, so two folders marking the same EP differently
+    resolve to one identity rather than two.
 
     Args:
         shelf: Factory making album folders.

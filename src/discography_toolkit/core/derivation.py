@@ -45,10 +45,15 @@ if TYPE_CHECKING:
 def album_of(track: Path, albums: Sequence[Path]) -> str | None:
     """Read the Album a track should carry, from the folder holding it.
 
-    The bare title, with everything the folder says about this shelf left
+    The title, with everything the folder says about this shelf left
     behind -- the pin, the index, the availability marker, the quality
     tag. The discography is shared, so an album leaving here should say
     what it is and nothing about where it sat.
+
+    An "(EP)" is not one of those things and travels with the title. It
+    says what the release is rather than where it sits, which is as true
+    in someone else's library as in this one -- and there is no other tag
+    written here that could carry it.
 
     Args:
         track: The track to place.

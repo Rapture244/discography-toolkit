@@ -41,12 +41,12 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
-# What makes one album distinct from another: the year it came out, its
-# title casefolded, and whether it is an EP. Named rather than written
-# out at each use, because both the pruning dictionary and the duplicate
-# grouping key on it, and a component added to `_identity` should not
-# have to be remembered in their annotations too.
-type _Identity = tuple[str | None, str, bool]
+# What makes one album distinct from another: the year it came out and
+# its title casefolded. Named rather than written out at each use,
+# because both the pruning dictionary and the duplicate grouping key on
+# it, and a component added to `_identity` should not have to be
+# remembered in their annotations too.
+type _Identity = tuple[str | None, str]
 
 
 # ==================================================================================== #
@@ -197,29 +197,27 @@ def duplicates(albums: Sequence[Path]) -> tuple[tuple[Path, ...], ...]:
 #                                   HELPER FUNCTIONS                                   #
 # ==================================================================================== #
 def _identity(name: str) -> _Identity:
-    """Read an album's identity: its year, title, and whether it is an EP.
+    """Read an album's identity: the year it came out and what it is called.
 
     Everything that a copy might differ by -- the pin, the index, the
     availability marker, the quality tag -- is what `album_title` peels
-    off, so a FLAC album and its Opus conversion resolve to the same
-    triple however they are dressed. The title is casefolded so case
-    alone never tells them apart.
+    off, so a FLAC album and its Opus conversion resolve to the same pair
+    however they are dressed. The title is casefolded so case alone never
+    tells them apart.
 
-    The EP marker is peeled with the rest but put back here, because it
-    is a fact about the release rather than a dressing on the folder: an
-    artist who puts out an EP and then an album of the same name in the
-    same year has made two records, and they are not copies of each
-    other.
+    An EP is told apart from an album of the same name by the title
+    itself, `album_title` keeping the marker: an artist who puts out an
+    EP and then an album called the same thing in the same year has made
+    two records, and neither is a copy of the other.
 
     Args:
         name: The album folder's name.
 
     Returns:
-        A `(year, title, is_ep)` triple, the year `None` when the name
-        carries none.
+        A `(year, title)` pair, the year `None` when the name carries
+        none.
     """
-    is_ep, _ = names.split_ep_marker(name)
-    return names.extract_year(name), names.album_title(name).casefold(), is_ep
+    return names.extract_year(name), names.album_title(name).casefold()
 
 
 def _delete(album: Path) -> str | None:

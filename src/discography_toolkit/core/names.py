@@ -145,6 +145,12 @@ _ANY_WRAPPED_RE: Final[re.Pattern[str]] = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)
 EP_MARKER: Final[str] = "EP"
 _EP_MARKER_RE: Final[re.Pattern[str]] = re.compile(rf"\b{EP_MARKER}\b")
 
+# The one shape the marker is written in, wherever it was found.
+# Parenthesised rather than bracketed, so it reads as part of what the
+# release is while the square brackets stay the format's. The leading
+# space is part of it: it always follows a title.
+EP_TAG: Final[str] = f" ({EP_MARKER})"
+
 # A lower- or mixed-case "ep" standing as its own word, which is not
 # taken as a marker but is worth pointing out: it is usually one typed
 # in the wrong case, and only a person can say which. The lookahead
@@ -788,14 +794,23 @@ def drop_unpaired_wrappers(text: str) -> str:
 #                                     ALBUM TITLES                                     #
 # ==================================================================================== #
 def album_title(name: str) -> str:
-    """Read the bare title out of an album folder's name.
+    """Read the title out of an album folder's name, EP marker included.
 
-    The whole convention comes off -- the verdict mark, the numbering
-    index, the year, the availability marker, the EP marker, the quality
-    word -- leaving what the album is actually called. Everything removed
-    describes where the album sits on this shelf, what its owner made of
-    it, or how this copy was ripped, and none of that means anything to
-    anyone else's library.
+    The shelf's own bookkeeping comes off -- the verdict mark, the
+    numbering index, the year, the availability marker, the quality word
+    -- leaving what the album is actually called. Each of those describes
+    where the album sits here, what its owner made of it, or how this
+    copy was ripped, and none of it means anything to anyone else's
+    library.
+
+    The EP marker stays, and is the one thing peeled only to be put back.
+    It is a fact about the release rather than a dressing on the folder:
+    an artist who puts out an EP and then an album of the same name has
+    made two records, and a title that cannot tell them apart is a title
+    missing a word. Peeled and re-emitted rather than left where it was,
+    because it is typed in every shape and place -- a bare "EP" at the
+    front, "[EP, Remastered]" among other tags -- and only the peel
+    settles it into the one position `naming` writes it in.
 
     A wrapper left without its partner comes off too. Dropping it here as
     well as in `naming` is what keeps one album's identity the same
@@ -812,14 +827,16 @@ def album_title(name: str) -> str:
         name: The album folder's name.
 
     Returns:
-        The title alone, its spacing tidied.
+        The title alone, its spacing tidied, carrying " (EP)" when the
+        name marked one.
     """
     _, rest = split_front_mark(name)
     _, rest = split_index(rest)
     _, rest = split_year(rest)
     _, rest = split_missing_marker(rest)
-    _, rest = split_ep_marker(rest)
-    return drop_unpaired_wrappers(strip_quality_tag(rest))
+    is_ep, rest = split_ep_marker(rest)
+    title: str = drop_unpaired_wrappers(strip_quality_tag(rest))
+    return f"{title}{EP_TAG}" if is_ep else title
 
 
 # ==================================================================================== #

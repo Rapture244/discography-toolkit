@@ -747,27 +747,6 @@ def test_has_lowercase_ep(name: str, expected: bool) -> None:
     assert has_lowercase_ep(name) is expected
 
 
-# --- 1c. into the existing ALBUM TITLES section, alongside the tests
-#         already there
-
-
-def test_album_title_peels_the_ep_marker() -> None:
-    """The marker is shelf convention, so it does not reach the tag."""
-    assert album_title("01. (1994) - Zomba (EP) [FLAC]") == "Zomba"
-    assert album_title("01. (1994) - EP Zomba [FLAC]") == "Zomba"
-
-
-def test_album_title_is_the_same_however_the_ep_was_typed() -> None:
-    """Every shape resolves to one identity, which pruning matches on."""
-    shapes: list[str] = [
-        "01. (1994) - Zomba (EP) [FLAC]",
-        "01. (1994) - Zomba [EP] [FLAC]",
-        "01. (1994) - Zomba EP [FLAC]",
-        "01. (1994) - EP Zomba [FLAC]",
-    ]
-    assert {album_title(shape) for shape in shapes} == {"Zomba"}
-
-
 # ==================================================================================== #
 #                                     QUALITY TAG                                      #
 # ==================================================================================== #
@@ -919,16 +898,24 @@ def test_clean_name(name: str, expected: str) -> None:
         ("00. Singles [FLAC]", "Singles"),
         # A bracket that is part of the title survives the quality cut.
         ("03. (1963) - Live at Birdland [Live] [FLAC]", "Live at Birdland [Live]"),
+        # The EP marker is the one thing peeled only to be put back: it
+        # says what the release is, which is as true in another library
+        # as in this one.
+        ("03. (2013) - Summer Knights (EP) [FLAC]", "Summer Knights (EP)"),
+        # Sharing a bracket with a tag worth keeping, only the marker moves.
+        ("02. (2011) - Old Soul [EP, Remastered] [FLAC]", "Old Soul [Remastered] (EP)"),
         # Nothing to peel.
         ("Kind of Blue", "Kind of Blue"),
         ("", ""),
     ],
 )
-def test_album_title_peels_everything_but_the_title(name: str, expected: str) -> None:
-    """Mark, index, year, marker and quality word all come off.
+def test_album_title_peels_the_shelf_off_a_name(name: str, expected: str) -> None:
+    """Mark, index, year, marker and quality word all come off; "(EP)" stays.
 
     What survives is what the album is called -- the part that does not
-    change when it is renumbered, re-ripped, or found at last.
+    change when it is renumbered, re-ripped, or found at last. Being an
+    EP does not change either, which is why it is the one marker that
+    travels with the title rather than staying behind with the shelf.
 
     Args:
         name: The album folder's name.
@@ -946,6 +933,23 @@ def test_album_title_is_stable_across_renumbering() -> None:
     assert album_title("01. (1959) - Kind of Blue [FLAC]") == album_title(
         "04. (1959) - Kind of Blue [FLAC]"
     )
+
+
+def test_album_title_is_the_same_however_the_ep_was_typed() -> None:
+    """Every shape resolves to one title, which is what pruning matches on.
+
+    The marker is written four ways across the shelf and settles into one
+    -- so an EP typed differently in two folders is still one record,
+    and an EP is still not the album that shares its name.
+    """
+    shapes: list[str] = [
+        "01. (1994) - Zomba (EP) [FLAC]",
+        "01. (1994) - Zomba [EP] [FLAC]",
+        "01. (1994) - Zomba EP [FLAC]",
+        "01. (1994) - EP Zomba [FLAC]",
+    ]
+
+    assert {album_title(shape) for shape in shapes} == {"Zomba (EP)"}
 
 
 # ==================================================================================== #

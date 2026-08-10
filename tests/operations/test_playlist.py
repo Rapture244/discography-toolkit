@@ -133,6 +133,22 @@ def test_identity_reads_a_disc_subfolder(album: Callable[..., Path], tmp_path: P
     assert identity(tmp_path / "Bitches Brew") == "bitches brew"
 
 
+def test_identity_keeps_an_ep_marker(album: Callable[..., Path]) -> None:
+    """The marker survives the peel, or an EP matches nothing.
+
+    This key is looked up in a dictionary built from `album_title`, and
+    that one keeps the marker. The two peel the same name from different
+    ends -- one a folder, one a tag -- and have to land on the same
+    string.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("settled", tag="\u00a9(2013) - Summer Knights (EP) [OPUS]")
+
+    assert identity(folder) == "summer knights (ep)"
+
+
 def test_identity_is_none_without_a_readable_tag(album: Callable[..., Path]) -> None:
     """Nothing to match on is a refusal, not a guess from the folder name.
 
@@ -437,6 +453,50 @@ def test_an_unmatched_folder_is_reported_not_placed(
     disco: Path = tmp_path / "disco" / "01. (1993) - Kind of Blue [FLAC]"
     disco.mkdir(parents=True)
     folder: Path = album("loose/Something Else", tag="Something Else")
+
+    result = plan([(folder, tmp_path / "home")], [disco])
+
+    assert result.matches == ()
+    assert result.unmatched == (folder,)
+
+
+def test_an_ep_matches_the_album_it_was_converted_from(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The two halves of the EP marker's journey have to meet.
+
+    The discography side is keyed by `album_title` and the converted side
+    by its Album tag, which is that same title as the discography wrote
+    it. Strip the marker from one and not the other and every EP in the
+    playlist reports as matching nothing.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "03. (2013) - Summer Knights (EP) [FLAC]"
+    disco.mkdir(parents=True)
+    home: Path = tmp_path / "home"
+    folder: Path = album("loose/Joey - Summer Knights", tag="Summer Knights (EP)")
+
+    result = plan([(folder, home)], [disco])
+
+    assert len(result.matches) == 1
+    assert result.matches[0].target == home / "03. (2013) - Summer Knights (EP) [FLAC]"
+
+
+def test_an_ep_does_not_match_the_album_that_shares_its_name(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Two records of one name are told apart by the marker, not confused by it.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "04. (2013) - Summer Knights [FLAC]"
+    disco.mkdir(parents=True)
+    folder: Path = album("loose/the ep", tag="Summer Knights (EP)")
 
     result = plan([(folder, tmp_path / "home")], [disco])
 

@@ -103,6 +103,22 @@ def test_a_favourite_mark_is_dropped(artist: Callable[..., Path]) -> None:
     assert album_of(only_track(root)) == "Kind of Blue"
 
 
+def test_an_ep_marker_reaches_the_tag(artist: Callable[..., Path]) -> None:
+    """What the release is travels with the title; where it sits does not.
+
+    The one part of the folder name that is not this shelf's bookkeeping,
+    and the one thing no other tag written here could carry.
+
+    Args:
+        artist: Factory building an artist folder.
+    """
+    root: Path = artist("03. (2013) - Summer Knights (EP) [FLAC]")
+
+    _ = runner.invoke(app, ["tags", "album", "-p", str(root)], input="y\n")
+
+    assert album_of(only_track(root)) == "Summer Knights (EP)"
+
+
 def test_an_opus_album_is_named_like_any_other(artist: Callable[..., Path]) -> None:
     """Either quality word comes off, so an Opus-only album reads the same.
 

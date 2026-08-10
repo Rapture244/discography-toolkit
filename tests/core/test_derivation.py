@@ -32,9 +32,13 @@ if TYPE_CHECKING:
         ("05. (1980) - M - Lost Record", "Lost Record"),
         ("12. (1980) - \u26a0 - Decoy", "Decoy"),
         ("00. Singles", "Singles"),
+        # An "(EP)" is not one of those things. It says what the release
+        # is rather than where it sits, and no other tag written here
+        # could carry it.
+        ("03. (2013) - Summer Knights (EP) [FLAC]", "Summer Knights (EP)"),
     ],
 )
-def test_album_of_reads_the_bare_title(tmp_path: Path, folder: str, expected: str) -> None:
+def test_album_of_reads_the_title(tmp_path: Path, folder: str, expected: str) -> None:
     """The Album tag is the title alone, past the shelf's own bookkeeping.
 
     Args:

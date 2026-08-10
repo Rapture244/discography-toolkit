@@ -12,6 +12,10 @@ Date, the availability marker describes an empty placeholder, and the
 quality word describes how this copy was made. None of that is the
 album, and none of it means anything to whoever receives it.
 
+An "(EP)" is the exception that stays. It says what the release is
+rather than where it sits, which is as true in another library as in
+this one, and no other tag written here could carry it.
+
 The folder name stays the source of truth, so nothing is lost by leaving
 those out: the tag is derived afresh on every run, and a folder renamed
 today is picked up by the next one.

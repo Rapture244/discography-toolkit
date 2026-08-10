@@ -45,7 +45,7 @@ of it happens and a folder already right is left alone.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import QUALITY_TAG, AudioTier, detect_tier, rename
@@ -57,11 +57,6 @@ if TYPE_CHECKING:
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
-# The one shape an extended-play marker is written in, wherever it was
-# found. Parenthesised rather than bracketed, so it reads as part of what
-# the release is while the square brackets stay the format's.
-_EP_TAG: Final[str] = f" ({names.EP_MARKER})"
-
 # The name a folder wears mid-rename, for a change that only alters case.
 # On a case-insensitive filesystem the source and target are one folder
 # and a direct rename is ambiguous, so the change goes via a distinct
@@ -279,7 +274,7 @@ def _examine(album: Path) -> AlbumName:
 
     marker, tag, missing, conflict, newly_missing = _resolve(tier, claimed=claims_missing)
     marker_prefix: str = f"{marker} - " if marker else ""
-    ep_tag: str = _EP_TAG if is_ep else ""
+    ep_tag: str = names.EP_TAG if is_ep else ""
     new_name: str = f"{pin}{index}({year}) - {marker_prefix}{title}{ep_tag}{tag}"
 
     return AlbumName(

@@ -793,11 +793,16 @@ def _bare_title(tag: str) -> str:
     The index is not peeled even from the playlist form, since a tag
     never carries one -- `album_tag` drops it deliberately.
 
+    The EP marker is peeled and put straight back, exactly as
+    `names.album_title` does on the folder side. The two have to land on
+    the same string or an EP matches nothing: this is the key a converted
+    folder is looked up by, and that is the key it is looked up in.
+
     Args:
         tag: An Album tag as found on a track.
 
     Returns:
-        The album's title.
+        The album's title, carrying " (EP)" when the tag marked one.
     """
     _, rest = names.split_front_mark(tag)
     if not names.conforms_body(rest):
@@ -805,8 +810,9 @@ def _bare_title(tag: str) -> str:
 
     _, rest = names.split_year(rest)
     _, rest = names.split_missing_marker(rest)
-    _, rest = names.split_ep_marker(rest)
-    return names.drop_unpaired_wrappers(names.strip_quality_tag(rest))
+    is_ep, rest = names.split_ep_marker(rest)
+    title: str = names.drop_unpaired_wrappers(names.strip_quality_tag(rest))
+    return f"{title}{names.EP_TAG}" if is_ep else title
 
 
 def _place(match: Match) -> str | None:
