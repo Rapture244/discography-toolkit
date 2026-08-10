@@ -492,6 +492,22 @@ def test_force_shows_what_each_declaration_holds_before_asking(shelf: Path) -> N
     assert result.output.index("Mande;(GIN) Djembe") < result.output.index("Genre (e.g.")
 
 
+def test_the_prompt_says_where_the_answer_will_be_declared(shelf: Path) -> None:
+    """A hidden file written into a music folder is not a surprise to spring.
+
+    Said while the answer is still being decided, for the reason `--force`
+    shows what it would delete before asking: nobody should learn what a
+    prompt does once they have already answered it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="Bebop\nn\n")
+
+    assert f"left in {shelf.name!r} as '.genre'" in result.output
+    assert result.output.index("'.genre'") < result.output.index("Genre (e.g.")
+
+
 def test_force_names_an_unusable_declaration_rather_than_refusing(shelf: Path) -> None:
     """A file on its way out must not stop the run that is removing it.
 

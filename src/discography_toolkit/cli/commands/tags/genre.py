@@ -68,6 +68,14 @@ if TYPE_CHECKING:
 # times is one that drifts into three wordings.
 _EMPTY_GENRE: Final[str] = "Genre cannot be empty."
 
+# Said before the prompt rather than after, for the reason `_echo_doomed`
+# gives about the files it deletes: an answer that lands in a hidden file
+# inside someone's music folder is one they should know about while they
+# are still deciding what to type, not once they have typed it.
+_DECLARED_HERE: Final[str] = (
+    "Your answer is left in {target!r} as {sidecar!r}, so the next run does not ask"
+)
+
 
 # ==================================================================================== #
 #                                    PUBLIC COMMAND                                    #
@@ -175,10 +183,15 @@ def genre(
     fallback: str = ""
     if force or any(track.parent not in declared for track in tracks):
         if value is None:
+            typer.echo()
+            typer.secho(
+                _DECLARED_HERE.format(target=target.name, sidecar=SIDECAR_NAME),
+                fg=typer.colors.BRIGHT_BLACK,
+            )
             value = cast(
                 "str",
                 typer.prompt(
-                    '\nGenre (e.g. "Jazz" or "Jazz;Jazz Fusion")',
+                    'Genre (e.g. "Jazz" or "Jazz;Jazz Fusion")',
                     value_proc=_to_genre,
                 ),
             )
