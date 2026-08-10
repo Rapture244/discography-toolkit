@@ -161,7 +161,7 @@ def layout(
         typer.Exit: On an invalid path, no artist found, a user abort, or
             a completed run.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to lay out")
+    target: Path = resolve_path(path, "Path to lay out")
     artists: list[Path] = find_artists(target)
     echo_banner("Layout", target.name, children=[artist.name for artist in artists])
 

@@ -86,7 +86,7 @@ def album_artist(
         typer.Exit: On an invalid path, no audio found, no artist folder
             recognized, a user abort, or a completed run.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to work beneath")
+    target: Path = resolve_path(path, "Path to write Album Artist tags beneath")
     # Not `scope.artists_in`: this command reads the Album Artist off
     # these folders rather than only showing them, and that one returns
     # nothing for a target that is itself an artist. Handed that, every

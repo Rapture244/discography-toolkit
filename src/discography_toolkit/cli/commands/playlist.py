@@ -174,8 +174,8 @@ def playlist(
         typer.Exit: When no artist is found, nothing matches, the user
             aborts, or the run completes.
     """
-    disco: Path = resolve_path(path, "Enter the absolute path to the discography")
-    target: Path = resolve_path(converted, "Enter the absolute path to the playlist")
+    disco: Path = resolve_path(path, "Path to the discography")
+    target: Path = resolve_path(converted, "Path to the playlist")
 
     roster: list[Path] = find_artist_folders(disco)
     if not roster:

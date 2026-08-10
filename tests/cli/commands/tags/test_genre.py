@@ -489,7 +489,7 @@ def test_force_shows_what_each_declaration_holds_before_asking(shelf: Path) -> N
 
     assert "Mande;(GIN) Djembe" in result.output
     # Named relative to the target, and before the prompt rather than after.
-    assert result.output.index("Mande;(GIN) Djembe") < result.output.index("Enter the genre")
+    assert result.output.index("Mande;(GIN) Djembe") < result.output.index("Genre (e.g.")
 
 
 def test_force_names_an_unusable_declaration_rather_than_refusing(shelf: Path) -> None:

@@ -119,7 +119,7 @@ def align_tags(
         typer.Exit: On an invalid path, no album found, no audio found, a
             user abort, or a completed run.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to align beneath")
+    target: Path = resolve_path(path, "Path to align tags beneath")
     # Not `scope.artists_in`: the Album Artist is read off these folders
     # rather than only shown, and that one returns nothing for a target
     # that is itself an artist.

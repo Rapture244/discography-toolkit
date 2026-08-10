@@ -135,7 +135,7 @@ def genre(
         typer.Exit: On an invalid path, an empty or unreadable genre, no
             audio found, a user abort, or a completed run.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to tag beneath")
+    target: Path = resolve_path(path, "Path to write Genre tags beneath")
     # Reporting only. Every audio file beneath the target is tagged
     # whether or not it sits under a recognized artist -- the path is a
     # scope, and filtering here would mean pointing at one album and
@@ -178,7 +178,7 @@ def genre(
             value = cast(
                 "str",
                 typer.prompt(
-                    '\nEnter the genre (e.g. "Jazz" or "Jazz;Jazz Fusion")',
+                    '\nGenre (e.g. "Jazz" or "Jazz;Jazz Fusion")',
                     value_proc=_to_genre,
                 ),
             )

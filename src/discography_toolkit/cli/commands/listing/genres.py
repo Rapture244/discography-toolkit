@@ -123,7 +123,7 @@ def genres(
         typer.Exit: On an invalid path, an unusable `.genre`, no audio
             found, or a completed survey.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to survey beneath")
+    target: Path = resolve_path(path, "Path to survey beneath")
     # Nothing under the banner: a whole discography would print three
     # hundred artist names above a dozen result lines, burying the answer
     # under the question. The artists that matter are named beneath the

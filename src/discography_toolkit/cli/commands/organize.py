@@ -76,7 +76,7 @@ def organize(
         typer.Exit: On an invalid path, no artist found, a user abort, or
             a completed run.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to organize")
+    target: Path = resolve_path(path, "Path to organize")
     artists: list[Path] = find_artists(target)
     echo_banner("Organize", target.name, children=[artist.name for artist in artists])
 

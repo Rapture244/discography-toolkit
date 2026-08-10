@@ -87,7 +87,7 @@ def album(
         typer.Exit: On an invalid path, no album found, no audio found, a
             user abort, or a completed run.
     """
-    target: Path = resolve_path(path, "Enter the absolute path to work beneath")
+    target: Path = resolve_path(path, "Path to write Album tags beneath")
     artists: list[Path] = artists_in(target)
     echo_banner("Metadata: Album", target.name, children=artist_names(target, artists))
 
