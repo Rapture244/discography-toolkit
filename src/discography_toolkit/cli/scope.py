@@ -17,7 +17,7 @@ command's, and so is the banner it prints above.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import Final, cast
 
 import typer
 
@@ -27,6 +27,15 @@ from discography_toolkit.core.layout import (
     find_audio_files,
     is_artist_folder,
 )
+
+# ==================================================================================== #
+#                                      CONSTANTS                                       #
+# ==================================================================================== #
+# Phrased here rather than at the raise, as `core.declarations` does with
+# its own: a refusal read at a prompt is the interface, and one that is
+# built inside a call is one nobody finds when the wording is questioned.
+_NO_PATH: Final[str] = "Enter a path."
+_NOT_A_DIRECTORY: Final[str] = "Not a directory: {folder}"
 
 
 # ==================================================================================== #
@@ -50,6 +59,40 @@ def clean_input(raw: str) -> str:
     return raw.strip().strip("'\"")
 
 
+def to_folder(raw: str) -> Path:
+    """Turn text typed at a prompt into the folder it names.
+
+    Refuses by raising rather than exiting, because `click.prompt` catches
+    a `BadParameter` from its converter and asks again. A path mistyped
+    at a prompt then costs a retype instead of the whole command -- while
+    the same mistake given as `--path` is caught by Typer before the body
+    runs, which is what a script wants.
+
+    Args:
+        raw: The text as typed.
+
+    Returns:
+        The absolute, resolved directory it names.
+
+    Raises:
+        typer.BadParameter: If the text names nothing at all, or names
+            something that is not a directory.
+    """
+    cleaned: str = clean_input(raw)
+    # Nothing is not the current directory. `Path("").resolve()` is the
+    # working directory and passes every check below it, so a space typed
+    # at the prompt would answer "lay out wherever the shell happens to
+    # be" -- which is the one answer nobody means.
+    if not cleaned:
+        raise typer.BadParameter(_NO_PATH)
+
+    folder: Path = Path(cleaned).expanduser().resolve()
+    if not folder.is_dir():
+        raise typer.BadParameter(_NOT_A_DIRECTORY.format(folder=folder))
+
+    return folder
+
+
 def resolve_path(path: Path | None, prompt: str) -> Path:
     """Settle on a folder to work in, asking for one if none was given.
 
@@ -61,14 +104,14 @@ def resolve_path(path: Path | None, prompt: str) -> Path:
         An absolute, resolved directory.
 
     Raises:
-        typer.Exit: If the path is not a directory.
+        typer.Exit: If the path given on the command line is not a
+            directory. One typed at the prompt is asked for again instead.
     """
     if path is None:
-        raw: str = cast("str", typer.prompt(prompt))
-        path = Path(clean_input(raw)).expanduser().resolve()
+        return cast("Path", typer.prompt(prompt, value_proc=to_folder))
 
     if not path.is_dir():
-        typer.secho(f"Not a directory: {path}", fg=typer.colors.RED, err=True)
+        typer.secho(_NOT_A_DIRECTORY.format(folder=path), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
     return path

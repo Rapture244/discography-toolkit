@@ -6,13 +6,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import typer
+from typer.testing import CliRunner
 
-from discography_toolkit.cli.scope import clean_input, resolve_path
+from discography_toolkit.cli.main import app
+from discography_toolkit.cli.scope import clean_input, resolve_path, to_folder
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+runner = CliRunner()
 
 
 # ==================================================================================== #
@@ -53,25 +57,16 @@ def test_resolve_path_accepts_a_given_directory(tmp_path: Path) -> None:
     assert resolve_path(tmp_path, "unused") == tmp_path
 
 
-def test_resolve_path_prompts_when_omitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """No path means ask for one, and quotes typed at the prompt are stripped.
+def test_to_folder_strips_quotes(tmp_path: Path) -> None:
+    """Quotes typed at the prompt reach the converter, not the filesystem.
 
     Args:
         tmp_path: Pytest's per-test temporary directory.
-        monkeypatch: Used to answer the prompt.
     """
-
-    def answer(_message: str) -> str:
-        return f'"{tmp_path}"'
-
-    monkeypatch.setattr(typer, "prompt", answer)
-
-    assert resolve_path(None, "Enter a path") == tmp_path
+    assert to_folder(f'"{tmp_path}"') == tmp_path
 
 
-def test_resolve_path_expands_a_home_shortcut(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_to_folder_expands_a_home_shortcut(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A path typed as "~/Music" must reach the real folder.
 
     Args:
@@ -83,15 +78,10 @@ def test_resolve_path_expands_a_home_shortcut(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows
 
-    def answer(_message: str) -> str:
-        return "~/Music"
-
-    monkeypatch.setattr(typer, "prompt", answer)
-
-    assert resolve_path(None, "Enter a path") == music
+    assert to_folder("~/Music") == music
 
 
-def test_resolve_path_makes_a_relative_path_absolute(
+def test_to_folder_makes_a_relative_path_absolute(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A folder is renamed mid-run, so a relative path would go stale.
@@ -104,15 +94,63 @@ def test_resolve_path_makes_a_relative_path_absolute(
     music.mkdir()
     monkeypatch.chdir(tmp_path)
 
-    def answer(_message: str) -> str:
-        return "Music"
-
-    monkeypatch.setattr(typer, "prompt", answer)
-
-    resolved: Path = resolve_path(None, "Enter a path")
+    resolved: Path = to_folder("Music")
 
     assert resolved.is_absolute()
     assert resolved == music
+
+
+@pytest.mark.parametrize("raw", ["", "   ", '""'])
+def test_to_folder_refuses_an_empty_answer(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is not the working directory, which is what it used to mean.
+
+    `Path("").resolve()` is the current directory and passes every check
+    below it, so a space at the prompt answered "work wherever the shell
+    happens to be" -- on commands that delete folders.
+
+    Args:
+        raw: The text as typed.
+        tmp_path: Pytest's per-test temporary directory.
+        monkeypatch: Used to put the working directory somewhere real, so
+            a pass would be the bug rather than an accident of location.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(typer.BadParameter):
+        _ = to_folder(raw)
+
+
+def test_to_folder_refuses_a_file(tmp_path: Path) -> None:
+    """A track is not a folder to work beneath.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    track: Path = tmp_path / "01.flac"
+    track.touch()
+
+    with pytest.raises(typer.BadParameter):
+        _ = to_folder(str(track))
+
+
+def test_a_mistyped_path_is_asked_for_again(tmp_path: Path) -> None:
+    """A typo costs a retype, not the command.
+
+    The whole point of refusing through the converter: `click.prompt`
+    catches it and loops, where an exit would send you back to the shell
+    to type the command out once more.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    result = runner.invoke(app, ["tags", "title"], input=f"{tmp_path / 'nowhere'}\n{tmp_path}\n")
+
+    assert "Not a directory" in result.output
+    # Reached on the second answer, so the prompt was asked twice.
+    assert "No audio files" in result.output
+    assert result.exit_code == 0
 
 
 def test_resolve_path_rejects_a_file(tmp_path: Path) -> None:

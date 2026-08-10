@@ -191,6 +191,22 @@ def test_an_empty_genre_is_refused(shelf: Path) -> None:
     assert genres_under(shelf) == {""}
 
 
+def test_an_empty_genre_at_the_prompt_is_asked_for_again(shelf: Path) -> None:
+    """Typed rather than passed, an empty genre costs a retype, not the run.
+
+    The flag has nobody to ask and so still stops the command; the prompt
+    is standing there with the cursor on it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf)], input="   \nJazz\ny\n")
+
+    assert result.exit_code == 0
+    assert "Genre cannot be empty" in result.output
+    assert genres_under(shelf) == {"Jazz"}
+
+
 def test_a_folder_without_audio_exits_cleanly(tmp_path: Path) -> None:
     """Nothing to do is not an error.
 
@@ -825,6 +841,25 @@ def test_rename_asks_for_the_replacement_when_given_none(shelf: Path) -> None:
     )
 
     assert result.exit_code == 0
+    assert (shelf / ".genre").read_bytes() == b"(JPN) Koto\n"
+
+
+def test_rename_asks_again_for_an_empty_replacement(shelf: Path) -> None:
+    """The replacement prompt refuses through the converter, as the other does.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    declare(shelf, "(JP) Koto")
+
+    result = runner.invoke(
+        app,
+        ["tags", "genre", "-p", str(shelf), "--rename", "(JP) Koto"],
+        input="   \n(JPN) Koto\ny\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Genre cannot be empty" in result.output
     assert (shelf / ".genre").read_bytes() == b"(JPN) Koto\n"
 
 

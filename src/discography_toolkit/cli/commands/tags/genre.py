@@ -32,7 +32,7 @@ from collections import Counter
 # get_type_hints() when it builds the command, so every name used in a
 # signature has to exist in module globals.
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING, Annotated, NoReturn, cast
+from typing import TYPE_CHECKING, Annotated, Final, NoReturn, cast
 
 import typer
 
@@ -62,6 +62,11 @@ if TYPE_CHECKING:
 # The declaration itself lives in `core.declarations`, shared with
 # `list genres`: a survey that resolved a genre differently from the
 # command that writes it would leave two answers to one question.
+
+# Phrased here rather than at the three places that refuse, as
+# `core.declarations` does with its own: one refusal spelled out three
+# times is one that drifts into three wordings.
+_EMPTY_GENRE: Final[str] = "Genre cannot be empty."
 
 
 # ==================================================================================== #
@@ -171,12 +176,15 @@ def genre(
     if force or any(track.parent not in declared for track in tracks):
         if value is None:
             value = cast(
-                "str", typer.prompt('\nEnter the genre (e.g. "Jazz" or "Jazz;Jazz Fusion")')
+                "str",
+                typer.prompt(
+                    '\nEnter the genre (e.g. "Jazz" or "Jazz;Jazz Fusion")',
+                    value_proc=_to_genre,
+                ),
             )
         fallback = value.strip()
         if not fallback:
-            typer.secho("\nGenre cannot be empty.", fg=typer.colors.RED, err=True)
-            raise typer.Exit(code=1)
+            _refuse(_EMPTY_GENRE)
 
     _echo_values(tracks, declared, fallback, target)
 
@@ -275,10 +283,10 @@ def _rename(
         typer.Exit: On an empty replacement, or a user abort.
     """
     if new is None:
-        new = cast("str", typer.prompt(f"\nReplace {_styled(old)} with"))
+        new = cast("str", typer.prompt(f"\nReplace {_styled(old)} with", value_proc=_to_genre))
     new = new.strip()
     if not new:
-        _refuse("Genre cannot be empty.")
+        _refuse(_EMPTY_GENRE)
 
     edits: list[tuple[Path, str]] = _declarations_renamed(target, old, new)
 
@@ -513,6 +521,29 @@ def _refuse(message: str) -> NoReturn:
     """
     typer.secho(f"\n{message}", fg=typer.colors.RED, err=True)
     raise typer.Exit(code=1)
+
+
+def _to_genre(raw: str) -> str:
+    """Clean up a genre typed at a prompt, refusing an empty one.
+
+    The prompt's counterpart to `_refuse`: raising here is caught by
+    `click.prompt`, which asks again, so a stray Return costs a retype
+    rather than the run. The same empty value passed as `--genre` still
+    stops the command, since a script has nobody to ask.
+
+    Args:
+        raw: The text as typed.
+
+    Returns:
+        The value with its surrounding whitespace removed.
+
+    Raises:
+        typer.BadParameter: If nothing but whitespace was typed.
+    """
+    value: str = raw.strip()
+    if not value:
+        raise typer.BadParameter(_EMPTY_GENRE)
+    return value
 
 
 # ==================================================================================== #
