@@ -218,13 +218,14 @@ def playlist(
     moves: int = sum(len(plan.pending) for _, plan in planned)
     _echo_moves(planned)
 
-    warning: str = (
-        f"This moves {moves} album folder(s), then writes their tags from the discography, "
-        "prefixes any multi-disc filenames, and writes a cover.jpg beside their tracks. "
-        "There is no dry run."
+    typer.echo()
+    typer.secho(f"{moves} album folder(s) will be moved or renamed.", fg=typer.colors.YELLOW)
+    typer.secho(
+        "Each matched album is then tagged from the discography, prefixed, and covered.",
+        fg=typer.colors.YELLOW,
     )
-    typer.secho(f"\n{warning}", fg=typer.colors.YELLOW)
-    if not typer.confirm("Proceed?"):
+    typer.secho("There is no dry run.", fg=typer.colors.YELLOW)
+    if not typer.confirm(f"Sync {wanted} album(s) beneath {target.name!r}?"):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 

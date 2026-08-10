@@ -179,9 +179,10 @@ def layout(
         raise typer.Exit(code=1)
 
     typer.echo()
-    warning: str = f"This will delete Opus albums that duplicate a FLAC one, then rename, renumber, recase, file, and label {len(artists)} artist(s) -- there is no dry run."
-    typer.secho(warning, fg=typer.colors.YELLOW)
-    if not assume_yes and not typer.confirm("Proceed?"):
+    typer.secho("Opus albums that duplicate a FLAC one will be deleted.", fg=typer.colors.YELLOW)
+    typer.secho("There is no dry run.", fg=typer.colors.YELLOW)
+    question: str = f"Lay out {len(artists)} artist(s) beneath {target.name!r}?"
+    if not assume_yes and not typer.confirm(question):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 

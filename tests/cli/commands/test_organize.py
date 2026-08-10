@@ -132,7 +132,10 @@ def test_both_phases_are_shown(fresh_shelf: Callable[[], Path]) -> None:
 
 
 def test_a_single_confirmation_covers_both_halves(fresh_shelf: Callable[[], Path]) -> None:
-    """One "Proceed?" is asked, not one per half.
+    """One confirmation is asked, not one per half.
+
+    Counted by the prompt's own "[y/N]" rather than by its wording, which
+    is what stays true when the question is rephrased.
 
     Args:
         fresh_shelf: Factory building the shelf.
@@ -141,7 +144,23 @@ def test_a_single_confirmation_covers_both_halves(fresh_shelf: Callable[[], Path
 
     result = runner.invoke(app, ["organize", "--path", str(shelf)], input="y\n")
 
-    assert result.stdout.count("Proceed?") == 1
+    assert result.stdout.count("[y/N]") == 1
+
+
+def test_the_confirmation_names_both_halves_and_the_target(
+    fresh_shelf: Callable[[], Path],
+) -> None:
+    """The question carries the run, so a scrolled terminal still answers it.
+
+    Args:
+        fresh_shelf: Factory building the shelf.
+    """
+    shelf: Path = fresh_shelf()
+
+    result = runner.invoke(app, ["organize", "--path", str(shelf)], input="n\n")
+
+    question: str = f"Lay out 2 artist(s) beneath {shelf.name!r} and write every tag but genre?"
+    assert question in result.stdout
 
 
 def test_a_single_artist_target_is_followed_when_renamed(tmp_path: Path) -> None:

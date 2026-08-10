@@ -232,6 +232,31 @@ def test_the_roster_is_shown_before_the_confirmation(
     assert "nothing found in the playlist" in result.output
 
 
+def test_the_confirmation_names_the_work_and_the_target(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The question carries the run, so a scrolled roster still answers it.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    (disco / "01. (1959) - Kind of Blue [FLAC]").mkdir(parents=True)
+
+    playlist: Path = tmp_path / "playlist"
+    playlist.mkdir()
+    _ = album("playlist/Miles Davis - Kind of Blue", tag="Kind of Blue")
+
+    result = runner.invoke(
+        app,
+        ["playlist", "--path", str(disco), "--converted", str(playlist)],
+        input="n\n",
+    )
+
+    assert "Sync 1 album(s) beneath 'playlist'?" in result.output
+
+
 def test_refusing_the_prompt_changes_nothing(album: Callable[..., Path], tmp_path: Path) -> None:
     """Saying no leaves the playlist exactly as it was.
 

@@ -283,6 +283,24 @@ def test_confirming_the_prompt_proceeds(messy_artist: Callable[[], Path]) -> Non
     assert (parent / "Miles Davis - [4 \u2022 2F \u2022 1L \u2022 1M]").is_dir()
 
 
+def test_the_confirmation_names_the_work_and_the_target(
+    messy_artist: Callable[[], Path],
+) -> None:
+    """The question carries the run, so a scrolled terminal still answers it.
+
+    The caveats above it -- the pruning, the missing dry run -- scroll off
+    behind a long artist list; the prompt is the line still on screen.
+
+    Args:
+        messy_artist: Factory building the artist.
+    """
+    artist: Path = messy_artist()
+
+    result = runner.invoke(app, ["layout", "--path", str(artist)], input="n\n")
+
+    assert "Lay out 1 artist(s) beneath 'Miles Davis'?" in result.stdout
+
+
 def test_one_album_held_twice_skips_the_artist(tmp_path: Path) -> None:
     """Neither copy can be numbered into the sequence, so nothing runs.
 

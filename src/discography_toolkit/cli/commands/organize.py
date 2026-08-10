@@ -100,9 +100,12 @@ def organize(
             f"Forcing Album Artist = {credit!r} on every track under {target.name!r} ({scopes} scope(s)).",
             fg=typer.colors.YELLOW,
         )
-    warning: str = f"This deletes Opus albums that duplicate a FLAC one, lays out {len(artists)} artist(s), and then writes every tag but genre. There is no dry run."
-    typer.secho(warning, fg=typer.colors.YELLOW)
-    if not typer.confirm("Proceed?"):
+    typer.secho("Opus albums that duplicate a FLAC one will be deleted.", fg=typer.colors.YELLOW)
+    typer.secho("There is no dry run.", fg=typer.colors.YELLOW)
+    question: str = (
+        f"Lay out {len(artists)} artist(s) beneath {target.name!r} and write every tag but genre?"
+    )
+    if not typer.confirm(question):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 

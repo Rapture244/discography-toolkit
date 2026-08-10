@@ -215,7 +215,15 @@ def genre(
         raise typer.Exit(code=0)
 
     _echo_intent(pending, len(tracks), fallback, doomed, target, declared)
-    if not typer.confirm("Proceed?"):
+    # Two questions, because a run owing no tag is not writing anything: it
+    # is leaving the declaration the tags already agree with, and asking to
+    # "write Genre to 0 file(s)" would name work that is not happening.
+    question: str = (
+        f"Write Genre to {pending} file(s) beneath {target.name!r}?"
+        if pending
+        else f"Declare {_styled(fallback)} in {target.name!r}?"
+    )
+    if not typer.confirm(question):
         typer.secho("Aborted.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
 

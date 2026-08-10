@@ -648,6 +648,34 @@ def test_the_intent_does_not_name_a_supplied_genre_twice(shelf: Path) -> None:
     assert "'Bebop'" in declared
 
 
+def test_the_confirmation_names_the_work_and_the_target(shelf: Path) -> None:
+    """The question carries the run, so a scrolled shelf still answers it.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Bebop"], input="n\n")
+
+    assert f"Write Genre to 5 file(s) beneath {shelf.name!r}?" in result.output
+
+
+def test_the_confirmation_names_the_declaration_when_no_tag_is_owed(shelf: Path) -> None:
+    """Tags already right and the declaration gone: the question is the file.
+
+    Naming "0 file(s)" would describe work that is not happening, in the
+    one run whose only remaining act is writing the `.genre` back.
+
+    Args:
+        shelf: The fixture shelf.
+    """
+    _ = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Bebop"], input="y\n")
+    (shelf / ".genre").unlink()
+
+    result = runner.invoke(app, ["tags", "genre", "-p", str(shelf), "-g", "Bebop"], input="n\n")
+
+    assert f"Declare 'Bebop' in {shelf.name!r}?" in result.output
+
+
 # ==================================================================================== #
 #                                       RENAMING                                       #
 # ==================================================================================== #
