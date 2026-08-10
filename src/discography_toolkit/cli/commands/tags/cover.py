@@ -39,7 +39,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.scope import artists_in, require_albums, resolve_path
+from discography_toolkit.cli.scope import artists_in, confirm_or_exit, require_albums, resolve_path
 from discography_toolkit.operations import covers
 
 if TYPE_CHECKING:
@@ -104,9 +104,7 @@ def cover(
         typer.secho("\nEvery album already has its cover. Nothing to do.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\n{_intent(plan)}?"):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(f"\n{_intent(plan)}?")
 
     with make_progress(noun="operations") as progress:
         advance = make_advancer(progress, target.name, plan.touched, artists)

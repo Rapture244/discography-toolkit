@@ -33,7 +33,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.scope import require_tracks, resolve_path
+from discography_toolkit.cli.scope import confirm_or_exit, require_tracks, resolve_path
 from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import find_artist_folders
 from discography_toolkit.core.metadata import Tag
@@ -132,9 +132,7 @@ def album_artist(
         )
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\nWrite Album Artist to {pending} file(s)?"):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(f"\nWrite Album Artist to {pending} file(s)?")
 
     with make_progress() as progress:
         advance = make_advancer(

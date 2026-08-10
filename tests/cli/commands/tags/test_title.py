@@ -188,7 +188,7 @@ def test_declining_the_prompt_changes_nothing(album: Callable[..., Path]) -> Non
 
     result = runner.invoke(app, ["tags", "title", "-p", str(folder)], input="n\n")
 
-    assert "Aborted" in result.output
+    assert "No changes made" in result.output
     assert titles_in(folder) == ["so what"]
 
 

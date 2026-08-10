@@ -232,7 +232,7 @@ def test_declining_the_prompt_changes_nothing(artist: Callable[..., Path]) -> No
 
     result = runner.invoke(app, ["tags", "year", "-p", str(root)], input="n\n")
 
-    assert "Aborted" in result.output
+    assert "No changes made" in result.output
     assert date_of(only_track(root)) == ""
 
 

@@ -29,7 +29,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.scope import artists_in, require_tracks, resolve_path
+from discography_toolkit.cli.scope import artists_in, confirm_or_exit, require_tracks, resolve_path
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.core.names import title_case
 from discography_toolkit.operations import tagging
@@ -95,9 +95,7 @@ def title(
         )
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\nRewrite {pending} Title tag(s)?"):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(f"\nRewrite {pending} Title tag(s)?")
 
     with make_progress() as progress:
         advance = make_advancer(

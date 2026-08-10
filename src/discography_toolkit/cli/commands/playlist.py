@@ -63,7 +63,7 @@ from discography_toolkit.cli.console import (
     make_bar,
     make_progress,
 )
-from discography_toolkit.cli.scope import resolve_path
+from discography_toolkit.cli.scope import confirm_or_exit, resolve_path
 from discography_toolkit.core.layout import (
     album_tracks,
     discover_albums,
@@ -225,9 +225,7 @@ def playlist(
         fg=typer.colors.YELLOW,
     )
     typer.secho("There is no dry run.", fg=typer.colors.YELLOW)
-    if not typer.confirm(f"Sync {wanted} album(s) beneath {target.name!r}?"):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(f"Sync {wanted} album(s) beneath {target.name!r}?")
 
     # One bar for the writing, sized before anything moves: every track
     # to be read for its tags, and one step per album for its cover.

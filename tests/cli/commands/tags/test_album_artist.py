@@ -192,7 +192,7 @@ def test_declining_the_prompt_changes_nothing(shelf: Path) -> None:
     """
     result = runner.invoke(app, ["tags", "album-artist", "-p", str(shelf)], input="n\n")
 
-    assert "Aborted" in result.output
+    assert "No changes made" in result.output
     assert album_artist_of(next((shelf / "USA").rglob("*.flac"))) == ""
 
 

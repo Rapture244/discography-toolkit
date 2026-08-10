@@ -50,7 +50,12 @@ from discography_toolkit.cli.console import (
     make_bar,
     make_progress,
 )
-from discography_toolkit.cli.scope import require_albums, require_tracks, resolve_path
+from discography_toolkit.cli.scope import (
+    confirm_or_exit,
+    require_albums,
+    require_tracks,
+    resolve_path,
+)
 from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import find_artist_folders, owning_folder
 from discography_toolkit.core.metadata import Tag
@@ -134,11 +139,9 @@ def align_tags(
             f"\nForcing Album Artist = {credit!r} on every track under {target.name!r}.",
             fg=typer.colors.YELLOW,
         )
-    if not typer.confirm(
+    confirm_or_exit(
         f"\nAlign tags beneath {target.name!r}? Settles covers, then album, artist, year, title."
-    ):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    )
 
     typer.echo()
     cover_report, tag_report, disc_report = run(albums, tracks, artists, credit)

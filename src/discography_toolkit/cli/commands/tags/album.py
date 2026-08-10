@@ -41,6 +41,7 @@ from discography_toolkit.cli.console import (
 )
 from discography_toolkit.cli.scope import (
     artists_in,
+    confirm_or_exit,
     require_albums,
     require_tracks,
     resolve_path,
@@ -108,9 +109,7 @@ def album(
         typer.secho("\nEvery file already carries its album. Nothing to do.", fg=typer.colors.GREEN)
         raise typer.Exit(code=0)
 
-    if not typer.confirm(f"\nWrite the Album tag to {pending} file(s)?"):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(f"\nWrite the Album tag to {pending} file(s)?")
 
     with make_progress() as progress:
         advance = make_advancer(

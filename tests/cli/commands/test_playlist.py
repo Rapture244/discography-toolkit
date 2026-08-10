@@ -277,6 +277,6 @@ def test_refusing_the_prompt_changes_nothing(album: Callable[..., Path], tmp_pat
         input="n\n",
     )
 
-    assert "Aborted" in result.output
+    assert "No changes made" in result.output
     assert folder.is_dir()
     assert not (playlist / "Miles Davis").exists()

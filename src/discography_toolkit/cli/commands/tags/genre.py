@@ -44,7 +44,7 @@ from discography_toolkit.cli.console import (
     make_advancer,
     make_progress,
 )
-from discography_toolkit.cli.scope import artists_in, require_tracks, resolve_path
+from discography_toolkit.cli.scope import artists_in, confirm_or_exit, require_tracks, resolve_path
 from discography_toolkit.core import declarations
 from discography_toolkit.core.declarations import SIDECAR_NAME
 from discography_toolkit.core.metadata import Tag
@@ -231,9 +231,7 @@ def genre(
         if pending
         else f"Declare {_styled(fallback)} in {target.name!r}?"
     )
-    if not typer.confirm(question):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(question)
 
     # Declarations are settled before the tags rather than after, so an
     # interrupted run leaves the shelf saying what it was told rather
@@ -308,9 +306,7 @@ def _rename(
     summary: str = f"rename {_styled(old)} to {_styled(new)} in {pending} file(s)"
     if edits:
         summary = f"{summary} and {len(edits)} {SIDECAR_NAME!r} file(s)"
-    if not typer.confirm(f"\nProceed to {summary}?"):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(f"\nProceed to {summary}?")
 
     failures: list[tuple[Path, str]] = []
     for sidecar, renamed in edits:

@@ -10,6 +10,11 @@ words each time, when the answer is empty.
 Written per command those refusals drift: one says "run the layout pass
 first" and the next forgets to say it at all.
 
+The last refusal is the person's rather than the shelf's -- a
+confirmation answered no -- and it lives here for that same reason. It
+was spelled out at every command that writes, which is what made its
+wording impossible to correct in one place.
+
 Nothing here decides what to do with what it finds. That is the
 command's, and so is the banner it prints above.
 """
@@ -36,6 +41,12 @@ from discography_toolkit.core.layout import (
 # built inside a call is one nobody finds when the wording is questioned.
 _NO_PATH: Final[str] = "Enter a path."
 _NOT_A_DIRECTORY: Final[str] = "Not a directory: {folder}"
+
+# Not "Aborted.", which is Click's own word for an interrupt -- it prints
+# "Aborted!" on Ctrl-C and exits 1. Two outcomes a single character apart,
+# and neither saying the thing anyone wants confirmed. This borrows the
+# phrasing the dry runs already use, which reports the same fact.
+_NOTHING_CHANGED: Final[str] = "No changes made."
 
 
 # ==================================================================================== #
@@ -198,4 +209,27 @@ def require_tracks(target: Path) -> list[Path]:
         return tracks
 
     typer.secho(f"\nNo audio files found in {target}", fg=typer.colors.YELLOW)
+    raise typer.Exit(code=0)
+
+
+# ==================================================================================== #
+#                                     BEFORE WRITING                                   #
+# ==================================================================================== #
+def confirm_or_exit(question: str) -> None:
+    """Ask before writing, and stop cleanly when the answer is no.
+
+    Args:
+        question: What to ask, already naming the action and its scope.
+            Phrased by the command, since only it knows what it is about
+            to do.
+
+    Raises:
+        typer.Exit: If the answer is no. Clean, since declining is a
+            decision rather than a failure -- the same reason
+            `require_tracks` exits zero on an empty folder.
+    """
+    if typer.confirm(question):
+        return
+
+    typer.secho(_NOTHING_CHANGED, fg=typer.colors.YELLOW)
     raise typer.Exit(code=0)

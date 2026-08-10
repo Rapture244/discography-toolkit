@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from discography_toolkit.cli.console import Notice, echo_banner, echo_failures, echo_notices
-from discography_toolkit.cli.scope import resolve_path
+from discography_toolkit.cli.scope import confirm_or_exit, resolve_path
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
     disc_folders,
@@ -182,9 +182,8 @@ def layout(
     typer.secho("Opus albums that duplicate a FLAC one will be deleted.", fg=typer.colors.YELLOW)
     typer.secho("There is no dry run.", fg=typer.colors.YELLOW)
     question: str = f"Lay out {len(artists)} artist(s) beneath {target.name!r}?"
-    if not assume_yes and not typer.confirm(question):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    if not assume_yes:
+        confirm_or_exit(question)
 
     typer.echo()
     results, skipped = run(artists)

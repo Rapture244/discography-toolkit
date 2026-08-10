@@ -31,7 +31,7 @@ import typer
 
 from discography_toolkit.cli.commands import align_tags, layout
 from discography_toolkit.cli.console import echo_banner
-from discography_toolkit.cli.scope import resolve_path
+from discography_toolkit.cli.scope import confirm_or_exit, resolve_path
 from discography_toolkit.core.layout import (
     find_albums,
     find_artist_folders,
@@ -105,9 +105,7 @@ def organize(
     question: str = (
         f"Lay out {len(artists)} artist(s) beneath {target.name!r} and write every tag but genre?"
     )
-    if not typer.confirm(question):
-        typer.secho("Aborted.", fg=typer.colors.YELLOW)
-        raise typer.Exit(code=0)
+    confirm_or_exit(question)
 
     typer.secho("\nLayout", fg=typer.colors.CYAN, bold=True)
     results, skipped = layout.run(artists)
