@@ -232,6 +232,96 @@ def test_the_roster_is_shown_before_the_confirmation(
     assert "nothing found in the playlist" in result.output
 
 
+def test_a_loose_album_matching_nothing_is_named(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """An album that reaches neither the roster nor the fold is not reported twice.
+
+    It was reported nowhere. Only an assigned folder becomes a candidate,
+    and only a candidate reaches the fold that lists what it could not
+    settle -- so a converter's drop that matched nothing simply stopped
+    being mentioned by a run that said it had synced everything.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    (disco / "01. (1959) - Kind of Blue [FLAC]").mkdir(parents=True)
+
+    playlist: Path = tmp_path / "playlist"
+    playlist.mkdir()
+    stray: Path = album("playlist/Someone - Something Else", tag="Something Else")
+
+    result = runner.invoke(
+        app,
+        ["playlist", "--path", str(disco), "--converted", str(playlist)],
+        input="n\n",
+    )
+
+    assert "Someone - Something Else" in result.output
+    assert "matches no album in the discography" in result.output
+    assert stray.is_dir()
+
+
+def test_a_loose_album_with_no_tag_says_so(album: Callable[..., Path], tmp_path: Path) -> None:
+    """No tag is a fault in the file, not in the discography.
+
+    The reasons are kept apart because they send you to different places
+    to fix them.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "Miles Davis - [1 \u2022 1F \u2022 0L \u2022 0M]"
+    (disco / "01. (1959) - Kind of Blue [FLAC]").mkdir(parents=True)
+
+    playlist: Path = tmp_path / "playlist"
+    playlist.mkdir()
+    _ = album("playlist/untagged drop", tag=None)
+
+    result = runner.invoke(
+        app,
+        ["playlist", "--path", str(disco), "--converted", str(playlist)],
+        input="n\n",
+    )
+
+    assert "carries no Album tag to match on" in result.output
+
+
+def test_a_loose_album_two_artists_claim_is_named(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Two artists holding a record of one name is not something a title settles.
+
+    Filing it under either would be a guess, so it is left alone -- but
+    saying "matches no artist" would be the opposite of true, which is
+    why the reason travels with the folder.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "disco"
+    for artist in ("Miles Davis", "John Coltrane"):
+        (shelf / f"{artist} - [1 \u2022 1F \u2022 0L \u2022 0M]" / "01. (1959) - Blue Train").mkdir(
+            parents=True
+        )
+
+    playlist: Path = tmp_path / "playlist"
+    playlist.mkdir()
+    _ = album("playlist/Blue Train", tag="Blue Train")
+
+    result = runner.invoke(
+        app,
+        ["playlist", "--path", str(shelf), "--converted", str(playlist)],
+        input="n\n",
+    )
+
+    assert "claimed by 2 artists at once" in result.output
+
+
 def test_the_confirmation_names_the_work_and_the_target(
     album: Callable[..., Path], tmp_path: Path
 ) -> None:

@@ -193,11 +193,11 @@ def playlist(
 
     echo_banner("Playlist", target.name, children=[str(disco), str(target)])
 
-    artists, skipped = _gather(roster, disco, target)
+    artists, skipped, unclaimed = _gather(roster, disco, target)
     # One column for the whole run: the roster below, and the progress
     # bar labels after it, so every bar starts where the names ended.
     width: int = max(cell_len(artist.name) for artist in artists)
-    _echo_found(artists, skipped, width)
+    _echo_found(artists, skipped, unclaimed, width)
 
     workable: list[Artist] = [artist for artist in artists if artist.candidates]
     wanted: int = sum(len(artist.candidates) for artist in workable)
@@ -255,7 +255,9 @@ def playlist(
 # ==================================================================================== #
 #                                      GATHERING                                       #
 # ==================================================================================== #
-def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Artist], list[Path]]:
+def _gather(
+    roster: Sequence[Path], disco: Path, target: Path
+) -> tuple[list[Artist], list[Path], list[tuple[Path, str]]]:
     """Work out, for every artist, which folders this run should place.
 
     Two kinds of candidate, told apart by where they sit. One already
@@ -277,9 +279,11 @@ def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Art
         target: The playlist path to search.
 
     Returns:
-        One entry per artist, in roster order, and the folders in the
+        One entry per artist, in roster order; the folders in the
         playlist the run has nothing to say about -- an artist the
-        discography does not know, or something that is neither.
+        discography does not know, or something that is neither; and
+        `(folder, reason)` for each loose album that could not be given
+        to an artist.
     """
     names: dict[Path, str] = {}
     for folder in roster:
@@ -304,7 +308,7 @@ def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Art
         name: {album_title(album.name).casefold() for album in found}
         for name, found in albums.items()
     }
-    owners: dict[Path, str] = _assign(loose, titles)
+    owners, unclaimed = _assign(loose, titles)
 
     artists: list[Artist] = []
     for name in names.values():
@@ -330,33 +334,56 @@ def _gather(roster: Sequence[Path], disco: Path, target: Path) -> tuple[list[Art
             )
         )
 
-    return artists, [*skipped, *strangers]
+    return artists, [*skipped, *strangers], unclaimed
 
 
-def _assign(loose: Sequence[Path], titles: Mapping[str, set[str]]) -> dict[Path, str]:
+def _assign(
+    loose: Sequence[Path], titles: Mapping[str, set[str]]
+) -> tuple[dict[Path, str], list[tuple[Path, str]]]:
     """Decide which artist each loose album folder belongs to.
 
     Read from the folder's own Album tag rather than its name, as every
-    other match here is. A folder no artist claims, or one that two do,
-    is left unassigned and reported by the pass that would have placed
-    it.
+    other match here is.
+
+    A folder that cannot be assigned comes back with the reason, because
+    nothing downstream will mention it otherwise: only an assigned folder
+    becomes a candidate, and only a candidate reaches the fold that
+    reports what it could not settle. Left out of both, an album a
+    converter dropped would vanish from a run that claimed to have synced
+    everything.
+
+    The three reasons are kept apart because they send you to different
+    places. No tag is a fault in the file; no claimant is a fault in the
+    discography, or an album since removed from it; two claimants is two
+    artists holding a record of one name, which is not something a title
+    can settle.
 
     Args:
         loose: Album folders sitting in the playlist path itself.
         titles: Each artist's album titles, casefolded.
 
     Returns:
-        Each assignable folder mapped to its artist's name.
+        Each assignable folder mapped to its artist's name, and
+        `(folder, reason)` for each one that could not be.
     """
     owners: dict[Path, str] = {}
+    unclaimed: list[tuple[Path, str]] = []
+
     for album in loose:
         title: str | None = folding.identity(album)
         if title is None:
+            unclaimed.append((album, "carries no Album tag to match on"))
             continue
+
         claimants: list[str] = [name for name, held in titles.items() if title in held]
         if len(claimants) == 1:
             owners[album] = claimants[0]
-    return owners
+        elif claimants:
+            unclaimed.append((album, f"claimed by {len(claimants)} artists at once"))
+        else:
+            unclaimed.append((album, "matches no album in the discography"))
+
+    return owners, unclaimed
 
 
 # ==================================================================================== #
@@ -577,7 +604,12 @@ def _fold_notices(fold_plan: folding.PlaylistPlan) -> tuple[Notice, ...]:
     return tuple(notices)
 
 
-def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path], width: int) -> None:
+def _echo_found(
+    artists: Sequence[Artist],
+    skipped: Sequence[Path],
+    unclaimed: Sequence[tuple[Path, str]],
+    width: int,
+) -> None:
     """Print what the roster turned up, before anything is agreed to.
 
     Every artist the discography path covers, and where each stands in
@@ -598,6 +630,10 @@ def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path], width: int) 
         skipped: Folders in the playlist the run has nothing to say
             about -- an artist the discography does not know, or
             something that is neither an album nor an artist.
+        unclaimed: `(folder, reason)` for each loose album that could not
+            be given to an artist. Named here rather than left to the
+            fold, which never sees them: an album that reaches neither is
+            an album the run simply stopped mentioning.
         width: The column every artist's name is padded to. By cell
             width, not character count: a CJK name is half as many
             characters as it is columns wide, and "{:<40}" would step
@@ -638,6 +674,14 @@ def _echo_found(artists: Sequence[Artist], skipped: Sequence[Path], width: int) 
         )
         for folder in skipped:
             typer.secho(f"      {folder.name!r}", fg=typer.colors.BRIGHT_BLACK)
+
+    if unclaimed:
+        typer.secho(
+            f"\n  {len(unclaimed)} loose album(s) could not be given to an artist:",
+            fg=typer.colors.YELLOW,
+        )
+        for folder, reason in unclaimed:
+            typer.secho(f"      {folder.name!r} -- {reason}", fg=typer.colors.BRIGHT_BLACK)
 
 
 def _echo_moves(planned: Sequence[tuple[Artist, folding.PlaylistPlan]]) -> None:
