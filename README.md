@@ -20,6 +20,11 @@ And there's the word itself: Rapture — *a feeling of emotional ecstasy so magi
 
 And loving it that much, you start to gather it. Collectors once dug crate by crate through vinyl to build something of their own; mine are digital, but the hunt is the same. At some point my library grew big enough that enjoying it wasn't the whole of it anymore — I needed to *know* it: what I had, what I was missing, the genres, all the quiet bookkeeping that comes with owning music at scale. This toolkit is how I keep that library sane.
 
+# TODO 
+
+- [ ] Use [rsalmei/alive-progress](https://github.com/rsalmei/alive-progress) for prettier progress bar throughout the code base
+- [ ] Incorporate [tmbo/questionary: Python library to build pretty command line user prompts](https://github.com/tmbo/questionary) to do exactly what the repo says and make the CLI inputs better 
+
 
 
 ## 💿 What it does
