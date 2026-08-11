@@ -84,7 +84,3 @@ _ = app.command(
     name="playlist",
     help="Fold converted albums into a playlist mirroring the discography.",
 )(playlist.playlist)
-
-
-if __name__ == "__main__":
-    app()

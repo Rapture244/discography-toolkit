@@ -61,11 +61,6 @@ class DashBarColumn(ProgressColumn):
     Bold applies to the completed run only: in most terminals bold both
     thickens and brightens, so bolding the remainder too would lift the
     grey toward the green and blur the boundary the bar exists to show.
-
-    Attributes:
-        bar_width: Number of dash characters the bar occupies.
-        complete_style: Rich style for the completed portion.
-        remaining_style: Rich style for the remaining portion.
     """
 
     def __init__(
@@ -118,20 +113,17 @@ class FileCountColumn(ProgressColumn):
     would render `58.0`. The running count is right-aligned to the width
     of the total, so the column stays a constant width as the counter
     gains digits instead of shifting the line beside it.
-
-    Attributes:
-        style: Rich style for the counter, dim so the percentage stays
-            the more prominent figure.
-        noun: What is being counted. Most steps walk files; one walks
-            albums, and a bar that says otherwise is simply wrong.
     """
 
     def __init__(self, style: str = "bright_black", noun: str = "files") -> None:
         """Initialize the column.
 
         Args:
-            style: Rich style applied to the whole counter.
-            noun: Plural name for what is being counted.
+            style: Rich style applied to the whole counter, dim so the
+                percentage stays the more prominent figure.
+            noun: Plural name for what is being counted. Most steps walk
+                files; one walks albums, and a bar that says otherwise is
+                simply wrong.
         """
         self.style: str = style
         self.noun: str = noun
