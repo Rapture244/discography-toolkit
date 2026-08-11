@@ -30,7 +30,7 @@ from typing import Annotated
 import typer
 
 from discography_toolkit.cli.commands import align_tags, layout
-from discography_toolkit.cli.console import echo_banner
+from discography_toolkit.cli.console import artist_names, echo_banner
 from discography_toolkit.cli.scope import confirm_or_exit, resolve_path
 from discography_toolkit.core.layout import (
     find_albums,
@@ -78,7 +78,7 @@ def organize(
     """
     target: Path = resolve_path(path, "Path to organize")
     artists: list[Path] = find_artists(target)
-    echo_banner("Organize", target.name, children=[artist.name for artist in artists])
+    echo_banner("Organize", target.name, children=artist_names(target, artists))
 
     if not artists:
         typer.secho(

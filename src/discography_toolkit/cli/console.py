@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from itertools import groupby
 from typing import TYPE_CHECKING, Final, override
 
 from rich.console import Console
@@ -244,30 +245,78 @@ def make_bar(progress: Progress, label: str, total: int) -> Callable[[Path], Non
 # ==================================================================================== #
 #                                       BANNER                                         #
 # ==================================================================================== #
-def artist_names(target: Path, artists: Sequence[Path]) -> list[str]:
+@dataclass(frozen=True, slots=True)
+class BannerLine:
+    """One line printed under the banner's target.
+
+    Attributes:
+        text: The line as printed, already carrying its own indent.
+        heading: Whether it names a folder holding artists rather than an
+            artist itself. Coloured like `playlist`'s region headings,
+            which group the same thing for the same reason.
+    """
+
+    text: str
+    heading: bool = False
+
+
+def artist_names(target: Path, artists: Sequence[Path]) -> list[BannerLine]:
     """Name the artist folders beneath a target, for the banner.
 
-    A target that is itself an artist gets no list: the banner names it
-    on the line above, and its children are albums, which say nothing
-    about scope.
+    A shelf holds its artists at whatever depth it likes -- a region, a
+    country, a genre above both -- and a flat list of nine names says
+    nothing about which of the five folders each one came out of. So an
+    artist sitting deeper than the target is listed under its folder,
+    indented, and that folder is named by its whole path relative to the
+    target: two regions each holding a "Traditional" would otherwise read
+    as one group.
+
+    Artists directly under the target come first and take no heading,
+    which is what leaves a flat shelf printing exactly as it did before.
+
+    A target that is itself an artist gets no list, and neither does an
+    artist that *is* the target -- `find_artists` hands one back for a
+    path pointed straight at it, labelled or not. The banner names it on
+    the line above, and its children are albums, which say nothing about
+    scope.
 
     The artists are passed in rather than found here. Every command
     already walks for them to size its bars, and walking a shelf twice
-    to print one line is a poor trade.
+    to print one line is a poor trade. They are expected to arrive
+    grouped by folder, which both finders do -- one sorts by path, the
+    other returns walk order -- since a parent met twice would be headed
+    twice.
 
     Args:
         target: The folder the run is scoped to.
         artists: The artist folders found beneath it.
 
     Returns:
-        Their names, empty when the target is itself an artist.
+        The lines to print under the target, each already indented and
+        saying whether it heads a group, empty when the target is itself
+        an artist.
     """
     if is_artist_folder(target):
         return []
-    return [artist.name for artist in artists]
+
+    direct: list[BannerLine] = [
+        BannerLine(artist.name) for artist in artists if artist.parent == target
+    ]
+    # `artist == target` is excluded by both tests, which is what keeps
+    # `relative_to` below from being handed a path the target sits inside.
+    nested: list[Path] = [
+        artist for artist in artists if artist != target and artist.parent != target
+    ]
+
+    grouped: list[BannerLine] = []
+    for parent, group in groupby(nested, key=lambda artist: artist.parent):
+        grouped.append(BannerLine(str(parent.relative_to(target)), heading=True))
+        grouped.extend(BannerLine(f"  {artist.name}") for artist in group)
+
+    return [*direct, *grouped]
 
 
-def echo_banner(title: str, target: str, children: Sequence[str] = ()) -> None:
+def echo_banner(title: str, target: str, children: Sequence[BannerLine] = ()) -> None:
     """Announce which step is running, and on what.
 
     Printed first, so a terminal holding several steps in sequence can be
@@ -281,8 +330,9 @@ def echo_banner(title: str, target: str, children: Sequence[str] = ()) -> None:
     Args:
         title: The step's name, e.g. `"Metadata: Genre"`.
         target: The folder being worked on, printed beneath the rule.
-        children: Artist folders found inside the target, listed under it
-            and dimmed.
+        children: The lines listed under it -- artists dimmed, and the
+            folders grouping them picked out so the grey beneath each one
+            reads as its own.
     """
     _console.print()
     _console.print(
@@ -295,7 +345,10 @@ def echo_banner(title: str, target: str, children: Sequence[str] = ()) -> None:
     )
     typer.echo(target)
     for child in children:
-        typer.secho(f"  {child}", fg=typer.colors.BRIGHT_BLACK)
+        if child.heading:
+            typer.secho(f"  {child.text}", fg=typer.colors.MAGENTA, bold=True)
+        else:
+            typer.secho(f"  {child.text}", fg=typer.colors.BRIGHT_BLACK)
 
 
 # ==================================================================================== #

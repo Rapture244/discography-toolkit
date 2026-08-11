@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 
 from discography_toolkit.cli.console import (
+    BannerLine,
     DashBarColumn,
     FileCountColumn,
     Notice,
@@ -159,7 +160,10 @@ def test_artist_names_lists_the_artists_beneath_a_shelf(tmp_path: Path) -> None:
     for artist in artists:
         artist.mkdir(parents=True)
 
-    assert artist_names(shelf, artists) == ["Miles Davis - [1 on 1]", "Sun Ra - [2 on 2]"]
+    assert artist_names(shelf, artists) == [
+        BannerLine("Miles Davis - [1 on 1]"),
+        BannerLine("Sun Ra - [2 on 2]"),
+    ]
 
 
 def test_artist_names_says_nothing_under_an_artist(tmp_path: Path) -> None:
@@ -172,6 +176,83 @@ def test_artist_names_says_nothing_under_an_artist(tmp_path: Path) -> None:
         tmp_path: Pytest's per-test temporary directory.
     """
     artist: Path = tmp_path / "Miles Davis - [65 • 65F • 0L • 0M]"
+    artist.mkdir()
+
+    assert artist_names(artist, [artist]) == []
+
+
+def test_artist_names_groups_the_nested_under_their_folder(tmp_path: Path) -> None:
+    """Nine names off five regions say nothing about which came from where.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "Traditional Sounds"
+    artists: list[Path] = [
+        shelf / "Africa" / "(Mali) - Toumani - [1 on 1]",
+        shelf / "Africa" / "(Guinea) - Mamady - [2 on 2]",
+        shelf / "Tuva" / "Huun Huur Tu - [3 on 3]",
+    ]
+
+    assert artist_names(shelf, artists) == [
+        BannerLine("Africa", heading=True),
+        BannerLine("  (Mali) - Toumani - [1 on 1]"),
+        BannerLine("  (Guinea) - Mamady - [2 on 2]"),
+        BannerLine("Tuva", heading=True),
+        BannerLine("  Huun Huur Tu - [3 on 3]"),
+    ]
+
+
+def test_artist_names_heads_a_group_with_its_whole_path(tmp_path: Path) -> None:
+    """Two folders each holding a "Rap - Experimental" are not one group.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "Rap"
+    artists: list[Path] = [
+        shelf / "Rap FR" / "Rap - Experimental" / "Fauve - [1 on 1]",
+        shelf / "Rap US" / "Rap - Experimental" / "JPEGMAFIA - [2 on 2]",
+    ]
+
+    headings: list[str] = [line.text for line in artist_names(shelf, artists) if line.heading]
+
+    assert headings == [
+        str(Path("Rap FR") / "Rap - Experimental"),
+        str(Path("Rap US") / "Rap - Experimental"),
+    ]
+
+
+def test_artist_names_lists_the_direct_ones_first(tmp_path: Path) -> None:
+    """An artist sitting in the target itself has no folder to be headed by.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    shelf: Path = tmp_path / "Jazz"
+    artists: list[Path] = [
+        shelf / "Africa" / "Fela Kuti - [1 on 1]",
+        shelf / "Sun Ra - [2 on 2]",
+    ]
+
+    assert artist_names(shelf, artists) == [
+        BannerLine("Sun Ra - [2 on 2]"),
+        BannerLine("Africa", heading=True),
+        BannerLine("  Fela Kuti - [1 on 1]"),
+    ]
+
+
+def test_artist_names_says_nothing_under_an_unlabelled_artist(tmp_path: Path) -> None:
+    """Fresh material has no label yet, and `find_artists` still returns it.
+
+    The labelled target is caught by `is_artist_folder`; this one is not,
+    and its own parent sits outside the target -- which `relative_to`
+    would refuse.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    artist: Path = tmp_path / "Miles Davis"
     artist.mkdir()
 
     assert artist_names(artist, [artist]) == []

@@ -46,7 +46,13 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from discography_toolkit.cli.console import Notice, echo_banner, echo_failures, echo_notices
+from discography_toolkit.cli.console import (
+    Notice,
+    artist_names,
+    echo_banner,
+    echo_failures,
+    echo_notices,
+)
 from discography_toolkit.cli.scope import confirm_or_exit, resolve_path
 from discography_toolkit.core import names
 from discography_toolkit.core.layout import (
@@ -163,7 +169,7 @@ def layout(
     """
     target: Path = resolve_path(path, "Path to lay out")
     artists: list[Path] = find_artists(target)
-    echo_banner("Layout", target.name, children=[artist.name for artist in artists])
+    echo_banner("Layout", target.name, children=artist_names(target, artists))
 
     if not artists:
         typer.secho(

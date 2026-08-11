@@ -56,6 +56,7 @@ from rich.cells import cell_len, set_cell_size
 import typer
 
 from discography_toolkit.cli.console import (
+    BannerLine,
     Notice,
     echo_banner,
     echo_failures,
@@ -191,7 +192,7 @@ def playlist(
         )
         raise typer.Exit(code=1)
 
-    echo_banner("Playlist", target.name, children=[str(disco), str(target)])
+    echo_banner("Playlist", target.name, children=[BannerLine(str(disco)), BannerLine(str(target))])
 
     artists, skipped, unclaimed = _gather(roster, disco, target)
     # A folder can carry a label and no name -- "[1 * 1F * 0L * 0M]" and
