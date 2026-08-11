@@ -4,9 +4,10 @@
 Run against real files rather than mocks: the point of this module is
 that mutagen behaves differently per format, which a mock would hide.
 
-Only the formats a file can be generated for are covered -- FLAC, OGG,
-Opus, MP3, WAV and AIFF, spanning the Vorbis and ID3 families. MP4,
-APEv2 and ASF share the same dispatch but are untested here.
+Only the formats a file can be generated for are covered by the
+round-trip tests -- FLAC, OGG, Opus, MP3, WAV and AIFF, spanning the
+Vorbis and ID3 families. MP4, APEv2 and ASF cannot be exercised that
+way, so the tables they dispatch through are checked directly instead.
 """
 
 from __future__ import annotations
@@ -32,6 +33,13 @@ import soundfile as sf
 
 from discography_toolkit.core import artwork
 from discography_toolkit.core.metadata import (
+    # The two tables are the subject of the dispatch tests below, and
+    # there is no public reading of "does Album Artist have an APEv2
+    # key". Adding one so a test could avoid the underscore would be API
+    # written for the test rather than for a caller.
+    _FAMILIES,  # pyright: ignore[reportPrivateUsage]
+    _KEYS,  # pyright: ignore[reportPrivateUsage]
+    SUPPORTED_EXTENSIONS,
     Family,
     Tag,
     UnsupportedFormatError,
@@ -196,6 +204,84 @@ def test_family_of_rejects_an_unknown_format(tmp_path: Path) -> None:
     """
     with pytest.raises(UnsupportedFormatError):
         _ = family_of(tmp_path / "cover.jpg")
+
+
+# ==================================================================================== #
+#                                    DISPATCH TABLE                                    #
+# ==================================================================================== #
+# Read directly rather than through a file, because three of the five
+# families cannot be written to disk here: an `.m4a`, `.ape`, `.wv` or
+# `.wma` needs an encoder the suite does not have. Every other test in
+# this module reaches these tables through a real round trip and so
+# covers only the two families that can. What is left is a lookup that
+# fails on someone's library the first time it is asked for -- a missing
+# key is a KeyError mid-write, and a shared one is a tag silently
+# overwriting another.
+#
+# The private names are the subject here. There is no public reading of
+# "does Album Artist have an APEv2 key", so the two tables are imported
+# as they are; the third check reaches the same fact through `family_of`
+# and needs none.
+def test_every_tag_has_a_key_in_every_family() -> None:
+    """A tag with no key for a format is a KeyError the moment it is written.
+
+    Nothing else catches it: the round trips only reach Vorbis and ID3,
+    and the annotation on `_KEYS` says the values are keyed by `Family`
+    without saying every `Family` is present.
+    """
+    missing: set[tuple[Tag, Family]] = {
+        (tag, family) for tag in Tag for family in Family if family not in _KEYS[tag]
+    }
+
+    assert missing == set()
+
+
+@pytest.mark.parametrize("family", list(Family))
+def test_no_two_tags_share_a_key_within_a_family(family: Family) -> None:
+    """Two tags on one key means writing the second clears the first.
+
+    The bug `test_album_artist_is_tpe2_not_tpe1` pins for ID3, asked of
+    every family -- including the three no file can be written for, where
+    a copied-and-pasted row would otherwise go unnoticed until an album
+    lost its artist.
+
+    Args:
+        family: The tagging mechanism under test.
+    """
+    keys: list[str] = [_KEYS[tag][family] for tag in Tag]
+
+    assert len(set(keys)) == len(keys)
+
+
+def test_no_extension_belongs_to_two_families() -> None:
+    """`_EXTENSION_FAMILY` is built by comprehension, which keeps the last.
+
+    An extension listed under two families resolves to whichever was
+    declared later, silently and with no sign that the other was ever
+    meant.
+    """
+    claimed: list[str] = [
+        extension for extensions in _FAMILIES.values() for extension in extensions
+    ]
+
+    assert len(set(claimed)) == len(claimed)
+
+
+def test_every_family_owns_at_least_one_extension(tmp_path: Path) -> None:
+    """A family nothing resolves to is a branch no file can ever reach.
+
+    Asked through `family_of` rather than the table, which also walks
+    every supported extension through it -- `test_family_of` names eight
+    of the twelve by hand.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    reached: set[Family] = {
+        family_of(tmp_path / f"track{extension}") for extension in SUPPORTED_EXTENSIONS
+    }
+
+    assert reached == set(Family)
 
 
 # ==================================================================================== #

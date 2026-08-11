@@ -12,20 +12,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from discography_toolkit.core import metadata
+from discography_toolkit.core import artwork, metadata
 from discography_toolkit.core.metadata import Tag
 from discography_toolkit.operations.playlist import (
+    COVER_NAME,
     album_tag,
     apply,
+    apply_covers,
     find_homes,
     identity,
     loose_albums,
     plan,
+    plan_covers,
     settled_name,
 )
 
 import pytest
-from tests.helpers import silence
+from tests.helpers import encode, silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -522,3 +525,151 @@ def test_an_album_already_in_place_is_not_pending(
 
     assert len(result.matches) == 1
     assert result.pending == ()
+
+
+# ==================================================================================== #
+#                                        COVERS                                        #
+# ==================================================================================== #
+def embed(track: Path, data: bytes) -> None:
+    """Give a track a front cover.
+
+    Args:
+        track: The audio file to write into.
+        data: The image bytes to embed.
+    """
+    cover = artwork.read(data)
+    assert cover is not None
+    metadata.write_cover(track, cover)
+
+
+def test_the_art_the_tracks_carry_is_written_beside_them(album: Callable[..., Path]) -> None:
+    """The phone that will not read embedded art looks for a file instead.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Kind of Blue")
+    embed(folder / "01.flac", encode(600))
+
+    result = plan_covers([folder])
+
+    assert len(result.writes) == 1
+    assert result.writes[0].target == folder / COVER_NAME
+    assert result.without_artwork == ()
+
+
+def test_an_album_holding_the_right_bytes_is_left_out(album: Callable[..., Path]) -> None:
+    """A second run writes nothing, which is what makes this a sync.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Kind of Blue")
+    embed(folder / "01.flac", encode(600))
+    _ = apply_covers(plan_covers([folder]))
+
+    assert plan_covers([folder]).writes == ()
+
+
+def test_stale_bytes_are_replaced(album: Callable[..., Path]) -> None:
+    """Re-arting an album upstream has to reach the playlist.
+
+    The counterpart to leaving a settled album alone: the test above
+    would pass just as well if nothing were ever written twice.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Kind of Blue")
+    embed(folder / "01.flac", encode(600, seed=1))
+    _ = (folder / COVER_NAME).write_bytes(encode(600, seed=2))
+
+    assert len(plan_covers([folder]).writes) == 1
+
+
+def test_an_album_whose_tracks_carry_no_art_is_named(album: Callable[..., Path]) -> None:
+    """Nothing to write is worth saying: it is the one thing to go and fix.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Bare")
+
+    result = plan_covers([folder])
+
+    assert result.writes == ()
+    assert result.without_artwork == (folder,)
+
+
+def test_art_deeper_than_a_disc_is_not_the_folder_s_own(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """A folder holding albums has no artwork of its own.
+
+    The same limit `identity` keeps, and for the same reason: a recursive
+    read would take art from some track buried inside and write it out as
+    though it belonged to the whole tree.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    inner: Path = album("drop/Miles Davis - Kind of Blue")
+    embed(inner / "01.flac", encode(600))
+    drop: Path = tmp_path / "drop"
+
+    result = plan_covers([drop])
+
+    assert result.writes == ()
+    assert result.without_artwork == (drop,)
+
+
+def test_a_png_cover_is_written_as_jpeg(album: Callable[..., Path]) -> None:
+    """The file is always "cover.jpg", so the bytes had better be one.
+
+    Players read this one by extension rather than by content, so a PNG
+    saved under it is a name that lies.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Kind of Blue")
+    embed(folder / "01.flac", encode(600, fmt="PNG"))
+
+    written = plan_covers([folder]).writes[0]
+
+    assert written.target.name == COVER_NAME
+    assert written.data.startswith(b"\xff\xd8\xff")
+
+
+def test_applying_writes_the_file(album: Callable[..., Path]) -> None:
+    """The bytes on disk are the ones the tracks were carrying.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Kind of Blue")
+    art: bytes = encode(600)
+    embed(folder / "01.flac", art)
+
+    report = apply_covers(plan_covers([folder]))
+
+    assert report.written == 1
+    assert (folder / COVER_NAME).read_bytes() == art
+
+
+def test_a_write_that_fails_is_reported(album: Callable[..., Path]) -> None:
+    """One unwritable folder must not cost the rest their artwork.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Kind of Blue")
+    embed(folder / "01.flac", encode(600))
+    # A directory of that name refuses the write on every platform.
+    (folder / COVER_NAME).mkdir()
+
+    report = apply_covers(plan_covers([folder]))
+
+    assert report.written == 0
+    assert [path for path, _ in report.failures] == [folder / COVER_NAME]
