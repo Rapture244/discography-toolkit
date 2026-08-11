@@ -1,5 +1,5 @@
 # tests/helpers.py
-"""Builders the suite shares: silent audio, albums of a tier, folder listings.
+"""What the suite shares: silent audio, albums of a tier, folder and track lookups.
 
 Imported rather than injected as fixtures. Most callers reach for these
 inside their own fixtures, or several times in one test body, where a
@@ -85,6 +85,21 @@ def subfolders(root: Path) -> set[str]:
         on every platform.
     """
     return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()}
+
+
+def only_track(root: Path) -> Path:
+    """Return the first track beneath a folder.
+
+    For the tests building an album of exactly one, where "the track" is
+    unambiguous and naming its path again would only repeat the fixture.
+
+    Args:
+        root: The folder to search.
+
+    Returns:
+        Its track.
+    """
+    return next(root.rglob("*.flac"))
 
 
 def encode(size: int, seed: int = 0, fmt: str = "JPEG", quality: int = 90) -> bytes:

@@ -11,8 +11,7 @@ from discography_toolkit.cli.main import app
 from discography_toolkit.core import metadata
 from discography_toolkit.core.metadata import Tag
 
-import pytest
-from tests.helpers import silence
+from tests.helpers import only_track, silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,30 +21,8 @@ runner = CliRunner()
 
 
 # ==================================================================================== #
-#                                       FIXTURES                                       #
+#                                       HELPERS                                        #
 # ==================================================================================== #
-@pytest.fixture()
-def artist(tmp_path: Path) -> Callable[..., Path]:
-    """Return a factory building an artist folder holding given albums.
-
-    Args:
-        tmp_path: Pytest's per-test temporary directory.
-
-    Returns:
-        A callable taking album names and returning the artist folder.
-    """
-
-    def build(*albums: str) -> Path:
-        root: Path = tmp_path / "Miles Davis - [1 • 1F • 0L • 0M]"
-        for name in albums:
-            folder: Path = root / "FLAC" / name
-            folder.mkdir(parents=True)
-            silence(folder / "01.flac")
-        return root
-
-    return build
-
-
 def album_of(track: Path) -> str:
     """Read one track's Album tag.
 
@@ -56,18 +33,6 @@ def album_of(track: Path) -> str:
         The stored value, empty when absent.
     """
     return metadata.read(track, [Tag.ALBUM])[Tag.ALBUM]
-
-
-def only_track(root: Path) -> Path:
-    """Return the first track beneath a folder.
-
-    Args:
-        root: The folder to search.
-
-    Returns:
-        Its track.
-    """
-    return next(root.rglob("*.flac"))
 
 
 # ==================================================================================== #

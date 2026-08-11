@@ -11,7 +11,6 @@ from discography_toolkit.cli.main import app
 from discography_toolkit.core import artwork, metadata
 from discography_toolkit.core.metadata import Tag
 
-import pytest
 from tests.helpers import encode, silence
 
 if TYPE_CHECKING:
@@ -22,32 +21,8 @@ runner = CliRunner()
 
 
 # ==================================================================================== #
-#                                       FIXTURES                                       #
+#                                       HELPERS                                        #
 # ==================================================================================== #
-@pytest.fixture()
-def artist(tmp_path: Path) -> Callable[..., Path]:
-    """Return a factory building an artist folder holding given albums.
-
-    Args:
-        tmp_path: Pytest's per-test temporary directory.
-
-    Returns:
-        A callable taking album names and a track count, returning the
-        artist folder.
-    """
-
-    def build(*albums: str, tracks: int = 1) -> Path:
-        root: Path = tmp_path / "Miles Davis - [1 • 1F • 0L • 0M]"
-        for name in albums:
-            folder: Path = root / "FLAC" / name
-            folder.mkdir(parents=True)
-            for index in range(tracks):
-                silence(folder / f"{index + 1:02d}.flac")
-        return root
-
-    return build
-
-
 def album_of(root: Path, name: str) -> Path:
     """Return one album folder inside an artist folder.
 
