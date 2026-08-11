@@ -194,6 +194,24 @@ def playlist(
     echo_banner("Playlist", target.name, children=[str(disco), str(target)])
 
     artists, skipped, unclaimed = _gather(roster, disco, target)
+    # A folder can carry a label and no name -- "[1 * 1F * 0L * 0M]" and
+    # nothing else passes `is_artist_folder` while `strip_artist_label`
+    # reads no name out of it. Refused here rather than left to the width
+    # below, where an empty roster reaches `max()` and ends the run in a
+    # traceback instead of a sentence.
+    if not artists:
+        typer.secho(
+            f"\nNo artist name could be read beneath {disco.name!r}.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        typer.secho(
+            "A folder wearing only its count label has no name to sync under.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     # One column for the whole run: the roster below, and the progress
     # bar labels after it, so every bar starts where the names ended.
     width: int = max(cell_len(artist.name) for artist in artists)

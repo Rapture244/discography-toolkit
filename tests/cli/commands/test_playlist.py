@@ -322,6 +322,29 @@ def test_a_loose_album_two_artists_claim_is_named(
     assert "claimed by 2 artists at once" in result.output
 
 
+def test_a_folder_with_a_label_and_no_name_is_refused(tmp_path: Path) -> None:
+    """A label is not a name, and the run has to say so rather than crash.
+
+    "[1 * 1F * 0L * 0M]" alone passes `is_artist_folder` -- it carries a
+    label and no album index -- while `strip_artist_label` reads nothing
+    out of it. The roster is then not empty and the artists are, which
+    reached `max()` on an empty sequence and ended the run in a
+    traceback.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco"
+    (disco / "[1 \u2022 1F \u2022 0L \u2022 0M]").mkdir(parents=True)
+    playlist: Path = tmp_path / "playlist"
+    playlist.mkdir()
+
+    result = runner.invoke(app, ["playlist", "--path", str(disco), "--converted", str(playlist)])
+
+    assert result.exit_code == 1
+    assert "No artist name could be read" in result.output
+
+
 def test_the_confirmation_names_the_work_and_the_target(
     album: Callable[..., Path], tmp_path: Path
 ) -> None:
