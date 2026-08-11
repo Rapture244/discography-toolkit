@@ -152,8 +152,11 @@ class PlacementReport:
 
     Attributes:
         moved: How many albums were successfully moved.
-        container_change: What was done to the container, or `None`.
-        failures: `(album, reason)` for each move that failed.
+        container_change: What actually became of the container, or
+            `None` -- both when nothing was needed and when something was
+            wanted and did not happen.
+        failures: `(album, reason)` for each move that failed, and the
+            container itself when its own change failed.
     """
 
     moved: int = 0
@@ -228,20 +231,45 @@ def apply(
     after them. Only collision-free moves are attempted; a move that
     fails is recorded and the run goes on.
 
+    So is a container change that fails. Every other filesystem call in
+    the toolkit reports rather than raises, and these are the ones a
+    person actually meets -- a container that will not empty because
+    something unaccounted-for is still inside it, or one blocked by a
+    file of its name. Raising here would abandon a run part-way through,
+    with some albums already moved and nothing said about which.
+
+    A container that cannot be created takes the moves into it with it.
+    They target a folder that is not there, so each would fail on its own
+    account and report the same cause over again; the albums moving out
+    are unaffected and still go.
+
     Args:
         placement_plan: A plan produced by `plan`.
         on_progress: Called with each album as it is moved.
 
     Returns:
-        A count of moves, what became of the container, and any
+        A count of moves, what actually became of the container, and any
         failures.
     """
-    if placement_plan.container_change is ContainerChange.CREATE:
-        placement_plan.working_container.mkdir()
+    failures: list[tuple[Path, str]] = []
+    change: ContainerChange | None = placement_plan.container_change
+
+    lifting_in: bool = True
+    if change is ContainerChange.CREATE:
+        blocked: str | None = _make(placement_plan.working_container)
+        if blocked is not None:
+            failures.append((placement_plan.working_container, blocked))
+            change = None
+            lifting_in = False
+
+    moving: tuple[Placement, ...] = (
+        (*placement_plan.moving_in, *placement_plan.moving_out)
+        if lifting_in
+        else placement_plan.moving_out
+    )
 
     moved: int = 0
-    failures: list[tuple[Path, str]] = []
-    for placement in (*placement_plan.moving_in, *placement_plan.moving_out):
+    for placement in moving:
         detail: str | None = _move(placement)
         if detail is None:
             moved += 1
@@ -250,11 +278,12 @@ def apply(
         if on_progress is not None:
             on_progress(placement.album)
 
-    _settle_container(placement_plan)
+    if change in {ContainerChange.REMOVE, ContainerChange.RENAME}:
+        change = _settle_container(placement_plan, failures)
 
     return PlacementReport(
         moved=moved,
-        container_change=placement_plan.container_change,
+        container_change=change,
         failures=tuple(failures),
     )
 
@@ -373,22 +402,90 @@ def _move(placement: Placement) -> str | None:
     return None
 
 
-def _settle_container(placement_plan: PlacementPlan) -> None:
+def _make(container: Path) -> str | None:
+    """Create the container, reporting failure rather than raising.
+
+    Args:
+        container: Where it belongs.
+
+    Returns:
+        The failure's detail, or `None` on success.
+    """
+    try:
+        container.mkdir()
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
+def _remove(container: Path) -> str | None:
+    """Remove the emptied container, reporting failure rather than raising.
+
+    Args:
+        container: The container to remove.
+
+    Returns:
+        The failure's detail, or `None` on success.
+    """
+    try:
+        container.rmdir()
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
+def _rename_container(working: Path) -> str | None:
+    """Normalise the container's name, reporting failure rather than raising.
+
+    Args:
+        working: The container as it stands.
+
+    Returns:
+        The failure's detail, or `None` on success.
+    """
+    try:
+        _ = working.rename(working.with_name(CONTAINER_NAME))
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
+def _settle_container(
+    placement_plan: PlacementPlan, failures: list[tuple[Path, str]]
+) -> ContainerChange | None:
     """Rename or remove the container once the albums have moved.
 
     Removal waits until the albums are out, since the container is only
     empty then, and refuses a non-empty directory -- anything still
     inside is something placement did not account for, and is safer kept
-    than discarded.
+    than discarded. That refusal is `rmdir`'s, so it arrives as an error
+    and is recorded rather than raised: a run that has already moved
+    albums should finish and say what it could not do.
 
     Args:
         placement_plan: The plan being applied.
+        failures: The run's failures, appended to in place.
+
+    Returns:
+        What actually became of the container, or `None` when the change
+        was wanted and did not happen.
     """
     change: ContainerChange | None = placement_plan.container_change
+    container: Path | None = placement_plan.container
+
     if change is ContainerChange.REMOVE:
-        container: Path | None = placement_plan.container
-        if container is not None and container.exists():
-            container.rmdir()
-    elif change is ContainerChange.RENAME:
-        working: Path = placement_plan.working_container
-        _ = working.rename(working.with_name(CONTAINER_NAME))
+        if container is None or not container.exists():
+            return None  # gone already, or never there
+        detail: str | None = _remove(container)
+        if detail is None:
+            return change
+        failures.append((container, detail))
+        return None
+
+    # Only REMOVE and RENAME reach here; CREATE is settled before the moves.
+    working: Path = placement_plan.working_container
+    blocked: str | None = _rename_container(working)
+    if blocked is None:
+        return change
+    failures.append((working, blocked))
+    return None

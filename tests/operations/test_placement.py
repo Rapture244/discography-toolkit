@@ -416,6 +416,66 @@ def test_a_move_that_fails_is_reported(artist: Path) -> None:
     assert report.failures[0][0] == gone
 
 
+def test_a_container_that_will_not_empty_is_reported(artist: Path) -> None:
+    """The case the code already described but did not handle.
+
+    `rmdir` refuses a non-empty directory, which is the wanted outcome --
+    something unaccounted-for inside is safer kept than discarded -- but
+    it refuses by raising, which abandoned the run part-way through.
+
+    Args:
+        artist: The artist folder.
+    """
+    _ = fill(artist / "01. (1990) - Lossy", "lossy")
+    container: Path = artist / "FLAC"
+    container.mkdir()
+    _ = (container / "stray.txt").write_text("not an album", encoding="utf-8")
+
+    report = placement.apply(placement.plan(artist))
+
+    assert report.container_change is None
+    assert [path for path, _ in report.failures] == [container]
+    assert container.is_dir()
+
+
+def test_a_container_that_cannot_be_created_is_reported(artist: Path) -> None:
+    """A file of the container's name blocks the folder, and the run says so.
+
+    The moves into it are dropped rather than attempted: each would fail
+    on its own account and report the same cause over again.
+
+    Args:
+        artist: The artist folder.
+    """
+    _ = fill(artist / "01. (1959) - Kind of Blue", "lossless")
+    _ = fill(artist / "02. (1990) - Lossy", "lossy")
+    _ = (artist / "FLAC").write_text("in the way", encoding="utf-8")
+
+    report = placement.apply(placement.plan(artist))
+
+    assert report.container_change is None
+    assert report.moved == 0
+    assert len(report.failures) == 1
+    assert (artist / "01. (1959) - Kind of Blue").is_dir()
+
+
+def test_a_container_that_cannot_be_renamed_is_reported(artist: Path) -> None:
+    """An older container blocked from normalising keeps its name.
+
+    Args:
+        artist: The artist folder.
+    """
+    _ = fill(artist / "FLAC - (56 on 65)" / "01. (1959) - Kept", "lossless")
+    _ = fill(artist / "02. (1990) - Lossy", "lossy")
+    _ = (artist / "FLAC").write_text("in the way", encoding="utf-8")
+
+    report = placement.apply(placement.plan(artist))
+
+    assert report.container_change is None
+    assert len(report.failures) == 1
+    assert (artist / "FLAC - (56 on 65)").is_dir()
+
+
 def test_progress_is_reported_for_every_move(artist: Path) -> None:
     """Every album moved announces itself, so a bar can be sized from the plan.
 
