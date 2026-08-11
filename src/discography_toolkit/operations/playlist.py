@@ -164,7 +164,7 @@ class PlaylistReport:
 
 
 @dataclass(frozen=True, slots=True)
-class CoverWrite:
+class LooseCoverWrite:
     """One album's loose cover, and the bytes it should hold.
 
     Attributes:
@@ -177,8 +177,14 @@ class CoverWrite:
 
 
 @dataclass(frozen=True, slots=True)
-class CoverPlan:
+class LooseCoverPlan:
     """What a run would write beside the tracks, before anything is written.
+
+    "Loose" tells this apart from `operations.covers`, which settles an
+    album's artwork in both places it lives and reads every copy to
+    decide which wins. This one only ever writes the file beside the
+    tracks, from the art the tracks already carry -- one direction, one
+    source, nothing embedded.
 
     Attributes:
         writes: One entry per album whose loose cover is missing or
@@ -187,13 +193,13 @@ class CoverPlan:
             there is nothing to write out.
     """
 
-    writes: tuple[CoverWrite, ...] = ()
+    writes: tuple[LooseCoverWrite, ...] = ()
     without_artwork: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class CoverReport:
-    """What happened when a cover plan was applied.
+class LooseCoverReport:
+    """What happened when a loose cover plan was applied.
 
     Attributes:
         written: How many loose covers were written.
@@ -410,7 +416,7 @@ def apply(
 def plan_covers(
     albums: Sequence[Path],
     on_progress: Callable[[Path], None] | None = None,
-) -> CoverPlan:
+) -> LooseCoverPlan:
     """Work out which albums need a loose cover written, without writing.
 
     The source is the art already inside the tracks, which the converter
@@ -429,7 +435,7 @@ def plan_covers(
     Returns:
         What would be written, and the albums with no art to write.
     """
-    writes: list[CoverWrite] = []
+    writes: list[LooseCoverWrite] = []
     without_artwork: list[Path] = []
 
     for album in albums:
@@ -439,17 +445,17 @@ def plan_covers(
         else:
             target: Path = album / COVER_NAME
             if _on_disk(target) != cover.data:
-                writes.append(CoverWrite(target=target, data=cover.data))
+                writes.append(LooseCoverWrite(target=target, data=cover.data))
         if on_progress is not None:
             on_progress(album)
 
-    return CoverPlan(writes=tuple(writes), without_artwork=tuple(without_artwork))
+    return LooseCoverPlan(writes=tuple(writes), without_artwork=tuple(without_artwork))
 
 
 def apply_covers(
-    cover_plan: CoverPlan,
+    cover_plan: LooseCoverPlan,
     on_progress: Callable[[Path], None] | None = None,
-) -> CoverReport:
+) -> LooseCoverReport:
     """Write every loose cover the plan found.
 
     A write that fails is recorded and the run continues: one unwritable
@@ -475,7 +481,7 @@ def apply_covers(
         if on_progress is not None:
             on_progress(write.target)
 
-    return CoverReport(written=written, failures=tuple(failures))
+    return LooseCoverReport(written=written, failures=tuple(failures))
 
 
 def mirror(match: Match) -> tuple[dict[Path, dict[Tag, str]], tuple[Path, ...]]:
