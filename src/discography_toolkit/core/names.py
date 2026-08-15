@@ -996,6 +996,113 @@ def track_number(raw: str) -> str | None:
     return f"{int(number):02d}"
 
 
+# Characters a filename cannot hold on Windows, mapped to what stands in
+# for them. The slash and backslash become a hyphen because that is what
+# they read as -- "AC/DC" is "AC-DC", not "ACDC". The colon takes a space
+# with it: it separates a title from its subtitle and already carries one
+# after it, so a bare hyphen would give "Blade Runner- 2049". The quote
+# becomes its typographic cousin, and the rest carry no meaning worth
+# keeping and go.
+#
+# Only ever applied to a name built from a tag. A name already on disk is
+# legal by construction, and running this over one would be inventing a
+# rename nobody asked for.
+_ILLEGAL_FILENAME_CHARS: Final[dict[str, str]] = {
+    "/": "-",
+    "\\": "-",
+    ":": " -",
+    '"': "'",
+    "<": "",
+    ">": "",
+    "|": "",
+    "?": "",
+    "*": "",
+}
+
+# The year, and the month when the tag carries one, off the front of a
+# Date tag. Anchored: a date leads its field, and a number later in it is
+# something else. The day is matched so it can be dropped -- "2019-05-12"
+# dates to the month, since that is as fine as the shelf sorts.
+_DATE_TAG_RE: Final[re.Pattern[str]] = re.compile(r"^\s*(\d{4})(?:[-/.](0[1-9]|1[0-2]))?")
+
+
+# ==================================================================================== #
+#                                    SINGLE NAMES                                      #
+# ==================================================================================== #
+def sanitize_filename(text: str) -> str:
+    """Make text built from a tag safe to use as a filename.
+
+    Every other name this module builds comes from a folder name, which
+    is legal by construction. A single's does not: it is built from the
+    Title tag, which is free to hold a slash, a colon or a question mark
+    -- all of them ordinary in a song title and none of them allowed in
+    a Windows filename.
+
+    Args:
+        text: A title, or a name built around one.
+
+    Returns:
+        The text with every illegal character replaced or removed, its
+        spacing and edge punctuation tidied.
+    """
+    return clean_name("".join(_ILLEGAL_FILENAME_CHARS.get(char, char) for char in text))
+
+
+def date_prefix(tag: str) -> str | None:
+    """Read the "(yyyy-mm)" a single's filename leads with, from its Date.
+
+    The month is kept when the tag carries one and dropped when it does
+    not, which is the same shape an album folder wears -- and it orders
+    itself without a rule, since ")" sorts below "-": a bare "(2019)"
+    leads the dated ones and "(2019-03)" leads "(2019-10)".
+
+    A day is read only to be discarded. The shelf sorts to the month, and
+    a third component would order the same records the same way while
+    making every name longer.
+
+    Args:
+        tag: A Date tag as the file carries it.
+
+    Returns:
+        The prefix, e.g. "(2019-05)" or "(2019)", or `None` when the tag
+        holds no year to build one from.
+    """
+    match: re.Match[str] | None = _DATE_TAG_RE.match(tag)
+    if match is None:
+        return None
+    year, month = match.group(1), match.group(2)
+    return f"({year}-{month})" if month else f"({year})"
+
+
+def single_stem(date: str, title: str) -> str | None:
+    """Build the filename stem a single should carry, from its own tags.
+
+    The one place in the toolkit where a name is read out of the tags
+    rather than the tags out of a name. Everywhere else the folder is
+    the canonical form and every value comes off it -- but a single has
+    no folder of its own, sharing one with every other single the artist
+    released, so its own tags are the only record of what it is.
+
+    No index. A single is not a track of anything, so a position in a
+    running order would be inventing one; the date sorts them instead,
+    which is what an album folder does with its year.
+
+    Args:
+        date: The Date tag as the file carries it.
+        title: The Title tag as the file carries it.
+
+    Returns:
+        The stem, e.g. "(2019-05) - Some Song", or `None` when the track
+        carries no year or no title -- neither of which is a rule's to
+        guess, so the file is left alone and reported instead.
+    """
+    prefix: str | None = date_prefix(date)
+    cased: str = sanitize_filename(title_case(title))
+    if prefix is None or not cased:
+        return None
+    return f"{prefix} - {cased}"
+
+
 # ==================================================================================== #
 #                                     TITLE CASING                                     #
 # ==================================================================================== #

@@ -1,18 +1,22 @@
 # tests/operations/test_track_naming.py
-"""Tests for title-casing audio filenames.
+"""Tests for settling audio filenames.
 
-Run against real files. They need no audio content -- the operation reads
-only names -- so they are made as empty files, which keeps the casing and
-the collision handling in plain view.
+Run against real files. The casing tests need no audio content -- that
+path reads only names -- so they are made as empty files, which keeps
+the casing and the collision handling in plain view. The singles tests
+need silent FLACs, since a single's name is read out of its own tags.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from discography_toolkit.core import metadata
+from discography_toolkit.core.metadata import Tag
 from discography_toolkit.operations import track_naming
 
 import pytest
+from tests.helpers import silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -126,6 +130,174 @@ def test_progress_is_reported_for_every_track(album: Callable[..., list[Path]]) 
     _ = track_naming.plan(tracks, on_progress=seen.append)
 
     assert seen == tracks
+
+
+# ==================================================================================== #
+#                                       SINGLES                                        #
+# ==================================================================================== #
+@pytest.fixture()
+def singles(tmp_path: Path) -> Callable[..., list[Path]]:
+    """Return a factory making tagged singles in a "00. Singles" folder.
+
+    Real FLACs rather than empty files: a single's name is read out of
+    its Date and Title, so there has to be something to read.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+
+    Returns:
+        A callable taking `(filename, date, title)` triples and
+        returning the paths, in order.
+    """
+
+    def build(*tracks: tuple[str, str, str], folder: str = "00. Singles") -> list[Path]:
+        base: Path = tmp_path / folder
+        base.mkdir(exist_ok=True)
+        made: list[Path] = []
+        for name, date, title in tracks:
+            track: Path = base / name
+            silence(track)
+            metadata.write(track, {Tag.DATE: date, Tag.TITLE: title})
+            made.append(track)
+        return made
+
+    return build
+
+
+def test_a_single_is_named_from_its_own_tags(singles: Callable[..., list[Path]]) -> None:
+    """The one name read out of the tags rather than the tags out of a name.
+
+    A single shares its folder with every other single the artist put
+    out, so nothing above it says what it is.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "2019-05", "some song"))
+
+    outcome = track_naming.plan(tracks).outcomes[0]
+
+    assert outcome.new_name == "(2019-05) - Some Song.flac"
+
+
+def test_a_single_dated_to_the_year_takes_no_month(
+    singles: Callable[..., list[Path]],
+) -> None:
+    """The month is optional, exactly as it is on an album folder.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "2019", "Some Song"))
+
+    assert track_naming.plan(tracks).outcomes[0].new_name == "(2019) - Some Song.flac"
+
+
+def test_a_day_in_the_date_is_dropped(singles: Callable[..., list[Path]]) -> None:
+    """The shelf sorts to the month, so a third component only lengthens it.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "2019-05-12", "Some Song"))
+
+    assert track_naming.plan(tracks).outcomes[0].new_name == "(2019-05) - Some Song.flac"
+
+
+def test_a_title_holding_a_slash_is_made_legal(singles: Callable[..., list[Path]]) -> None:
+    """A title is free to hold what a filename cannot.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "2019", "AC/DC: Who Made Who?"))
+
+    report = track_naming.apply(track_naming.plan(tracks))
+
+    assert report.renamed == 1
+    assert names_on_disk(tracks[0]) == ["(2019) - AC-DC - Who Made Who.flac"]
+
+
+def test_a_single_with_no_date_is_left_alone_and_reported(
+    singles: Callable[..., list[Path]],
+) -> None:
+    """A name built around a missing year would be a guess written to disk.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "", "Some Song"))
+
+    result = track_naming.plan(tracks)
+
+    assert result.undated == (tracks[0],)
+    assert result.pending == ()
+    assert names_on_disk(tracks[0]) == ["whatever.flac"]
+
+
+def test_a_single_with_no_title_is_left_alone_and_reported(
+    singles: Callable[..., list[Path]],
+) -> None:
+    """The same rule, for the other half of the name.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "2019", ""))
+
+    result = track_naming.plan(tracks)
+
+    assert result.undated == (tracks[0],)
+    assert result.pending == ()
+
+
+def test_two_singles_settling_on_one_name_collide(
+    singles: Callable[..., list[Path]],
+) -> None:
+    """Two releases of one title in one month cannot both take the name.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(
+        ("a.flac", "2019-05", "Some Song"),
+        ("b.flac", "2019-05", "Some Song"),
+    )
+
+    result = track_naming.plan(tracks)
+
+    assert len(result.pending) == 1
+    assert len(result.collisions) == 1
+
+
+def test_renaming_a_single_is_idempotent(singles: Callable[..., list[Path]]) -> None:
+    """A second run finds the name settled, which is what makes it repeatable.
+
+    Args:
+        singles: Factory making tagged singles.
+    """
+    tracks: list[Path] = singles(("whatever.flac", "2019-05", "Some Song"))
+    parent: Path = tracks[0].parent
+
+    _ = track_naming.apply(track_naming.plan(tracks))
+
+    assert track_naming.plan(list(parent.iterdir())).pending == ()
+
+
+def test_an_ordinary_album_track_is_still_only_cased(
+    album: Callable[..., list[Path]],
+) -> None:
+    """The rebuild is the singles folder's alone; everything else is cased.
+
+    Args:
+        album: Factory making files.
+    """
+    tracks: list[Path] = album("01 - kind of blue.flac", folder="01. (1959) - Kind of Blue")
+
+    result = track_naming.plan(tracks)
+
+    assert result.outcomes[0].new_name == "01 - Kind of Blue.flac"
+    assert result.undated == ()
 
 
 # ==================================================================================== #

@@ -457,6 +457,10 @@ def _notices(
             "track(s) not recased -- the cased name is already taken",
         ),
         (
+            tuple(track.name for track in case_plan.undated),
+            "single(s) not renamed -- no year or no title to build a name from",
+        ),
+        (
             tuple(outcome.album.name for outcome in place_plan.collisions),
             "album(s) not filed -- a folder of that name is in the way",
         ),

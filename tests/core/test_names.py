@@ -13,12 +13,15 @@ from discography_toolkit.core.names import (
     clean_name,
     conforms_body,
     conforms_unnumbered,
+    date_prefix,
     drop_unpaired_wrappers,
     extract_year,
     format_artist_label,
     has_lowercase_ep,
     is_approximate_year,
     is_singles,
+    sanitize_filename,
+    single_stem,
     sort_key,
     split_ep_marker,
     split_front_mark,
@@ -1208,6 +1211,106 @@ def test_track_number_refuses_what_it_cannot_settle(raw: str) -> None:
         raw: A track number that is not one.
     """
     assert track_number(raw) is None
+
+
+# ==================================================================================== #
+#                                    SINGLE NAMES                                      #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # The slash reads as a hyphen; the colon takes a space with it,
+        # separating a title from its subtitle the way it already did.
+        ("AC/DC", "AC-DC"),
+        ("Nine\\Ten", "Nine-Ten"),
+        ("Blade Runner: 2049", "Blade Runner - 2049"),
+        ("AC/DC: Who Made Who?", "AC-DC - Who Made Who"),
+        # The quote has a legal cousin; the rest carry nothing worth keeping.
+        ('He Said "Go"', "He Said 'Go'"),
+        ("Who Made Who?", "Who Made Who"),
+        ("*Asterisk*", "Asterisk"),
+        ("<Angle>", "Angle"),
+        ("A|B", "AB"),
+        # A title with nothing illegal in it comes back untouched.
+        ("Kind of Blue", "Kind of Blue"),
+        ("R.E.M.", "R.E.M"),
+    ],
+)
+def test_sanitize_filename(raw: str, expected: str) -> None:
+    """A title is free to hold what a filename cannot.
+
+    Args:
+        raw: The title as tagged.
+        expected: What it must become.
+    """
+    assert sanitize_filename(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        ("2019", "(2019)"),
+        ("2019-05", "(2019-05)"),
+        # The day is read only to be dropped: the shelf sorts to the month.
+        ("2019-05-12", "(2019-05)"),
+        ("2019/05", "(2019-05)"),
+        # Not a month, so only the year survives.
+        ("2019-13", "(2019)"),
+        ("  2019", "(2019)"),
+        # Nothing to build a prefix from.
+        ("", None),
+        ("unknown", None),
+        # Anchored: a year later in the field is something else.
+        ("recorded 1959", None),
+    ],
+)
+def test_date_prefix(tag: str, expected: str | None) -> None:
+    """The "(yyyy-mm)" a single leads with, read off its Date tag.
+
+    Args:
+        tag: The Date tag as the file carries it.
+        expected: The prefix, or `None` when there is none.
+    """
+    assert date_prefix(tag) == expected
+
+
+def test_single_stem_builds_the_name() -> None:
+    """Date then title, cased and made legal, with no index.
+
+    A single is not a track of anything, so a running-order number would
+    be inventing one; the date sorts them instead.
+    """
+    assert single_stem("2019-05", "some song") == "(2019-05) - Some Song"
+
+
+@pytest.mark.parametrize(("date", "title"), [("", "Some Song"), ("2019", ""), ("", "")])
+def test_single_stem_refuses_what_it_cannot_know(date: str, title: str) -> None:
+    """Half a name is not a name, and guessing the rest writes it to disk.
+
+    Args:
+        date: The Date tag as the file carries it.
+        title: The Title tag as the file carries it.
+    """
+    assert single_stem(date, title) is None
+
+
+def test_single_stem_sorts_a_bare_year_ahead_of_a_dated_one() -> None:
+    """Ordering falls out of the string: ")" sorts below "-".
+
+    The same property an album folder relies on, so a shelf can be dated
+    where it matters and left alone everywhere else.
+    """
+    names: list[str] = [
+        single_stem("2019-10", "Song") or "",
+        single_stem("2019", "Song") or "",
+        single_stem("2019-03", "Song") or "",
+    ]
+
+    assert sorted(names) == [
+        "(2019) - Song",
+        "(2019-03) - Song",
+        "(2019-10) - Song",
+    ]
 
 
 # ==================================================================================== #

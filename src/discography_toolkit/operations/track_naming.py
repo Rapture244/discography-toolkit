@@ -1,16 +1,29 @@
 # src/discography_toolkit/operations/track_naming.py
-"""Title-casing the filename of every audio track.
+"""Settling the filename of every audio track.
 
-A track's name is cased by the same rule as the album folder holding it,
-so "kind of blue.flac" becomes "Kind of Blue.flac". Only the stem is
+An ordinary track is cased by the same rule as the album folder holding
+it, so "kind of blue.flac" becomes "Kind of Blue.flac". Only the stem is
 touched; the extension is left exactly as found, since every later step
 matches on it and a file that stops matching stops being tagged.
+
+A single is rebuilt rather than cased. It shares one folder with every
+other single the artist released, so unlike every other track here it
+has no folder of its own saying what it is -- and its name is read out
+of its own Date and Title instead, as "(2019-05) - Some Song". That is
+the one place in the toolkit where a name comes from the tags rather
+than the tags from a name, and it is why this reads them.
+
+A single carrying no year, or no title, is left exactly as it is and
+reported. Both are a person's to fill in, and a name invented around a
+missing one would be a guess written to disk.
 
 Two tracks in one folder can only clash when their names differ by
 nothing but case or spacing -- which a case-insensitive filesystem would
 never have allowed, but a discography copied off a Linux server can carry
-all the same. Renaming into a clash would have one file quietly overwrite
-the other, so a clash is reported and refused rather than applied.
+all the same. Singles clash more easily: two releases of one title in
+one month settle on the same name. Renaming into a clash would have one
+file quietly overwrite the other, so a clash is reported and refused
+rather than applied.
 
 Planning never writes. Applying renames each track, routing a change
 that only alters case through a staging name -- on a case-insensitive
@@ -23,8 +36,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from discography_toolkit.core import names
+from discography_toolkit.core import metadata, names
 from discography_toolkit.core.layout import rename
+from discography_toolkit.core.metadata import Tag
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -75,9 +89,12 @@ class CasePlan:
 
     Attributes:
         outcomes: One entry per track examined, in the order given.
+        undated: Singles left alone because they carry no year or no
+            title to build a name from.
     """
 
     outcomes: tuple[TrackName, ...]
+    undated: tuple[Path, ...] = ()
 
     @property
     def pending(self) -> tuple[TrackName, ...]:
@@ -110,7 +127,12 @@ def plan(
     tracks: Sequence[Path],
     on_progress: Callable[[Path], None] | None = None,
 ) -> CasePlan:
-    """Work out each track's cased name, and which names clash.
+    """Work out each track's settled name, and which names clash.
+
+    A track in a singles folder is rebuilt from its own tags; every
+    other is cased in place. Which it is comes from the folder holding
+    it, so a caller hands over a flat list of tracks and needs to know
+    nothing about the distinction.
 
     Args:
         tracks: The audio files to examine. Discovery belongs to the
@@ -120,11 +142,20 @@ def plan(
             exists.
 
     Returns:
-        One outcome per track, in the order given.
+        One outcome per track, in the order given, and the singles that
+        could not be named.
     """
     drafts: list[tuple[Path, str]] = []
+    undated: list[Path] = []
+
     for track in tracks:
-        drafts.append((track, names.title_case_filename(track.name)))
+        if names.is_singles(track.parent.name):
+            stem: str | None = _single_stem(track)
+            if stem is None:
+                undated.append(track)
+            drafts.append((track, track.name if stem is None else f"{stem}{track.suffix}"))
+        else:
+            drafts.append((track, names.title_case_filename(track.name)))
         if on_progress is not None:
             on_progress(track)
 
@@ -135,7 +166,24 @@ def plan(
         TrackName(track=track, new_name=new_name, collision=track in clashing)
         for track, new_name in drafts
     )
-    return CasePlan(outcomes=outcomes)
+    return CasePlan(outcomes=outcomes, undated=tuple(undated))
+
+
+def _single_stem(track: Path) -> str | None:
+    """Read one single's name out of its own tags.
+
+    Args:
+        track: The single to read.
+
+    Returns:
+        Its stem, or `None` when the tags cannot say -- no year, no
+        title, or a file that will not open.
+    """
+    try:
+        current: dict[Tag, str] = metadata.read(track, [Tag.DATE, Tag.TITLE])
+    except Exception:  # noqa: BLE001 - a corrupt file is left as it is, not raised on
+        return None
+    return names.single_stem(current.get(Tag.DATE, ""), current.get(Tag.TITLE, ""))
 
 
 def apply(
@@ -185,10 +233,13 @@ def _clashing(changing: Sequence[tuple[Path, str]]) -> set[Path]:
     Checked per folder, since `with_name` keeps the parent: two albums
     may each hold a track of the same name without clashing.
 
-    Unlike a general rename, casing needs no "moving out of the way"
-    escape: a file that is changing never currently holds a cased name --
-    casing is idempotent, so if it already had one it would not be
-    changing -- and so can never be the name another is renaming onto.
+    A file whose target is held by another that is itself moving away is
+    refused all the same. Casing never produces that case -- it is
+    idempotent, so a file that is changing cannot already hold a settled
+    name -- but a singles rename can, two tracks swapping names between
+    them. Refusing is the conservative answer: the alternative is
+    ordering the moves and staging the cycle, for a case that means two
+    singles were mislabelled.
 
     Args:
         changing: `(track, new_name)` for every track whose name changes.
