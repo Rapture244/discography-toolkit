@@ -658,6 +658,29 @@ def test_applying_writes_the_file(album: Callable[..., Path]) -> None:
     assert (folder / COVER_NAME).read_bytes() == art
 
 
+def test_a_singles_folder_gets_one_file_per_track(album: Callable[..., Path]) -> None:
+    """Several releases sharing a folder, not one release in several files.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("00. Singles")
+    first: Path = folder / "Song A.flac"
+    second: Path = folder / "Song B.flac"
+    silence(first)
+    silence(second)
+    embed(first, encode(600, seed=1))
+    embed(second, encode(600, seed=2))
+
+    result = plan_covers([folder])
+    _ = apply_covers(result)
+
+    assert (folder / "Song A.jpg").is_file()
+    assert (folder / "Song B.jpg").is_file()
+    assert not (folder / COVER_NAME).exists()
+    assert (folder / "Song A.jpg").read_bytes() != (folder / "Song B.jpg").read_bytes()
+
+
 def test_a_write_that_fails_is_reported(album: Callable[..., Path]) -> None:
     """One unwritable folder must not cost the rest their artwork.
 

@@ -188,9 +188,11 @@ class LooseCoverPlan:
 
     Attributes:
         writes: One entry per album whose loose cover is missing or
-            stale. An album already holding the right bytes is absent.
-        without_artwork: Albums whose tracks carry no readable cover, so
-            there is nothing to write out.
+            stale, or per single in a singles collection, where each
+            track answers for itself. An album already holding the right
+            bytes is absent.
+        without_artwork: Albums, or individual singles, whose tracks
+            carry no readable cover, so there is nothing to write out.
     """
 
     writes: tuple[LooseCoverWrite, ...] = ()
@@ -428,6 +430,11 @@ def plan_covers(
     writes nothing. One holding different bytes is overwritten, which is
     what makes re-arting an album in the discography reach the playlist.
 
+    A singles collection is settled a track at a time. Its tracks are
+    several releases sharing a folder rather than one release in several
+    files, so there is no single cover to write out -- each gets a file
+    named after it, and no track's art is read on another's behalf.
+
     Args:
         albums: The playlist's album folders.
         on_progress: Called with each album as it is examined.
@@ -439,17 +446,51 @@ def plan_covers(
     without_artwork: list[Path] = []
 
     for album in albums:
-        cover: Cover | None = _embedded_cover(album)
-        if cover is None:
-            without_artwork.append(album)
+        if names.is_singles(album.name):
+            _plan_single_covers(album, writes, without_artwork)
         else:
-            target: Path = album / COVER_NAME
-            if _on_disk(target) != cover.data:
-                writes.append(LooseCoverWrite(target=target, data=cover.data))
+            cover: Cover | None = _embedded_cover(album)
+            if cover is None:
+                without_artwork.append(album)
+            else:
+                target: Path = album / COVER_NAME
+                if _on_disk(target) != cover.data:
+                    writes.append(LooseCoverWrite(target=target, data=cover.data))
         if on_progress is not None:
             on_progress(album)
 
     return LooseCoverPlan(writes=tuple(writes), without_artwork=tuple(without_artwork))
+
+
+def _plan_single_covers(
+    album: Path, writes: list[LooseCoverWrite], without_artwork: list[Path]
+) -> None:
+    """Work out one file per single, named after the track it belongs to.
+
+    The discography side names these the same way, from the track's
+    filename rather than its Title tag -- a filename is already legal on
+    this platform and already unique in its folder, and the fold has
+    just settled it.
+
+    Args:
+        album: The singles folder.
+        writes: The run's writes, appended to in place.
+        without_artwork: The run's artless entries, appended to in place.
+    """
+    for track in album_tracks(album):
+        cover: Cover | None = _cover_of(track)
+        jpeg: Cover | None = (
+            None if cover is None else artwork.as_jpeg(artwork.for_embedding(cover))
+        )
+        if jpeg is None:
+            # Art that will not convert is art there is nothing to write,
+            # which is the same answer as none at all.
+            without_artwork.append(track)
+            continue
+
+        target: Path = track.with_name(f"{track.stem}.jpg")
+        if _on_disk(target) != jpeg.data:
+            writes.append(LooseCoverWrite(target=target, data=jpeg.data))
 
 
 def apply_covers(

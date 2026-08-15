@@ -50,9 +50,9 @@ def settlement_of(album: Path) -> covers.Settlement:
     Returns:
         Its settlement.
     """
-    settlement = covers.plan([album]).albums[0].settlement
-    assert settlement is not None
-    return settlement
+    settlements = covers.plan([album]).albums[0].settlements
+    assert len(settlements) == 1
+    return settlements[0]
 
 
 @pytest.fixture()
@@ -147,7 +147,7 @@ def test_an_album_with_no_artwork_anywhere_has_no_settlement(
 
     result = covers.plan([album])
 
-    assert result.albums[0].settlement is None
+    assert result.albums[0].settlements == ()
     assert result.albums[0].tracks == 3
     assert result.without_artwork == result.albums
     assert result.empty == ()
@@ -181,7 +181,7 @@ def test_a_folder_holding_art_but_no_tracks_is_left_alone(tmp_path: Path) -> Non
 
     result = covers.plan([placeholder])
 
-    assert result.albums[0].settlement is None
+    assert result.albums[0].settlements == ()
     assert result.changes == 0
 
 
@@ -700,6 +700,162 @@ def test_a_duplicate_outlives_a_failed_settle(make_album: Callable[..., Path]) -
     assert report.deleted == 0
     assert (album / "folder.jpg").exists()
     assert len(report.failures) == 2
+
+
+# ==================================================================================== #
+#                                       SINGLES                                        #
+# ==================================================================================== #
+@pytest.fixture()
+def make_singles(tmp_path: Path) -> Callable[..., Path]:
+    """Return a factory building a singles folder of named tracks.
+
+    Args:
+        tmp_path: Pytest's per-test temporary directory.
+
+    Returns:
+        A callable taking `(name, art)` pairs and returning the folder.
+    """
+
+    def build(*tracks: tuple[str, bytes | None]) -> Path:
+        folder: Path = tmp_path / "00. Singles"
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, data in tracks:
+            path: Path = folder / f"{name}.flac"
+            silence(path)
+            if data is not None:
+                metadata.write_cover(path, cover_of(data))
+        return folder
+
+    return build
+
+
+def test_each_single_keeps_its_own_art(make_singles: Callable[..., Path]) -> None:
+    """The flattening this branch exists to stop.
+
+    A singles folder holds several releases, not one release in several
+    files. Voting on it picks one winner and writes it into every other
+    single -- not a cover settled but the rest destroyed.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    first: bytes = encode(600, seed=1)
+    second: bytes = encode(600, seed=2)
+    folder: Path = make_singles(("Song A", first), ("Song B", second))
+
+    _ = covers.apply(covers.plan([folder]))
+
+    kept_a = metadata.read_cover(folder / "Song A.flac")
+    kept_b = metadata.read_cover(folder / "Song B.flac")
+    assert kept_a is not None
+    assert kept_b is not None
+    assert kept_a.data != kept_b.data
+
+
+def test_a_single_gets_a_file_named_after_it(make_singles: Callable[..., Path]) -> None:
+    """Not "cover.jpg": one folder, several releases, one file each.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    folder: Path = make_singles(("Song A", encode(600)))
+
+    _ = covers.apply(covers.plan([folder]))
+
+    assert (folder / "Song A.jpg").is_file()
+    assert not (folder / "cover.jpg").exists()
+
+
+def test_two_singles_sharing_art_each_get_a_file(make_singles: Callable[..., Path]) -> None:
+    """Identical bytes are still two releases, each named for itself.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    art: bytes = encode(600)
+    folder: Path = make_singles(("Song A", art), ("Song B", art))
+
+    _ = covers.apply(covers.plan([folder]))
+
+    assert (folder / "Song A.jpg").is_file()
+    assert (folder / "Song B.jpg").is_file()
+
+
+def test_a_single_takes_the_bigger_of_its_own_two_copies(
+    make_singles: Callable[..., Path],
+) -> None:
+    """The rule protecting a master, asked of one track rather than an album.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    folder: Path = make_singles(("Song A", encode(400, seed=1)))
+    master: bytes = encode(1600, seed=2)
+    _ = (folder / "Song A.jpg").write_bytes(master)
+
+    _ = covers.apply(covers.plan([folder]))
+
+    assert (folder / "Song A.jpg").read_bytes() == master
+
+
+def test_a_neighbours_image_is_not_a_singles_own(make_singles: Callable[..., Path]) -> None:
+    """A folder-level "cover.jpg" is nobody's here, and is left where it is.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    folder: Path = make_singles(("Song A", encode(600, seed=1)))
+    stray: bytes = encode(1600, seed=2)
+    _ = (folder / "cover.jpg").write_bytes(stray)
+
+    _ = covers.apply(covers.plan([folder]))
+
+    assert (folder / "cover.jpg").read_bytes() == stray
+    assert (folder / "Song A.jpg").is_file()
+
+
+def test_a_single_with_no_art_is_named_not_given_a_neighbours(
+    make_singles: Callable[..., Path],
+) -> None:
+    """Nothing to write is worth saying; borrowing the next track's is not.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    folder: Path = make_singles(("Song A", None), ("Song B", encode(600)))
+
+    plan = covers.plan([folder])
+    _ = covers.apply(plan)
+
+    assert plan.bare_singles == (folder / "Song A.flac",)
+    assert plan.without_artwork == ()
+    assert metadata.read_cover(folder / "Song A.flac") is None
+
+
+def test_a_settled_singles_folder_is_not_pending(make_singles: Callable[..., Path]) -> None:
+    """A second run writes nothing, which is what makes this repeatable.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    folder: Path = make_singles(("Song A", encode(600, seed=1)), ("Song B", encode(600, seed=2)))
+
+    _ = covers.apply(covers.plan([folder]))
+
+    assert covers.plan([folder]).changes == 0
+
+
+def test_touched_matches_the_changes_for_singles(make_singles: Callable[..., Path]) -> None:
+    """A bar sized from `touched` still fills exactly, a settlement per track.
+
+    Args:
+        make_singles: Factory building a singles folder.
+    """
+    folder: Path = make_singles(("Song A", encode(600, seed=1)), ("Song B", encode(600, seed=2)))
+
+    plan = covers.plan([folder])
+
+    assert len(plan.touched) == plan.changes
 
 
 def test_touched_matches_the_planned_change_count(

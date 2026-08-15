@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from discography_toolkit.core import artwork, layout, metadata
+from discography_toolkit.core import artwork, layout, metadata, names
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -80,26 +80,34 @@ class AlbumPlan:
         tracks: How many audio files it holds, so an album with tracks
             and no artwork is not mistaken for an empty placeholder.
         unsupported: Tracks whose format carries no cover here.
-        settlement: The artwork work, or `None` when the album has no
-            cover anywhere.
+        settlements: The artwork work. One entry for an ordinary album,
+            whose tracks share a cover; one per track for a singles
+            collection, whose tracks share nothing but a folder. Empty
+            when there is no artwork to settle.
+        bare: Singles carrying no art of their own, named individually
+            because the folder as a whole is not the thing lacking one.
+            Always empty for an ordinary album, where `without_artwork`
+            answers the same question at the level it is asked.
+        singles: Whether the folder is a singles collection, and so
+            settled a track at a time.
     """
 
     album: Path
     tracks: int = 0
     unsupported: int = 0
-    settlement: Settlement | None = None
+    settlements: tuple[Settlement, ...] = ()
+    bare: tuple[Path, ...] = ()
+    singles: bool = False
 
     @property
     def changes(self) -> int:
         """How many operations applying this album would perform."""
-        settlement: Settlement | None = self.settlement
-        if settlement is None:
-            return 0
-        return (
+        return sum(
             int(settlement.write)
             + int(settlement.rename_from is not None)
             + len(settlement.delete)
             + len(settlement.embed)
+            for settlement in self.settlements
         )
 
 
@@ -120,10 +128,22 @@ class CoverPlan:
 
     @property
     def without_artwork(self) -> tuple[AlbumPlan, ...]:
-        """Albums holding tracks but no cover anywhere."""
+        """Albums holding tracks but no cover anywhere.
+
+        A singles collection is never one of these, however little art
+        it holds: its tracks answer for themselves, and `bare_singles`
+        names the ones that carry none.
+        """
         return tuple(
-            album for album in self.albums if album.settlement is None and album.tracks > 0
+            album
+            for album in self.albums
+            if not album.singles and not album.settlements and album.tracks > 0
         )
+
+    @property
+    def bare_singles(self) -> tuple[Path, ...]:
+        """Singles carrying no art of their own, across every collection."""
+        return tuple(track for album in self.albums for track in album.bare)
 
     @property
     def empty(self) -> tuple[AlbumPlan, ...]:
@@ -131,24 +151,35 @@ class CoverPlan:
         return tuple(album for album in self.albums if album.tracks == 0)
 
     @property
+    def settlements(self) -> tuple[tuple[AlbumPlan, Settlement], ...]:
+        """Every settlement with the album it belongs to, in plan order.
+
+        Paired rather than flattened, since a caller rendering the work
+        names the folder each piece of it sits in.
+        """
+        return tuple(
+            (album, settlement) for album in self.albums for settlement in album.settlements
+        )
+
+    @property
     def writes(self) -> int:
         """Loose cover files to write."""
-        return sum(1 for album in self.albums if album.settlement and album.settlement.write)
+        return sum(1 for _, settlement in self.settlements if settlement.write)
 
     @property
     def renames(self) -> int:
         """Loose cover files to move into place."""
-        return sum(1 for album in self.albums if album.settlement and album.settlement.rename_from)
+        return sum(1 for _, settlement in self.settlements if settlement.rename_from)
 
     @property
     def deletions(self) -> int:
         """Duplicate images to remove."""
-        return sum(len(album.settlement.delete) for album in self.albums if album.settlement)
+        return sum(len(settlement.delete) for _, settlement in self.settlements)
 
     @property
     def embeds(self) -> int:
         """Tracks to embed a cover into."""
-        return sum(len(album.settlement.embed) for album in self.albums if album.settlement)
+        return sum(len(settlement.embed) for _, settlement in self.settlements)
 
     @property
     def touched(self) -> tuple[Path, ...]:
@@ -164,10 +195,7 @@ class CoverPlan:
         """
         paths: list[Path] = []
 
-        for album in self.albums:
-            settlement: Settlement | None = album.settlement
-            if settlement is None:
-                continue
+        for _, settlement in self.settlements:
             if settlement.rename_from is not None:
                 paths.append(settlement.rename_from)
             if settlement.write:
@@ -273,29 +301,27 @@ def apply(
         return detail is None
 
     for album in cover_plan.pending:
-        settlement: Settlement | None = album.settlement
-        if settlement is None:
-            continue
+        for settlement in album.settlements:
+            settled: bool = True
+            moved: Path | None = settlement.rename_from
+            if moved is not None:
+                settled = record(moved, _rename(moved, settlement.target))
+                renamed += int(settled)
 
-        settled: bool = True
-        moved: Path | None = settlement.rename_from
-        if moved is not None:
-            settled = record(moved, _rename(moved, settlement.target))
-            renamed += int(settled)
+            if settlement.write:
+                target: Path = settlement.target
+                settled = record(target, _write(target, settlement.cover))
+                written += int(settled)
 
-        if settlement.write:
-            target: Path = settlement.target
-            settled = record(target, _write(target, settlement.cover))
-            written += int(settled)
+            # Duplicates go only once the canonical file is in place.
+            # Deleting them after a failed write would leave the album
+            # with no artwork at all, which is worse than leaving it
+            # untidy.
+            for stale in settlement.delete:
+                deleted += int(record(stale, _delete(stale) if settled else _HELD))
 
-        # Duplicates go only once the canonical file is in place.
-        # Deleting them after a failed write would leave the album with
-        # no artwork at all, which is worse than leaving it untidy.
-        for stale in settlement.delete:
-            deleted += int(record(stale, _delete(stale) if settled else _HELD))
-
-        for track in settlement.embed:
-            embedded += int(record(track, _embed(track, settlement.payload)))
+            for track in settlement.embed:
+                embedded += int(record(track, _embed(track, settlement.payload)))
 
     return CoverReport(
         written=written,
@@ -326,12 +352,17 @@ def _plan_album(album: Path) -> AlbumPlan:
         return AlbumPlan(album=album)
 
     taggable: list[Path] = [track for track in tracks if metadata.supports_cover(track)]
+    unsupported: int = len(tracks) - len(taggable)
+
+    if names.is_singles(album.name):
+        return _plan_singles(album, len(tracks), unsupported, taggable)
+
     found: dict[Path, Cover | None] = {track: _front_cover(track) for track in taggable}
     loose: dict[Path, Cover] = _loose_covers(album)
 
     chosen: Cover | None = _best(found, loose)
     if chosen is None:
-        return AlbumPlan(album=album, tracks=len(tracks), unsupported=len(tracks) - len(taggable))
+        return AlbumPlan(album=album, tracks=len(tracks), unsupported=unsupported)
 
     payload: Cover = artwork.for_embedding(chosen)
     embed: tuple[Path, ...] = tuple(
@@ -341,8 +372,70 @@ def _plan_album(album: Path) -> AlbumPlan:
     return AlbumPlan(
         album=album,
         tracks=len(tracks),
-        unsupported=len(tracks) - len(taggable),
-        settlement=_settle(album, chosen, payload, loose, embed),
+        unsupported=unsupported,
+        settlements=(_settle(album, "cover", chosen, payload, loose, embed),),
+    )
+
+
+def _plan_singles(album: Path, held: int, unsupported: int, taggable: Sequence[Path]) -> AlbumPlan:
+    """Decide what each single in a collection needs, one at a time.
+
+    A singles folder is the exception to everything this module assumes.
+    Its tracks are not one release in several files but several releases
+    in one folder, each with artwork of its own -- so the vote that
+    settles an album is exactly wrong here. Held, it would pick one
+    winner and write it into every other single, which is not a cover
+    being settled but twenty being lost.
+
+    So each track is its own album of one: its own cover chosen between
+    what it carries and the image beside it, its own loose file named
+    after it rather than "cover", and never a byte written into a
+    neighbour.
+
+    The loose file is named from the track's filename rather than its
+    Title tag. A filename is already legal on this platform and already
+    unique in its folder -- a title is neither, being free to hold "/"
+    or to repeat across a remaster.
+
+    An image whose name matches no track is left alone, a folder-level
+    "cover.jpg" among them: nothing here can tell one somebody put there
+    on purpose from one left over, and deleting is the answer that
+    cannot be undone.
+
+    Args:
+        album: The singles folder.
+        held: How many audio files it holds, taggable or not.
+        unsupported: How many of those carry no cover in their format.
+        taggable: The tracks whose format can hold a cover.
+
+    Returns:
+        Its plan, one settlement per single that has art anywhere.
+    """
+    settlements: list[Settlement] = []
+    bare: list[Path] = []
+
+    for track in taggable:
+        current: Cover | None = _front_cover(track)
+        loose: dict[Path, Cover] = _track_images(track)
+
+        chosen: Cover | None = _best({track: current}, loose)
+        if chosen is None:
+            bare.append(track)
+            continue
+
+        payload: Cover = artwork.for_embedding(chosen)
+        embed: tuple[Path, ...] = (
+            () if current is not None and current.data == payload.data else (track,)
+        )
+        settlements.append(_settle(track.parent, track.stem, chosen, payload, loose, embed))
+
+    return AlbumPlan(
+        album=album,
+        tracks=held,
+        unsupported=unsupported,
+        settlements=tuple(settlements),
+        bare=tuple(bare),
+        singles=True,
     )
 
 
@@ -374,7 +467,8 @@ def _best(embedded: dict[Path, Cover | None], loose: dict[Path, Cover]) -> Cover
 
 
 def _settle(
-    album: Path,
+    folder: Path,
+    stem: str,
     chosen: Cover,
     payload: Cover,
     loose: dict[Path, Cover],
@@ -389,16 +483,19 @@ def _settle(
     no player looks for.
 
     Args:
-        album: The album folder.
+        folder: Where the loose file belongs -- the album folder, or the
+            folder a single sits in.
+        stem: What the file is called before its extension: "cover" for
+            an album, the track's own name for a single.
         chosen: The cover it settled on.
         payload: The capped copy for its tracks.
-        loose: Images sitting in the album folder.
+        loose: Images already in scope for this name.
         embed: Tracks needing the cover written.
 
     Returns:
-        The settlement for this album.
+        The settlement.
     """
-    target: Path = album / f"cover{chosen.extension}"
+    target: Path = folder / f"{stem}{chosen.extension}"
     settled: Cover | None = loose.get(target)
 
     write: bool = False
@@ -455,6 +552,34 @@ def _loose_covers(album: Path) -> dict[Path, Cover]:
     found: dict[Path, Cover] = {}
 
     for path in layout.find_cover_images(album):
+        try:
+            data: bytes = path.read_bytes()
+        except OSError:
+            continue
+        cover: Cover | None = artwork.read(data)
+        if cover is not None:
+            found[path] = cover
+
+    return found
+
+
+def _track_images(track: Path) -> dict[Path, Cover]:
+    """Read the images sitting beside one single, named after it.
+
+    Only its own name, in each image extension. A single's neighbour in
+    the folder is another release, and its artwork is no more this
+    track's than a different album's would be.
+
+    Args:
+        track: The single to look beside.
+
+    Returns:
+        Each readable image by path.
+    """
+    found: dict[Path, Cover] = {}
+
+    for extension in sorted(layout.IMAGE_EXTENSIONS):
+        path: Path = track.with_name(f"{track.stem}{extension}")
         try:
             data: bytes = path.read_bytes()
         except OSError:

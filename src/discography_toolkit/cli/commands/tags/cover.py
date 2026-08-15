@@ -174,6 +174,13 @@ def _echo_plan(plan: covers.CoverPlan) -> None:
     if unsupported:
         note: str = "in formats covers are not written into (APE, WV, WMA)"
         track_notices.append(Notice(summary=f"{unsupported} file(s) {note} -- left untouched"))
+    if plan.bare_singles:
+        track_notices.append(
+            Notice(
+                summary=f"{len(plan.bare_singles)} single(s) carry no art of their own",
+                details=tuple(f"{track.name!r}" for track in plan.bare_singles),
+            )
+        )
 
     echo_result("Cover files", plan.writes + plan.renames, "to settle", album_notices)
     if plan.deletions:
@@ -189,67 +196,58 @@ def _echo_work(plan: covers.CoverPlan) -> None:
     Args:
         plan: The plan to render.
     """
-    writing: list[covers.AlbumPlan] = [
-        album for album in plan.albums if album.settlement and album.settlement.write
-    ]
-    if writing:
-        names: str = " / ".join(
-            sorted({repr(album.settlement.target.name) for album in writing if album.settlement})
-        )
-        header: str = f"\nfile  {names}  ({len(writing)} album(s))"
-        typer.secho(header, fg=typer.colors.CYAN, bold=True)
-        _echo_lines(f"{album.album.name!r}" for album in writing)
+    settlements: tuple[tuple[covers.AlbumPlan, covers.Settlement], ...] = plan.settlements
 
-    renaming: list[covers.AlbumPlan] = [
-        album for album in plan.albums if album.settlement and album.settlement.rename_from
-    ]
+    writing = [(album, settlement) for album, settlement in settlements if settlement.write]
+    if writing:
+        names: str = " / ".join(sorted({repr(s.target.name) for _, s in writing}))
+        header: str = f"\nfile  {names}  ({len(writing)} file(s))"
+        typer.secho(header, fg=typer.colors.CYAN, bold=True)
+        _echo_lines(f"{album.album.name!r}" for album, _ in writing)
+
+    renaming = [(album, settlement) for album, settlement in settlements if settlement.rename_from]
     if renaming:
         typer.secho(
-            f"\nrename  -> 'cover.*'  ({len(renaming)} album(s))",
+            f"\nrename  ({len(renaming)} file(s))",
             fg=typer.colors.CYAN,
             bold=True,
         )
         _echo_lines(
-            f"{album.album.name!r}  {album.settlement.rename_from.name!r}"
-            for album in renaming
-            if album.settlement and album.settlement.rename_from
+            f"{album.album.name!r}  {settlement.rename_from.name!r} -> {settlement.target.name!r}"
+            for album, settlement in renaming
+            if settlement.rename_from
         )
 
-    deleting: list[covers.AlbumPlan] = [
-        album for album in plan.albums if album.settlement and album.settlement.delete
-    ]
+    deleting = [(album, settlement) for album, settlement in settlements if settlement.delete]
     if deleting:
         typer.secho(
-            f"\ndelete  duplicate image(s)  ({plan.deletions} file(s) in {len(deleting)} album(s))",
+            f"\ndelete  duplicate image(s)  ({plan.deletions} file(s))",
             fg=typer.colors.RED,
             bold=True,
         )
         _echo_lines(
             f"{album.album.name!r}  {stale.name!r}"
-            for album in deleting
-            if album.settlement
-            for stale in album.settlement.delete
+            for album, settlement in deleting
+            for stale in settlement.delete
         )
 
-    embedding: list[covers.AlbumPlan] = [
-        album for album in plan.albums if album.settlement and album.settlement.embed
-    ]
+    embedding = [album for album in plan.albums if any(s.embed for s in album.settlements)]
     if embedding:
         typer.secho(
             f"\ntag   ({plan.embeds} track(s) in {len(embedding)} album(s))",
             fg=typer.colors.GREEN,
             bold=True,
         )
-        # Grouped per album, unlike the writes above: the cover file is
+        # Grouped per folder, unlike the writes above: the cover file is
         # the same name everywhere, but these are different tracks.
         for album in embedding:
-            if album.settlement is None:
-                continue
             typer.echo(f"\n  {album.album.name!r}")
-            for track in album.settlement.embed:
-                typer.secho(
-                    f"    {str(track.relative_to(album.album))!r}", fg=typer.colors.BRIGHT_BLACK
-                )
+            for settlement in album.settlements:
+                for track in settlement.embed:
+                    typer.secho(
+                        f"    {str(track.relative_to(album.album))!r}",
+                        fg=typer.colors.BRIGHT_BLACK,
+                    )
 
 
 def _echo_lines(lines: Iterable[str]) -> None:
