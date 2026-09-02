@@ -362,6 +362,37 @@ def find_cover_images(album: Path) -> list[Path]:
     ]
 
 
+def find_images(folder: Path) -> list[Path]:
+    """Find every loose image directly in a folder, whatever it is called.
+
+    The unfiltered counterpart to `find_cover_images`, which admits only
+    the five names a player looks for. An album that collects singles
+    keeps each one's artwork beside the tracks under whatever name the
+    source used -- "04. Denzel Curry - SUMO - ZUMO.jpg" -- and those are
+    matched by their number rather than their stem.
+
+    Direct children only, as covers are: an image deeper in the tree
+    belongs to a disc or a scan folder, not to this one.
+
+    Args:
+        folder: The folder to search.
+
+    Returns:
+        Its image files, unsorted -- a caller matching them by name
+        sorts them itself.
+    """
+    try:
+        return [
+            entry
+            for entry in folder.iterdir()
+            if entry.is_file()
+            and not entry.name.startswith(".")
+            and entry.suffix.lower() in IMAGE_EXTENSIONS
+        ]
+    except OSError:
+        return []
+
+
 def find_albums(root: Path) -> list[Path]:
     """Find every album folder at or beneath a path.
 

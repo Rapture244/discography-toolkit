@@ -357,12 +357,27 @@ def _plan_album(album: Path) -> AlbumPlan:
     if names.is_singles(album.name):
         return _plan_singles(album, len(tracks), unsupported, taggable)
 
-    found: dict[Path, Cover | None] = {track: _front_cover(track) for track in taggable}
+    # Tracks carrying artwork of their own, matched to a numbered image
+    # sitting beside them. Settled first and then held out of the vote
+    # below: a single's cover is not a candidate for the album's, and an
+    # album cover is not something to write over it.
+    claimed: dict[Path, tuple[Path, Cover]] = _numbered_images(taggable)
+    settlements: list[Settlement] = [
+        _claim(track, image, cover) for track, (image, cover) in claimed.items()
+    ]
+
+    shared: list[Path] = [track for track in taggable if track not in claimed]
+    found: dict[Path, Cover | None] = {track: _front_cover(track) for track in shared}
     loose: dict[Path, Cover] = _loose_covers(album)
 
     chosen: Cover | None = _best(found, loose)
     if chosen is None:
-        return AlbumPlan(album=album, tracks=len(tracks), unsupported=unsupported)
+        return AlbumPlan(
+            album=album,
+            tracks=len(tracks),
+            unsupported=unsupported,
+            settlements=tuple(settlements),
+        )
 
     payload: Cover = artwork.for_embedding(chosen)
     embed: tuple[Path, ...] = tuple(
@@ -373,8 +388,117 @@ def _plan_album(album: Path) -> AlbumPlan:
         album=album,
         tracks=len(tracks),
         unsupported=unsupported,
-        settlements=(_settle(album, "cover", chosen, payload, loose, embed),),
+        settlements=(*settlements, _settle(album, "cover", chosen, payload, loose, embed)),
     )
+
+
+def _claim(track: Path, image: Path, cover: Cover) -> Settlement:
+    """Settle one track on the artwork found sitting beside it.
+
+    The image wins outright rather than being put to `_best`. Its being
+    there is the statement -- somebody kept a separate cover for this one
+    track -- and size cannot answer that. It also has to be able to undo
+    the damage: a run that already wrote the album cover into this track
+    may well have left it holding something larger, and bigger-wins would
+    keep the wrong art forever.
+
+    Args:
+        track: The track the image belongs to.
+        image: The image found beside it.
+        cover: What that image holds.
+
+    Returns:
+        The settlement, renaming the image to the track's own name so a
+        later run matches it by name rather than by number.
+    """
+    payload: Cover = artwork.for_embedding(cover)
+    current: Cover | None = _front_cover(track)
+    embed: tuple[Path, ...] = (
+        () if current is not None and current.data == payload.data else (track,)
+    )
+    return _settle(track.parent, track.stem, cover, payload, {image: cover}, embed)
+
+
+def _numbered_images(tracks: Sequence[Path]) -> dict[Path, tuple[Path, Cover]]:
+    """Match images to the tracks they were numbered for.
+
+    An album is usually one release with one cover, but a rap album is
+    often several singles collected, and the artwork of each arrives
+    beside the tracks: "04. Denzel Curry - SUMO - ZUMO.jpg" next to
+    "04 - Sumo Zumo.flac". `find_cover_images` never saw those -- it
+    matches five fixed names -- so they were neither read nor deleted,
+    while the album vote quietly wrote one cover over every track they
+    belonged to.
+
+    Matched on the leading number alone, because nothing else survives:
+    the stems share no words, the titles disagree on spelling and case,
+    and the artist's name is in one and not the other. That is a looser
+    key than the stem a singles folder uses, so it is kept tight -- the
+    number leads the name, and two images claiming one number settle
+    nothing rather than guessing between them.
+
+    Per folder, since a second disc numbers from one again.
+
+    Args:
+        tracks: The album's taggable tracks.
+
+    Returns:
+        Each matched track mapped to its image and what it holds.
+    """
+    matched: dict[Path, tuple[Path, Cover]] = {}
+
+    for folder in dict.fromkeys(track.parent for track in tracks):
+        by_number: dict[str, Path | None] = {}
+        for image in sorted(layout.find_images(folder)):
+            number: str | None = _leading_number(image.name)
+            if number is None:
+                continue
+            # Two images for one track name a person's problem, not a
+            # coin to toss: the second sets the entry to None and both
+            # are left where they are.
+            by_number[number] = None if number in by_number else image
+
+        for track in tracks:
+            if track.parent != folder:
+                continue
+            number = _leading_number(track.name)
+            image = by_number.get(number) if number is not None else None
+            if image is None:
+                continue
+            cover: Cover | None = _read(image)
+            if cover is not None:
+                matched[track] = (image, cover)
+
+    return matched
+
+
+def _leading_number(name: str) -> str | None:
+    """Read the track number a filename leads with, padded to two digits.
+
+    Args:
+        name: A filename, audio or image.
+
+    Returns:
+        The number, or `None` when the name does not lead with one.
+    """
+    index, _ = names.split_index(name)
+    return None if not index else names.track_number(index.strip(" .-_()[]"))
+
+
+def _read(image: Path) -> Cover | None:
+    """Read one image off disk, ignoring anything unreadable.
+
+    Args:
+        image: The file to read.
+
+    Returns:
+        What it holds, or `None`.
+    """
+    try:
+        data: bytes = image.read_bytes()
+    except OSError:
+        return None
+    return artwork.read(data)
 
 
 def _plan_singles(album: Path, held: int, unsupported: int, taggable: Sequence[Path]) -> AlbumPlan:

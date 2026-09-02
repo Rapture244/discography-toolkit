@@ -703,6 +703,162 @@ def test_a_duplicate_outlives_a_failed_settle(make_album: Callable[..., Path]) -
 
 
 # ==================================================================================== #
+#                                   NUMBERED IMAGES                                    #
+# ==================================================================================== #
+def test_a_numbered_image_is_claimed_by_its_track(make_album: Callable[..., Path]) -> None:
+    """An album collecting singles keeps each one's art beside the tracks.
+
+    Named by whatever source it came from -- "04. Denzel Curry - SUMO -
+    ZUMO.jpg" beside "04 - Sumo Zumo.flac" -- so the leading number is
+    the only thing the two share.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    single: bytes = encode(500, seed=1)
+    album: Path = make_album("TA13OO", tracks=2, embedded=[None, encode(600, seed=2)])
+    _ = (album / "01. Artist - SOME SINGLE.jpg").write_bytes(single)
+
+    _ = covers.apply(covers.plan([album]))
+
+    claimed = metadata.read_cover(album / "01 - Track.flac")
+    other = metadata.read_cover(album / "02 - Track.flac")
+    assert claimed is not None
+    assert other is not None
+    assert claimed.data != other.data
+
+
+def test_a_claimed_image_takes_its_track_s_name(make_album: Callable[..., Path]) -> None:
+    """Renamed so a later run matches it by name rather than by number.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    single: bytes = encode(500)
+    album: Path = make_album("TA13OO", tracks=2)
+    _ = (album / "01. Artist - SOME SINGLE.jpg").write_bytes(single)
+
+    _ = covers.apply(covers.plan([album]))
+
+    assert (album / "01 - Track.jpg").read_bytes() == single
+    assert not (album / "01. Artist - SOME SINGLE.jpg").exists()
+
+
+def test_a_smaller_claimed_image_still_wins(make_album: Callable[..., Path]) -> None:
+    """Its being there is the statement, and size cannot answer it.
+
+    This is what lets an already-flattened track recover: a previous run
+    wrote the album cover into it, which may well be the larger image.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    single: bytes = encode(300, seed=1)
+    big: bytes = encode(2000, seed=2)
+    album: Path = make_album("TA13OO", tracks=2, embedded=[big, big])
+    _ = (album / "cover.jpg").write_bytes(big)
+    _ = (album / "01. Artist - SOME SINGLE.jpg").write_bytes(single)
+
+    _ = covers.apply(covers.plan([album]))
+
+    assert (album / "01 - Track.jpg").read_bytes() == single
+    assert (album / "cover.jpg").read_bytes() == big
+
+
+def test_a_claimed_track_is_held_out_of_the_album_vote(
+    make_album: Callable[..., Path],
+) -> None:
+    """A single's cover is not a candidate for the album's.
+
+    Left in the vote it could win outright and be written across every
+    other track -- the flattening, run backwards.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    single: bytes = encode(2400, seed=1)  # much the largest thing present
+    shared: bytes = encode(600, seed=2)
+    album: Path = make_album("TA13OO", tracks=3, embedded=[None, shared, shared])
+    _ = (album / "01. Artist - SOME SINGLE.jpg").write_bytes(single)
+
+    _ = covers.apply(covers.plan([album]))
+
+    assert (album / "cover.jpg").read_bytes() == shared
+
+
+def test_a_claimed_track_does_not_take_the_album_cover(
+    make_album: Callable[..., Path],
+) -> None:
+    """The other half of the same rule: the album's art is not written over it.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    single: bytes = encode(500, seed=1)
+    album: Path = make_album("TA13OO", tracks=2)
+    _ = (album / "cover.jpg").write_bytes(encode(2000, seed=2))
+    _ = (album / "01. Artist - SOME SINGLE.jpg").write_bytes(single)
+
+    _ = covers.apply(covers.plan([album]))
+
+    stored = metadata.read_cover(album / "01 - Track.flac")
+    assert stored is not None
+    assert stored.data == artwork.for_embedding(cover_of(single)).data
+
+
+def test_two_images_on_one_number_claim_nothing(make_album: Callable[..., Path]) -> None:
+    """A person's problem, not a coin to toss.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    art: bytes = encode(600)
+    album: Path = make_album("TA13OO", tracks=2, embedded=[art, art])
+    _ = (album / "01. One Name.jpg").write_bytes(encode(400, seed=1))
+    _ = (album / "01 - Another.jpg").write_bytes(encode(400, seed=2))
+
+    _ = covers.apply(covers.plan([album]))
+
+    assert (album / "01. One Name.jpg").is_file()
+    assert (album / "01 - Another.jpg").is_file()
+    assert not (album / "01 - Track.jpg").exists()
+
+
+def test_an_image_numbered_past_the_tracks_is_left_alone(
+    make_album: Callable[..., Path],
+) -> None:
+    """Nothing claims it, so nothing touches it.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    art: bytes = encode(600)
+    stray: bytes = encode(400, seed=2)
+    album: Path = make_album("TA13OO", tracks=2, embedded=[art, art])
+    _ = (album / "09. Nobody.jpg").write_bytes(stray)
+
+    _ = covers.apply(covers.plan([album]))
+
+    assert (album / "09. Nobody.jpg").read_bytes() == stray
+
+
+def test_an_unnumbered_image_is_not_claimed(make_album: Callable[..., Path]) -> None:
+    """An ordinary album settles exactly as it did.
+
+    Args:
+        make_album: Factory building an album folder.
+    """
+    art: bytes = encode(600)
+    album: Path = make_album("Kind Of Blue", tracks=2, embedded=[art, art])
+    _ = (album / "booklet scan.jpg").write_bytes(encode(400, seed=2))
+
+    result = covers.plan([album])
+
+    assert len(result.albums[0].settlements) == 1
+    assert result.albums[0].settlements[0].target == album / "cover.jpg"
+
+
+# ==================================================================================== #
 #                                       SINGLES                                        #
 # ==================================================================================== #
 @pytest.fixture()
