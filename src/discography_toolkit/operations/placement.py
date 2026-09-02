@@ -207,8 +207,14 @@ def plan(
         if on_progress is not None:
             on_progress(album)
 
-    flac_count: int = sum(1 for tier in tiers.values() if tier is AudioTier.LOSSLESS)
-    wanted: bool = _container_wanted(flac_count, len(albums))
+    # Singles cast no vote on that. A pile of loose tracks is not a
+    # release of a format and sits in the root whatever it holds, so
+    # counting it let an artist's singles decide whether their albums
+    # were gathered into a container.
+    releases: list[Path] = [album for album in albums if not names.is_singles(album.name)]
+
+    flac_count: int = sum(1 for album in releases if tiers[album] is AudioTier.LOSSLESS)
+    wanted: bool = _container_wanted(flac_count, len(releases))
 
     placements: tuple[Placement, ...] = tuple(
         _place(album, tiers[album], artist, working_container, wanted) for album in albums

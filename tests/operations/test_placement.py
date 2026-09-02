@@ -225,6 +225,46 @@ def test_an_all_lossless_artist_has_its_container_dissolved(artist: Path) -> Non
     assert moved.destination == artist / inside.name
 
 
+def test_a_singles_pile_does_not_call_for_a_container(artist: Path) -> None:
+    """An all-lossless artist stays flat, whatever their singles are held in.
+
+    The singles were counted as a release, so a lossy or empty pile made
+    the artist read as a mix and gathered every FLAC album into a
+    container the module's own docstring says they should not have.
+
+    Args:
+        artist: The artist folder.
+    """
+    _ = fill(artist / "01. (1959) - Kind of Blue", "lossless")
+    _ = fill(artist / "02. (1970) - Bitches Brew", "lossless")
+    singles: Path = fill(artist / "00. Singles", "lossy")
+
+    result = placement.plan(artist)
+
+    assert result.container_change is None
+    assert result.moving_in == ()
+    assert next(p for p in result.placements if p.album == singles).side is Side.KEEP
+
+
+def test_lossless_singles_alone_do_not_earn_a_container(artist: Path) -> None:
+    """The same miscount the other way round, which built an empty container.
+
+    A FLAC singles pile was the artist's only lossless "release", so a
+    container was wanted -- and then nothing moved into it, the pile
+    belonging in the root.
+
+    Args:
+        artist: The artist folder.
+    """
+    _ = fill(artist / "01. (1990) - Lossy", "lossy")
+    _ = fill(artist / "00. Singles", "lossless")
+
+    report = placement.apply(placement.plan(artist))
+
+    assert report.container_change is None
+    assert not (artist / "FLAC").exists()
+
+
 def test_two_containers_are_refused(artist: Path) -> None:
     """Two containers cannot be merged without guessing, so planning refuses.
 
