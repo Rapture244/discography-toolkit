@@ -81,10 +81,11 @@ MIRRORED: Final[tuple[Tag, ...]] = (
 # Hidden, and distinct enough that no album is it.
 _STAGING_PREFIX: str = ".__playlist__"
 
-# The one name a loose cover is written under. A phone that will not read
-# the embedded art looks for this beside the tracks, and reads it by
-# extension rather than by content -- which is why the bytes are forced
-# to JPEG rather than saved as whatever the album happened to carry.
+# The name an album's own loose cover is written under. A phone that will
+# not read the embedded art looks for this beside the tracks, and reads
+# it by extension rather than by content -- which is why the bytes are
+# forced to JPEG rather than saved as whatever the album happened to
+# carry. A track carrying art of its own is named after itself instead.
 COVER_NAME: Final[str] = "cover.jpg"
 
 
@@ -165,10 +166,11 @@ class PlaylistReport:
 
 @dataclass(frozen=True, slots=True)
 class LooseCoverWrite:
-    """One album's loose cover, and the bytes it should hold.
+    """One loose image file, and the bytes it should hold.
 
     Attributes:
-        target: The file to write, always `cover.jpg` beside the tracks.
+        target: The file to write -- `cover.jpg` for the album's own
+            cover, the track's own name for art belonging to one track.
         data: The image, capped and forced to JPEG.
     """
 
@@ -187,12 +189,13 @@ class LooseCoverPlan:
     source, nothing embedded.
 
     Attributes:
-        writes: One entry per album whose loose cover is missing or
-            stale, or per single in a singles collection, where each
-            track answers for itself. An album already holding the right
-            bytes is absent.
-        without_artwork: Albums, or individual singles, whose tracks
-            carry no readable cover, so there is nothing to write out.
+        writes: The loose files to write. An ordinary album has one,
+            "cover.jpg", plus one named after any track carrying art of
+            its own; a singles collection has one per track, each
+            answering for itself. A file already holding the right bytes
+            is absent.
+        without_artwork: Albums, or individual tracks, carrying no
+            readable cover, so there is nothing to write out.
     """
 
     writes: tuple[LooseCoverWrite, ...] = ()
@@ -419,20 +422,27 @@ def plan_covers(
     albums: Sequence[Path],
     on_progress: Callable[[Path], None] | None = None,
 ) -> LooseCoverPlan:
-    """Work out which albums need a loose cover written, without writing.
+    """Work out which loose files a run would write, without writing.
 
     The source is the art already inside the tracks, which the converter
     carried across from the discography. Nothing is read from the
     discography and nothing is embedded: the tracks are the source here,
-    and the loose file is the copy.
+    and the loose files are the copies.
 
-    An album already holding the right bytes is left out, so a second run
+    A file already holding the right bytes is left out, so a second run
     writes nothing. One holding different bytes is overwritten, which is
     what makes re-arting an album in the discography reach the playlist.
 
+    An ordinary album's tracks no longer have to agree. `operations.covers`
+    lets a track claim artwork of its own -- a single collected onto a rap
+    album, whose cover arrived beside it -- and keeps that image on disk
+    under the track's name, beside the album's "cover.jpg". This mirrors
+    that shape rather than inventing one: the album's cover is voted for,
+    and every track carrying something else gets a file of its own.
+
     A singles collection is settled a track at a time. Its tracks are
     several releases sharing a folder rather than one release in several
-    files, so there is no single cover to write out -- each gets a file
+    files, so there is no album cover to write out -- each gets a file
     named after it, and no track's art is read on another's behalf.
 
     Args:
@@ -440,7 +450,7 @@ def plan_covers(
         on_progress: Called with each album as it is examined.
 
     Returns:
-        What would be written, and the albums with no art to write.
+        What would be written, and what carried no art to write.
     """
     writes: list[LooseCoverWrite] = []
     without_artwork: list[Path] = []
@@ -449,17 +459,56 @@ def plan_covers(
         if names.is_singles(album.name):
             _plan_single_covers(album, writes, without_artwork)
         else:
-            cover: Cover | None = _embedded_cover(album)
-            if cover is None:
-                without_artwork.append(album)
-            else:
-                target: Path = album / COVER_NAME
-                if _on_disk(target) != cover.data:
-                    writes.append(LooseCoverWrite(target=target, data=cover.data))
+            _plan_album_covers(album, writes, without_artwork)
         if on_progress is not None:
             on_progress(album)
 
     return LooseCoverPlan(writes=tuple(writes), without_artwork=tuple(without_artwork))
+
+
+def _plan_album_covers(
+    album: Path, writes: list[LooseCoverWrite], without_artwork: list[Path]
+) -> None:
+    """Work out an album's cover, and a file for any track that differs.
+
+    The vote is `artwork.choose`, the same one `operations.covers` settles
+    an album with, and it is here for the same reason: a track holding a
+    claimed single's artwork is a minority of one against the album. Taking
+    the first track's art -- which is what this did -- wrote that single's
+    cover out as the album's whenever it happened to sort first.
+
+    Divergence is judged on the embedded bytes rather than the converted
+    ones. Both came from one picture block the converter copied through,
+    so the comparison is exact, and only the files actually written are
+    ever encoded.
+
+    Reads the album's own tracks, and those one disc down, rather than
+    everything beneath it -- the same limit `identity` keeps, and for the
+    same reason: handed a folder that merely holds albums, a recursive
+    read would take art from some track buried inside it and write it out
+    as though it belonged to the whole tree.
+
+    Args:
+        album: The album folder.
+        writes: The run's writes, appended to in place.
+        without_artwork: The run's artless entries, appended to in place.
+    """
+    found: dict[Path, Cover] = {}
+    for track in album_tracks(album):
+        cover: Cover | None = _cover_of(track)
+        if cover is not None:
+            found[track] = cover
+
+    chosen: Cover | None = artwork.choose(list(found.values()))
+    if chosen is None or not _write_jpeg(album / COVER_NAME, chosen, writes):
+        without_artwork.append(album)
+        return
+
+    for track, cover in found.items():
+        if cover.data == chosen.data:
+            continue
+        if not _write_jpeg(track.with_name(f"{track.stem}.jpg"), cover, writes):
+            without_artwork.append(track)
 
 
 def _plan_single_covers(
@@ -479,18 +528,8 @@ def _plan_single_covers(
     """
     for track in album_tracks(album):
         cover: Cover | None = _cover_of(track)
-        jpeg: Cover | None = (
-            None if cover is None else artwork.as_jpeg(artwork.for_embedding(cover))
-        )
-        if jpeg is None:
-            # Art that will not convert is art there is nothing to write,
-            # which is the same answer as none at all.
+        if cover is None or not _write_jpeg(track.with_name(f"{track.stem}.jpg"), cover, writes):
             without_artwork.append(track)
-            continue
-
-        target: Path = track.with_name(f"{track.stem}.jpg")
-        if _on_disk(target) != jpeg.data:
-            writes.append(LooseCoverWrite(target=target, data=jpeg.data))
 
 
 def apply_covers(
@@ -672,36 +711,31 @@ def _collect_homes(
         _collect_homes(child, artist_names, found, strangers)
 
 
-def _embedded_cover(album: Path) -> Cover | None:
-    """Read the art an album's tracks carry, capped and forced to JPEG.
-
-    The first readable front cover settles it. The tracks of one folder
-    came from one album, so they agree -- the vote `tags cover` holds
-    exists to stop a stray scan on one file of a hand-assembled album
-    winning, and nothing here is hand-assembled.
+def _write_jpeg(target: Path, cover: Cover, writes: list[LooseCoverWrite]) -> bool:
+    """Queue one loose file, unless it already holds the right bytes.
 
     Capped because the copy is for a phone, and to the same size the
     tracks already hold, so in practice this is the embedded image
-    written out rather than anything re-encoded.
-
-    Reads the album's own tracks, and those one disc down, rather than
-    everything beneath it -- the same limit `identity` keeps, and for the
-    same reason: handed a folder that merely holds albums, a recursive
-    read would take art from some track buried inside it and write it out
-    as though it belonged to the whole tree.
+    written out rather than anything re-encoded. Forced to JPEG because
+    every name written here promises one, and a player reads it by
+    extension rather than by content.
 
     Args:
-        album: The album folder to read.
+        target: The file to write.
+        cover: The art it should hold.
+        writes: The run's writes, appended to in place.
 
     Returns:
-        The cover to write, or `None` when no track carries readable art
-        or the bytes will not convert.
+        `False` when the bytes will not convert -- art there is nothing
+        to write, which is the same answer as none at all.
     """
-    for track in album_tracks(album):
-        cover: Cover | None = _cover_of(track)
-        if cover is not None:
-            return artwork.as_jpeg(artwork.for_embedding(cover))
-    return None
+    jpeg: Cover | None = artwork.as_jpeg(artwork.for_embedding(cover))
+    if jpeg is None:
+        return False
+
+    if _on_disk(target) != jpeg.data:
+        writes.append(LooseCoverWrite(target=target, data=jpeg.data))
+    return True
 
 
 def _cover_of(track: Path) -> Cover | None:

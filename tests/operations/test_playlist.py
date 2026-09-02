@@ -658,6 +658,48 @@ def test_applying_writes_the_file(album: Callable[..., Path]) -> None:
     assert (folder / COVER_NAME).read_bytes() == art
 
 
+def test_a_claimed_track_s_art_does_not_become_the_album_s(album: Callable[..., Path]) -> None:
+    """One track holding a single's cover must not speak for the record.
+
+    `covers` lets a numbered image claim the track it was named for, so
+    the tracks of one album no longer agree. Taking the first readable
+    cover -- which is what this did -- wrote the single's art out as the
+    album's whenever it sorted first, which for track 01 it always does.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Melt My Eyez", tracks=4)
+    embed(folder / "01.flac", encode(600, seed=2))
+    for name in ("02.flac", "03.flac", "04.flac"):
+        embed(folder / name, encode(600, seed=1))
+
+    _ = apply_covers(plan_covers([folder]))
+
+    assert (folder / COVER_NAME).read_bytes() == encode(600, seed=1)
+
+
+def test_a_claimed_track_keeps_a_file_of_its_own(album: Callable[..., Path]) -> None:
+    """The discography keeps that image beside the track, so this does too.
+
+    `covers._claim` renames the numbered image to the track's stem rather
+    than deleting it. A playlist folder holding only "cover.jpg" would
+    show the album's art against a track that is not the album's.
+
+    Args:
+        album: Factory building an album folder.
+    """
+    folder: Path = album("Melt My Eyez", tracks=4)
+    embed(folder / "01.flac", encode(600, seed=2))
+    for name in ("02.flac", "03.flac", "04.flac"):
+        embed(folder / name, encode(600, seed=1))
+
+    _ = apply_covers(plan_covers([folder]))
+
+    assert (folder / "01.jpg").read_bytes() == encode(600, seed=2)
+    assert not (folder / "02.jpg").exists()
+
+
 def test_a_singles_folder_gets_one_file_per_track(album: Callable[..., Path]) -> None:
     """Several releases sharing a folder, not one release in several files.
 
