@@ -444,6 +444,87 @@ def test_a_refused_folder_is_never_moved(album: Callable[..., Path], tmp_path: P
     assert not home.exists()
 
 
+def test_a_singles_collection_split_by_year_is_gathered(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The one contest that is not a disagreement, and must not be refused.
+
+    A singles collection carries no year, so a converter naming folders
+    from tags splits it into one per year -- every one of them tagged
+    "Singles", every one claiming the same album. Refused as contested,
+    an artist's whole singles pile never reached the playlist.
+
+    Handed in reverse, to pin that the folder kept is the first by name
+    rather than the first offered -- a re-run has to gather into the
+    same one.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "00. Singles"
+    disco.mkdir(parents=True)
+    home: Path = tmp_path / "home"
+    first: Path = album("loose/Pop Smoke - 2019 - Singles", tag="Singles", tracks=2)
+    second: Path = album("loose/Pop Smoke - 2021 - Singles", tag="Singles", tracks=2)
+    for track in sorted(second.iterdir()):
+        _ = track.rename(track.with_name(f"2021 - {track.name}"))
+
+    result = plan([(second, home), (first, home)], [disco])
+
+    assert result.contested == ()
+    assert [merge.into for merge in result.merges] == [first]
+    assert result.merges[0].absorbed == (second,)
+    assert [match.album for match in result.matches] == [first]
+
+
+def test_a_gathered_single_never_overwrites_one_already_there(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """Two singles of one filename would be one release lost for good.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "00. Singles"
+    disco.mkdir(parents=True)
+    home: Path = tmp_path / "home"
+    first: Path = album("loose/Artist - 2019 - Singles", tag="Singles")
+    second: Path = album("loose/Artist - 2021 - Singles", tag="Singles")
+
+    result = plan([(first, home), (second, home)], [disco])
+
+    assert result.merges[0].moves == ()
+    assert result.merges[0].absorbed == ()
+    assert result.blocked == (second / "01.flac",)
+
+
+def test_applying_gathers_the_singles_and_clears_the_emptied_folder(
+    album: Callable[..., Path], tmp_path: Path
+) -> None:
+    """The gather happens before the fold, since the kept folder then moves.
+
+    Args:
+        album: Factory building an album folder.
+        tmp_path: Pytest's per-test temporary directory.
+    """
+    disco: Path = tmp_path / "disco" / "00. Singles"
+    disco.mkdir(parents=True)
+    home: Path = tmp_path / "home"
+    first: Path = album("loose/Pop Smoke - 2019 - Singles", tag="Singles", tracks=2)
+    second: Path = album("loose/Pop Smoke - 2021 - Singles", tag="Singles", tracks=2)
+    for track in sorted(second.iterdir()):
+        _ = track.rename(track.with_name(f"2021 - {track.name}"))
+
+    report = apply(plan([(first, home), (second, home)], [disco]))
+
+    assert report.gathered == 2
+    assert report.removed == 1
+    assert not second.exists()
+    assert len(list((home / "00. Singles [FLAC]").glob("*.flac"))) == 4
+
+
 def test_an_unmatched_folder_is_reported_not_placed(
     album: Callable[..., Path], tmp_path: Path
 ) -> None:

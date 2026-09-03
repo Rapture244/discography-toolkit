@@ -116,6 +116,33 @@ class Match:
 
 
 @dataclass(frozen=True, slots=True)
+class SinglesMerge:
+    """Several converted folders holding one artist's singles collection.
+
+    A converter names its output from the tags it reads, and a singles
+    collection carries no year of its own -- so one whose singles span
+    several years comes back as one folder per year, every one of them
+    tagged "Singles". They are gathered rather than contested: the
+    discography deliberately keeps many releases in one yearless folder,
+    and no converter can express that.
+
+    Attributes:
+        into: The folder the tracks gather in, which keeps its place and
+            goes on to be matched like any other folder would.
+        moves: `(track, destination)` for every track changing folder.
+        absorbed: The folders the moves empty, removed once they are. One
+            still holding a blocked track is left out, not being empty.
+        blocked: Tracks whose name is already taken in `into`, left where
+            they are rather than written over.
+    """
+
+    into: Path
+    moves: tuple[tuple[Path, Path], ...] = ()
+    absorbed: tuple[Path, ...] = ()
+    blocked: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class PlaylistPlan:
     """What a run would fold, before anything is moved.
 
@@ -126,12 +153,17 @@ class PlaylistPlan:
     the playlist disagreeing about how many albums there are, in one
     direction or the other, and neither is the tool's to settle.
 
+    Several folders claiming one singles collection is the exception,
+    and no contest at all -- see `SinglesMerge`.
+
     Attributes:
         matches: One entry per converted album that was placed.
         unmatched: Folders whose album is in no discography album.
         untagged: Folders carrying no readable Album tag to match on.
         contested: Groups of folders all claiming one discography album.
         ambiguous: Folders whose album names several discography albums.
+        merges: Singles collections a converter split by year, gathered
+            back into one folder before anything moves.
     """
 
     matches: tuple[Match, ...] = ()
@@ -139,6 +171,12 @@ class PlaylistPlan:
     untagged: tuple[Path, ...] = ()
     contested: tuple[tuple[Path, ...], ...] = ()
     ambiguous: tuple[Path, ...] = ()
+    merges: tuple[SinglesMerge, ...] = ()
+
+    @property
+    def blocked(self) -> tuple[Path, ...]:
+        """Tracks a merge would not gather, their name being taken."""
+        return tuple(track for merge in self.merges for track in merge.blocked)
 
     @property
     def pending(self) -> tuple[Match, ...]:
@@ -157,10 +195,15 @@ class PlaylistReport:
 
     Attributes:
         moved: How many folders were successfully placed.
-        failures: `(album, reason)` for each move that failed.
+        gathered: How many tracks were moved into a singles collection
+            the converter had split.
+        removed: How many folders those moves emptied and cleared away.
+        failures: `(path, reason)` for each move or removal that failed.
     """
 
     moved: int = 0
+    gathered: int = 0
+    removed: int = 0
     failures: tuple[tuple[Path, str], ...] = ()
 
 
@@ -324,6 +367,12 @@ def plan(
 ) -> PlaylistPlan:
     """Match every converted album to its discography album, without moving.
 
+    Several folders claiming one album is a contest, and refused --
+    unless the album is a singles collection, which is the one case a
+    converter cannot help: the collection carries no year, so a converter
+    naming folders from tags splits it into one per year. Those are
+    gathered back together rather than refused.
+
     Args:
         folders: `(folder, destination)` pairs -- the album as it stands,
             and the artist folder it belongs in. An album already inside
@@ -360,13 +409,20 @@ def plan(
             on_progress(candidate)
 
     matches: list[Match] = []
+    merges: list[SinglesMerge] = []
     contested: list[tuple[Path, ...]] = []
     for title, claimants in claims.items():
-        if len(claimants) > 1:
+        source: Path = disco[title][0]
+        if len(claimants) > 1 and not names.is_singles(source.name):
             contested.append(tuple(folder for folder, _ in claimants))
             continue
-        claimant, destination = claimants[0]
-        source: Path = disco[title][0]
+
+        # By name, so a re-run gathers into the same folder as the first.
+        ordered: list[tuple[Path, Path]] = sorted(claimants, key=lambda pair: pair[0].name)
+        if len(ordered) > 1:
+            merges.append(_gather_singles([folder for folder, _ in ordered]))
+
+        claimant, destination = ordered[0]
         matches.append(
             Match(
                 album=claimant,
@@ -381,6 +437,7 @@ def plan(
         untagged=tuple(untagged),
         contested=tuple(contested),
         ambiguous=tuple(ambiguous),
+        merges=tuple(merges),
     )
 
 
@@ -388,22 +445,46 @@ def apply(
     playlist_plan: PlaylistPlan,
     on_progress: Callable[[Path], None] | None = None,
 ) -> PlaylistReport:
-    """Create the artist folder and move everything the plan matched.
+    """Gather the split collections, then move everything the plan matched.
+
+    In that order: a gathered folder is one of the folders that then
+    moves, so the tracks have to arrive before it goes anywhere.
 
     A move that fails is recorded and the run continues: one folder
     blocked by a name collision should not abandon the others. A target
     already in place and not the folder's own is refused rather than
     written over.
 
+    An emptied folder is cleared with `rmdir`, which refuses one still
+    holding something -- a converter's stray file, or a track whose move
+    failed. Both are safer kept than discarded, so the refusal is
+    recorded like any other failure.
+
     Args:
         playlist_plan: A plan produced by `plan`.
         on_progress: Called with each album as it is dealt with.
 
     Returns:
-        A count of moves and the failures collected along the way.
+        A count of what moved and the failures collected along the way.
     """
     moved: int = 0
+    gathered: int = 0
+    removed: int = 0
     failures: list[tuple[Path, str]] = []
+
+    for merge in playlist_plan.merges:
+        for track, destination in merge.moves:
+            stopped: str | None = rename(track, destination, staging_prefix=_STAGING_PREFIX)
+            if stopped is None:
+                gathered += 1
+            else:
+                failures.append((track, stopped))
+        for folder in merge.absorbed:
+            emptied: str | None = _remove_empty(folder)
+            if emptied is None:
+                removed += 1
+            else:
+                failures.append((folder, emptied))
 
     for match in playlist_plan.pending:
         match.target.parent.mkdir(parents=True, exist_ok=True)
@@ -415,7 +496,12 @@ def apply(
         if on_progress is not None:
             on_progress(match.album)
 
-    return PlaylistReport(moved=moved, failures=tuple(failures))
+    return PlaylistReport(
+        moved=moved,
+        gathered=gathered,
+        removed=removed,
+        failures=tuple(failures),
+    )
 
 
 def plan_covers(
@@ -709,6 +795,64 @@ def _collect_homes(
 
     for child in children:
         _collect_homes(child, artist_names, found, strangers)
+
+
+def _gather_singles(claimants: Sequence[Path]) -> SinglesMerge:
+    """Work out the moves gathering one split collection into its first folder.
+
+    A track whose name is already taken is left where it is. Two singles
+    settle on one filename only when they share a title and a month,
+    which `track_naming` already refuses on the discography side, so this
+    is a converter's doing -- and overwriting one with the other would
+    lose a release for good.
+
+    Args:
+        claimants: The folders holding the collection, in name order.
+
+    Returns:
+        The merge they need, gathering into the first.
+    """
+    into: Path = claimants[0]
+    taken: set[str] = {track.name for track in album_tracks(into)}
+
+    moves: list[tuple[Path, Path]] = []
+    absorbed: list[Path] = []
+    blocked: list[Path] = []
+
+    for folder in claimants[1:]:
+        stuck: list[Path] = []
+        for track in album_tracks(folder):
+            if track.name in taken:
+                stuck.append(track)
+                continue
+            taken.add(track.name)
+            moves.append((track, into / track.name))
+        blocked.extend(stuck)
+        if not stuck:
+            absorbed.append(folder)
+
+    return SinglesMerge(
+        into=into,
+        moves=tuple(moves),
+        absorbed=tuple(absorbed),
+        blocked=tuple(blocked),
+    )
+
+
+def _remove_empty(folder: Path) -> str | None:
+    """Clear away an emptied folder, reporting failure rather than raising.
+
+    Args:
+        folder: The folder to remove.
+
+    Returns:
+        The failure's detail, or `None` on success.
+    """
+    try:
+        folder.rmdir()
+    except OSError as exc:
+        return str(exc)
+    return None
 
 
 def _write_jpeg(target: Path, cover: Cover, writes: list[LooseCoverWrite]) -> bool:

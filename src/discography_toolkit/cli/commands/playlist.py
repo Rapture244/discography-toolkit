@@ -115,6 +115,8 @@ class Synced:
             settled, which is a different thing from nothing to do.
         folded: How many album folders were moved or renamed.
         tagged: How many tracks had their tags written.
+        gathered: How many tracks were moved into a singles collection
+            the converter had split by year.
         prefixed: How many filenames took a disc number.
         covered: How many loose covers were written.
         notices: What the run saw but would not act on.
@@ -125,6 +127,7 @@ class Synced:
     matched: int = 0
     folded: int = 0
     tagged: int = 0
+    gathered: int = 0
     prefixed: int = 0
     covered: int = 0
     notices: tuple[Notice, ...] = ()
@@ -133,7 +136,7 @@ class Synced:
     @property
     def changed(self) -> bool:
         """Whether anything about this artist actually moved."""
-        return bool(self.folded or self.tagged or self.prefixed or self.covered)
+        return bool(self.folded or self.tagged or self.gathered or self.prefixed or self.covered)
 
 
 # ==================================================================================== #
@@ -250,11 +253,14 @@ def playlist(
     # to be read for its tags, and one step per album for its cover.
     # Counted from the folders as they stand, a move changing where they
     # are and not how many tracks they hold.
+    # The gathered tracks are counted separately: they are read for their
+    # tags like any other, but they are not in the folder they will be
+    # read from yet, so counting the folders as they stand misses them.
     total: int = sum(
         len(album_tracks(match.album)) + 1
         for _, fold_plan in planned
         for match in fold_plan.matches
-    )
+    ) + sum(len(merge.moves) for _, fold_plan in planned for merge in fold_plan.merges)
 
     typer.echo()
     results: list[Synced] = []
@@ -444,6 +450,7 @@ def _sync(
         matched=len(fold_plan.matches),
         folded=report.moved,
         tagged=tagged,
+        gathered=report.gathered,
         prefixed=prefixed,
         covered=covered,
         notices=(*_fold_notices(fold_plan), *tag_notices, *art_notices),
@@ -620,6 +627,17 @@ def _fold_notices(fold_plan: folding.PlaylistPlan) -> tuple[Notice, ...]:
                 ),
             )
         )
+
+    if fold_plan.blocked:
+        notices.append(
+            Notice(
+                summary=f"{len(fold_plan.blocked)} single(s) could not be gathered",
+                details=tuple(
+                    f"{track.parent.name!r}/{track.name!r} -- that name is already taken"
+                    for track in fold_plan.blocked
+                ),
+            )
+        )
     return tuple(notices)
 
 
@@ -724,10 +742,17 @@ def _echo_moves(planned: Sequence[tuple[Artist, folding.PlaylistPlan]]) -> None:
         planned: Each artist and what the fold worked out for them.
     """
     for artist, fold_plan in planned:
-        if not fold_plan.pending:
+        if not fold_plan.pending and not fold_plan.merges:
             continue
 
         typer.secho(f"\n  {artist.name}", fg=typer.colors.CYAN, bold=True)
+        for merge in fold_plan.merges:
+            gathering: int = len(merge.absorbed) + 1
+            typer.secho(
+                f"      {len(merge.moves)} track(s) from {gathering} folder(s)",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+            typer.secho(f"        \u2192 {merge.into.name!r}", fg=typer.colors.GREEN)
         for match in fold_plan.pending:
             typer.secho(f"      {match.album.name!r}", fg=typer.colors.BRIGHT_BLACK)
             typer.secho(f"        \u2192 {match.target.name!r}", fg=typer.colors.GREEN)
@@ -747,6 +772,11 @@ def _echo_artist(result: Synced) -> None:
             f"      {done}, {result.prefixed} prefixed, {result.covered} cover(s) written",
             fg=typer.colors.GREEN,
         )
+        if result.gathered:
+            typer.secho(
+                f"      {result.gathered} single(s) gathered into one folder",
+                fg=typer.colors.GREEN,
+            )
     elif result.matched:
         typer.secho("      already in step with the discography", fg=typer.colors.BRIGHT_BLACK)
     else:
