@@ -107,13 +107,13 @@ def test_fresh_material_is_laid_out_and_tagged(fresh_shelf: Callable[[], Path]) 
         / "01. (1959) - Kind of Blue [FLAC]"
     )
     assert album.is_dir()
-    # Tags: written off those folders.
+    # Tags: written off those folders. Not the Title -- that is not a
+    # folder's to answer for, and no pass here claims it.
     track: Path = next(album.glob("*.flac"))
-    tags = metadata.read(track, [Tag.ALBUM, Tag.ALBUM_ARTIST, Tag.DATE, Tag.TITLE])
+    tags = metadata.read(track, [Tag.ALBUM, Tag.ALBUM_ARTIST, Tag.DATE])
     assert tags[Tag.ALBUM] == "Kind of Blue"
     assert tags[Tag.ALBUM_ARTIST] == "Miles Davis"
     assert tags[Tag.DATE] == "1959"
-    assert tags[Tag.TITLE] == "So What"
 
 
 def test_both_phases_are_shown(fresh_shelf: Callable[[], Path]) -> None:

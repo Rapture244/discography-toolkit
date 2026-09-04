@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import StrEnum
 import signal
 from typing import TYPE_CHECKING, Final
@@ -200,6 +201,19 @@ _ALIASES: Final[dict[Tag, tuple[str, ...]]] = {
 }
 
 
+# The identifiers a tagger leaves behind, and the only routes to an exact
+# lookup. Kept out of `_KEYS` on purpose -- that table is fields this
+# toolkit writes, and these are read and never touched. Vorbis only,
+# since ID3 stores them in TXXX frames keyed by a text description,
+# which is a different mechanism from every row above.
+_ID_KEYS: Final[dict[str, str]] = {
+    "release": "musicbrainz_albumid",
+    "track": "musicbrainz_releasetrackid",
+    "barcode": "barcode",
+    "isrc": "isrc",
+}
+
+
 # Families whose picture storage is well enough specified to write.
 # APEv2 and ASF are deliberately absent.
 COVER_FAMILIES: Final[frozenset[Family]] = frozenset({Family.VORBIS, Family.ID3, Family.MP4})
@@ -345,6 +359,72 @@ def write(path: Path, values: Mapping[Tag, str]) -> None:
         _write_one(audio, family, tag, value)
     with uninterrupted():
         audio.save()
+
+
+# ==================================================================================== #
+#                                     IDENTIFIERS                                      #
+# ==================================================================================== #
+@dataclass(frozen=True, slots=True)
+class Identifiers:
+    """What a file says about which recording it holds.
+
+    Four, because they answer different halves of the question and a file
+    rarely carries all of them. The MusicBrainz pair names a release and
+    a track on it outright. The barcode names the physical product, which
+    is a release too -- the thirteen-track edition and the fifteen-track
+    one carry different ones. The ISRC names the recording, so it finds
+    the track once the release is known.
+
+    Attributes:
+        release: The MusicBrainz release id.
+        track: The MusicBrainz release-track id.
+        barcode: The release's barcode.
+        isrc: The recording's ISRC.
+    """
+
+    release: str = ""
+    track: str = ""
+    barcode: str = ""
+    isrc: str = ""
+
+
+def read_identifiers(path: Path) -> Identifiers:
+    """Read every identifier a tagger may have written, in one open.
+
+    All empty is the ordinary answer for a file nothing has identified,
+    and it is a refusal rather than a problem: with none of them a lookup
+    would have to match on a name, which is how the wrong edition of an
+    album gets credited.
+
+    Args:
+        path: The audio file to read.
+
+    Returns:
+        Each identifier, empty where absent, and all empty for a format
+        that does not store them this way.
+
+    Raises:
+        UnsupportedFormatError: If the file's format is not supported.
+    """
+    if family_of(path) is not Family.VORBIS:
+        return Identifiers()
+
+    audio = _open(path, Family.VORBIS)
+    return Identifiers(**{name: _first(audio, key) for name, key in _ID_KEYS.items()})
+
+
+def _first(audio, key: str) -> str:
+    """Read one Vorbis comment's first value.
+
+    Args:
+        audio: An open mutagen file object.
+        key: The comment's name.
+
+    Returns:
+        The value, or an empty string when the file carries none.
+    """
+    values = audio.get(key)
+    return str(values[0]) if values else ""
 
 
 # ==================================================================================== #

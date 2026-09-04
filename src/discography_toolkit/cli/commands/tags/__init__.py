@@ -10,7 +10,15 @@ from __future__ import annotations
 
 import typer
 
-from discography_toolkit.cli.commands.tags import album, album_artist, cover, genre, title, year
+from discography_toolkit.cli.commands.tags import (
+    album,
+    album_artist,
+    artist,
+    cover,
+    genre,
+    title,
+    year,
+)
 
 # ==================================================================================== #
 #                                      TYPER APP                                       #
@@ -37,6 +45,10 @@ _ = app.command(
     name="album-artist",
     help="Write each track's 'Album Artist' from the artist folder above it.",
 )(album_artist.album_artist)
+_ = app.command(
+    name="artist",
+    help="Write each track's 'Artist' and 'Title' from what MusicBrainz holds for it.",
+)(artist.artist)
 _ = app.command(
     name="cover",
     help="Settle one front cover per album, on disk and inside every track.",

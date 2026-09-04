@@ -3,22 +3,25 @@
 
 Where `rapt layout` settles the folders and filenames, this settles the
 tags to match them. Once the layout has run, the structure is the
-canonical form of the collection, and every tag but one can be read
+canonical form of the collection, and every tag it can answer for is read
 straight off it: the Album from the album folder, the Album Artist from
 the artist folder, the Date from the year in the album's name, the cover
-from the image beside the tracks. The Title is the exception it recases
-in place rather than inventing, the same claim the title command makes.
+from the image beside the tracks.
 
-Genre is the one tag left out. Nothing in the folders says what a record
-sounds like, so genre stays a separate, deliberate `rapt tags genre`
-with a value given by hand.
+Two tags are left out, each because a folder cannot answer for it.
+Nothing in the structure says what a record sounds like, so genre stays a
+separate, deliberate `rapt tags genre` with a value given by hand. And
+nothing in it says how a song's title is spelled -- `rapt tags artist`
+reads that from MusicBrainz, which keeps the artist's own capitalisation,
+and a pass recasing it here would undo that on every run. A file no
+tagger has identified is recased by `rapt tags title` instead.
 
 Covers and tags are different work, so they run as two visible passes.
 The covers settle first, on disk and into the files. Then the text tags
 are read and written together -- one open and one save per file for all
-of them, since rewriting a large lossless file six times over to set six
-fields would be six times the work for none of the gain -- and the run
-reports how many files each tag touched.
+of them, since rewriting a large lossless file five times over to set
+five fields would be five times the work for none of the gain -- and the
+run reports how many files each tag touched.
 
 Two of those tags are settled in place rather than derived. A track
 number is padded to the collection's width and stripped of the "of
@@ -59,20 +62,20 @@ from discography_toolkit.cli.scope import (
 from discography_toolkit.core import derivation
 from discography_toolkit.core.layout import find_artist_folders, owning_folder
 from discography_toolkit.core.metadata import Tag
-from discography_toolkit.core.names import strip_artist_label, title_case, track_number
+from discography_toolkit.core.names import strip_artist_label, track_number
 from discography_toolkit.operations import covers, discs, tagging
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 # The text tags read off the folders, each with its display name and how
-# its count reads. Genre is not here -- it cannot be derived -- and the
-# cover is settled by its own pass, not written as a text tag.
+# its count reads. Genre and Title are not here -- neither is a folder's
+# to answer for -- and the cover is settled by its own pass, not written
+# as a text tag.
 _TAG_LABELS: Final[tuple[tuple[Tag, str, str], ...]] = (
     (Tag.ALBUM, "Album", "tagged"),
     (Tag.ALBUM_ARTIST, "Album Artist", "tagged"),
     (Tag.DATE, "Year", "dated"),
-    (Tag.TITLE, "Title", "recased"),
     (Tag.TRACK, "Track", "numbered"),
     (Tag.DISC, "Disc", "settled"),
 )
@@ -230,11 +233,7 @@ def _wants(
             if artist is not None:
                 wanted[Tag.ALBUM_ARTIST] = artist
 
-        # Recased in place, exactly as the title command does it: an
-        # absent title cases to nothing, compares equal, and is left be.
-        wanted[Tag.TITLE] = title_case(current.get(Tag.TITLE, ""))
-
-        # Settled in place too, and left alone where it cannot be: a tag
+        # Settled in place, and left alone where it cannot be: a tag
         # holding something that is not a number is a person's to look
         # at, and guessing one would be inventing a running order.
         number: str | None = track_number(current.get(Tag.TRACK, ""))

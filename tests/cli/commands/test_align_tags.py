@@ -1,10 +1,14 @@
 # tests/cli/commands/test_align_tags.py
 """Tests for the `rapt align-tags` command.
 
-The command wires the cover pass and a four-tag pass over a laid-out
-shelf, so these check the wiring: that each tag is read off the right
-folder, that a dry run writes nothing, and that the guards behave. The
+The command wires the cover pass and a tag pass over a laid-out shelf,
+so these check the wiring: that each tag is read off the right folder,
+that a dry run writes nothing, and that the guards behave. The
 individual tag derivations have their own unit tests.
+
+Title is not among them. It is not a folder's to answer for, so it is
+left to `tags artist`, which reads it from MusicBrainz, and to
+`tags title` for a file nothing has identified.
 """
 
 from __future__ import annotations
@@ -56,7 +60,7 @@ def shelf(tmp_path: Path) -> Callable[..., Path]:
 
 
 def tags_of(track: Path) -> dict[Tag, str]:
-    """Read the four aligned tags off a track.
+    """Read the aligned tags off a track, and the Title it must not touch.
 
     Args:
         track: The file to read.
@@ -87,11 +91,13 @@ def test_the_folder_derived_tags_are_written(shelf: Callable[..., Path]) -> None
     assert tags[Tag.DATE] == "1959"
 
 
-def test_the_title_is_recased_not_derived(shelf: Callable[..., Path]) -> None:
-    """A messy Title is recased in place, not taken from the filename.
+def test_the_title_is_left_exactly_as_found(shelf: Callable[..., Path]) -> None:
+    """Two writers for one field is the bug; this pass is not one of them.
 
-    The filename is "01 - so what"; were the title derived from it, the
-    index would leak in. It is the existing tag that is cased.
+    A messy Title used to be recased here. MusicBrainz keeps the artist's
+    own capitalisation -- a title deliberately lower-cased stays that way
+    -- so recasing it on every run would undo what `tags artist` had just
+    written.
 
     Args:
         shelf: Factory building a laid-out artist.
@@ -100,11 +106,11 @@ def test_the_title_is_recased_not_derived(shelf: Callable[..., Path]) -> None:
 
     _ = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
-    assert tags_of(track)[Tag.TITLE] == "So What"
+    assert tags_of(track)[Tag.TITLE] == "so what"
 
 
 def test_a_track_with_no_title_is_left_untitled(shelf: Callable[..., Path]) -> None:
-    """With nothing to case, the Title is not invented from elsewhere.
+    """With no Title tag, none is invented from the filename beside it.
 
     Args:
         shelf: Factory building a laid-out artist.
@@ -158,7 +164,7 @@ def test_each_pass_shows_by_name(shelf: Callable[..., Path]) -> None:
 
     result = runner.invoke(app, ["align-tags", "--path", str(track.parents[3])], input="y\n")
 
-    for name in ("Covers", "Album", "Album Artist", "Year", "Title"):
+    for name in ("Covers", "Album", "Album Artist", "Year", "Track"):
         assert name in result.stdout
     # Covers is settled before the first tag is written.
     assert result.stdout.index("Covers") < result.stdout.index("Album ")
@@ -167,9 +173,9 @@ def test_each_pass_shows_by_name(shelf: Callable[..., Path]) -> None:
 def test_a_file_needing_several_tags_is_written_once(shelf: Callable[..., Path]) -> None:
     """The tags share one save: the breakdown sums past the files tagged.
 
-    One track needs Album, Album Artist, Year, and a recased Title -- four
-    fields, but one file, written once. The per-tag lines each count it,
-    while the summary counts the file a single time.
+    One track needs Album, Album Artist and Year -- three fields, but one
+    file, written once. The per-tag lines each count it, while the
+    summary counts the file a single time.
 
     Args:
         shelf: Factory building a laid-out artist.
@@ -183,7 +189,6 @@ def test_a_file_needing_several_tags_is_written_once(shelf: Callable[..., Path])
     assert tags[Tag.ALBUM]
     assert tags[Tag.ALBUM_ARTIST]
     assert tags[Tag.DATE]
-    assert tags[Tag.TITLE] == "So What"
     # The file is counted once, not once per field.
     assert "1 file(s) tagged" in result.stdout
 
@@ -191,8 +196,8 @@ def test_a_file_needing_several_tags_is_written_once(shelf: Callable[..., Path])
 def test_the_breakdown_counts_only_the_tags_that_change(tmp_path: Path) -> None:
     """A tag already right is not counted; only what changes is.
 
-    Album, Album Artist and Date are pre-set correctly and only the Title
-    needs recasing, so the breakdown must read the Title alone.
+    Album and Album Artist are pre-set correctly and only the Date is
+    missing, so the breakdown must read the Year alone.
 
     Args:
         tmp_path: Pytest's per-test temporary directory.
@@ -207,15 +212,15 @@ def test_the_breakdown_counts_only_the_tags_that_change(tmp_path: Path) -> None:
         {
             Tag.ALBUM: "Kind of Blue",
             Tag.ALBUM_ARTIST: "Miles Davis",
-            Tag.DATE: "1959",
-            Tag.TITLE: "so what",  # the one field that needs a change
+            Tag.TRACK: "01",
+            # Date is the one field left for the run to write.
         },
     )
 
     result = runner.invoke(app, ["align-tags", "--path", str(tmp_path)], input="y\n")
 
     assert f"  {'Album':<13} 0 tagged" in result.stdout
-    assert f"  {'Title':<13} 1 recased" in result.stdout
+    assert f"  {'Year':<13} 1 dated" in result.stdout
 
 
 # ==================================================================================== #
