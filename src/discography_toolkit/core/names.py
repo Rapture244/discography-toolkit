@@ -10,13 +10,23 @@ of it touching disk.
 from __future__ import annotations
 
 import re
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from titlecase import titlecase
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ==================================================================================== #
 #                                      CONSTANTS                                       #
 # ==================================================================================== #
+# What several values of one tag are joined with when read back as a
+# single string. Vorbis comments and ID3v2.4 both let a field hold more
+# than one value, and a handful of fields are wrong for doing so. Lives
+# here rather than in `metadata` because both sides need it: that module
+# joins with it, and the number settling below splits on it.
+MULTIPLE: Final[str] = "; "
+
 # The count label an artist folder carries: "[90 • 60F • 0L • 30M]", or an
 # older "[M31 on 90]". Anchored to the end, so a bracketed number earlier
 # in the name is part of the title.
@@ -955,17 +965,15 @@ def disc_number(raw: str) -> str | None:
     that answer is spelled and nothing more.
 
     Args:
-        raw: The disc number as the file carries it.
+        raw: The disc number as the file carries it, several values
+            included -- a field holding "1" and "01" reads as "1; 01".
 
     Returns:
         The settled number, or `None` when there is nothing to settle --
-        an empty tag, or one holding something that is not a number.
+        an empty tag, one holding something that is not a number, or
+        several values that do not settle to the same one.
     """
-    number, _, _total = raw.strip().partition("/")
-    number = number.strip()
-    if not number.isdigit():
-        return None
-    return str(int(number))
+    return _agreed(raw, lambda number: str(int(number)))
 
 
 def track_number(raw: str) -> str | None:
@@ -981,19 +989,44 @@ def track_number(raw: str) -> str | None:
     hundredth track stays "100" rather than being cut to fit.
 
     Args:
-        raw: The track number as the file carries it.
+        raw: The track number as the file carries it, several values
+            included -- a field holding "1" and "01" reads as "1; 01".
 
     Returns:
         The settled number, or `None` when there is nothing to settle --
-        an empty tag, or one holding something that is not a number at
-        all. Both are a person's to look at rather than a rule's to
-        guess, so neither is written.
+        an empty tag, one holding something that is not a number at all,
+        or several values that do not settle to the same one. Each is a
+        person's to look at rather than a rule's to guess, so none is
+        written.
     """
-    number, _, _total = raw.strip().partition("/")
-    number = number.strip()
-    if not number.isdigit():
-        return None
-    return f"{int(number):02d}"
+    return _agreed(raw, lambda number: f"{int(number):02d}")
+
+
+def _agreed(raw: str, settle: Callable[[str], str]) -> str | None:
+    """Settle every value a number field holds, if they say the same thing.
+
+    A ripper that writes "1" and "01" into one field has said one thing
+    twice, and the repair is to keep the settled form once. Two values
+    that settle differently are two answers to "which track is this",
+    which is not a rule's to pick between.
+
+    Args:
+        raw: The field as read, several values joined by `MULTIPLE`.
+        settle: How one bare number is spelled in the collection's form.
+
+    Returns:
+        The settled number, or `None` when any value is not a number or
+        they do not all settle alike.
+    """
+    settled: set[str] = set()
+    for value in raw.split(MULTIPLE):
+        number, _, _total = value.strip().partition("/")
+        number = number.strip()
+        if not number.isdigit():
+            return None
+        settled.add(settle(number))
+
+    return settled.pop() if len(settled) == 1 else None
 
 
 # Characters a filename cannot hold on Windows, mapped to what stands in

@@ -14,6 +14,7 @@ from discography_toolkit.core.names import (
     conforms_body,
     conforms_unnumbered,
     date_prefix,
+    disc_number,
     drop_unpaired_wrappers,
     extract_year,
     format_artist_label,
@@ -1490,3 +1491,62 @@ def test_title_case_filename_applies_english_rules_to_other_languages() -> None:
     than correct, which the rename preview is there to catch.
     """
     assert title_case_filename("warum bist du traurig.opus") == "Warum Bist Du Traurig.opus"
+
+
+# ==================================================================================== #
+#                              MULTI-VALUED NUMBER FIELDS                              #
+# ==================================================================================== #
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # The case from the shelf: a ripper wrote the number twice, once
+        # padded and once not. One answer said twice, so it settles.
+        ("1; 01", "01"),
+        ("01; 1", "01"),
+        ("01; 01", "01"),
+        # Two different numbers is two answers to "which track is this",
+        # which is a person's to look at rather than a rule's to pick.
+        ("3; 7", None),
+        # One value still behaves exactly as it did.
+        ("5/12", "05"),
+        ("", None),
+        ("A1", None),
+        # A number among non-numbers settles nothing: the tag is damaged,
+        # and taking the readable half would be guessing at the rest.
+        ("1; side A", None),
+    ],
+)
+def test_track_number_settles_a_field_read_as_several_values(
+    raw: str, expected: str | None
+) -> None:
+    """A field holding "1" and "01" is one answer written twice.
+
+    Read as the first value alone, the padded one compared equal to what
+    the pass wanted, nothing was written, and the other value survived
+    every run. Read as both, the settling has to decide whether they
+    agree.
+
+    Args:
+        raw: The field as read, several values joined.
+        expected: The number it should settle to, or `None`.
+    """
+    assert track_number(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1; 01", "1"),
+        ("1; 1/2", "1"),
+        # Two discs for one track is the ripper's record, damaged.
+        ("1; 2", None),
+    ],
+)
+def test_disc_number_settles_a_field_read_as_several_values(raw: str, expected: str | None) -> None:
+    """The same rule, unpadded: a disc number never wears a leading zero.
+
+    Args:
+        raw: The field as read, several values joined.
+        expected: The number it should settle to, or `None`.
+    """
+    assert disc_number(raw) == expected

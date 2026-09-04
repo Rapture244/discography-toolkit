@@ -887,6 +887,71 @@ def test_several_artists_still_read_as_the_first(make_track: Callable[[str], Pat
     assert read(track, [Tag.ARTIST])[Tag.ARTIST] == "Apollo Brown"
 
 
+def test_an_alias_key_is_read_beside_the_canonical_one(
+    make_track: Callable[[str], Path],
+) -> None:
+    """A ripper's second key for one field must not read as absent.
+
+    Picard leaves "TRACK" beside "TRACKNUMBER" and "YEAR" beside "DATE".
+    A tag editor merges the pair into one line and shows both values,
+    while this read only the canonical key, found the value the pass
+    wanted, wrote nothing, and left the stale key there run after run.
+
+    Args:
+        make_track: Factory building a silent audio file.
+    """
+    track: Path = make_track(".flac")
+    audio = FLAC(track)
+    audio["tracknumber"] = ["01"]
+    audio["track"] = ["1"]
+    audio.save()
+
+    assert read(track, [Tag.TRACK])[Tag.TRACK] == "01; 1"
+
+
+def test_writing_a_field_removes_its_aliases(make_track: Callable[[str], Path]) -> None:
+    """One key per field once the pass has settled it.
+
+    Args:
+        make_track: Factory building a silent audio file.
+    """
+    track: Path = make_track(".flac")
+    audio = FLAC(track)
+    audio["tracknumber"] = ["01"]
+    audio["track"] = ["1"]
+    audio.save()
+
+    write(track, {Tag.TRACK: "01"})
+
+    settled = FLAC(track)
+    assert settled["tracknumber"] == ["01"]
+    assert "track" not in settled
+
+
+def test_clearing_a_field_removes_an_alias_it_never_had(
+    make_track: Callable[[str], Path],
+) -> None:
+    """The disc case: the canonical key is absent and the alias is not.
+
+    A single-disc album has its disc number cleared. With nothing under
+    "DISCNUMBER" the field read as empty, the pass wanted empty, and
+    "DISC" survived a clear that thought it had nothing to do.
+
+    Args:
+        make_track: Factory building a silent audio file.
+    """
+    track: Path = make_track(".flac")
+    audio = FLAC(track)
+    audio["disc"] = ["1"]
+    audio.save()
+
+    assert read(track, [Tag.DISC])[Tag.DISC] == "1"
+
+    write(track, {Tag.DISC: ""})
+
+    assert "disc" not in FLAC(track)
+
+
 # ==================================================================================== #
 #                                        CODEC                                         #
 # ==================================================================================== #

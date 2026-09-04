@@ -46,6 +46,7 @@ from mutagen.wavpack import WavPack
 
 from discography_toolkit.core import artwork
 from discography_toolkit.core.artwork import PNG
+from discography_toolkit.core.names import MULTIPLE
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Mapping
@@ -164,13 +165,39 @@ _KEYS: Final[dict[Tag, dict[Family, str]]] = {
 # every time. A disc number is never padded, and so is read back plain.
 _MP4_NUMERIC: Final[dict[Tag, int]] = {Tag.TRACK: 2, Tag.DISC: 1}
 
-# What several values of one field are joined with when read back.
-# Vorbis comments and ID3v2.4 both let a field hold more than one value,
-# and only Album Artist is wrong for doing so -- it names the one folder
-# a track sits under. Artist holds two names on a collaboration and is
-# never written here, so it keeps reading as the first alone, along with
-# every other tag.
-_MULTIPLE: Final[str] = "; "
+# The fields that must hold one value, read as all of theirs so a field
+# holding several cannot compare equal to the one value it should have.
+# Album Artist names the one artist folder a track sits under; Date the
+# one year its album folder carries; Track and Disc are one number each.
+#
+# Artist and Genre are absent on purpose -- several values there are
+# correct, and neither is written from a folder. Album and Title are
+# absent because nothing writes them twice in practice, and a joined
+# Title would reach `track_naming.single_stem` and land in a filename.
+_SINGLE_VALUED: Final[frozenset[Tag]] = frozenset({Tag.ALBUM_ARTIST, Tag.DATE, Tag.TRACK, Tag.DISC})
+
+# Vorbis comments are free-form text, so a ripper can leave a second key
+# meaning the same field beside the canonical one -- "TRACK" next to
+# "TRACKNUMBER", "YEAR" next to "DATE". A tag editor merges the two into
+# one line and shows "1\\01"; this read only the canonical key, so the
+# stale one never differed from what a pass wanted and survived every
+# run. Read together and deleted on write, so a settled file carries one
+# key per field.
+#
+# ID3 and MP4 need no such table: their frame and atom names are a fixed
+# vocabulary, not free text, so there is nothing for a ripper to invent.
+#
+# Deliberately short. An alias left alone is untidy; one deleted wrongly
+# is gone. Several fields look like aliases without being them --
+# "ALBUMARTISTS" is a list, "ALBUMARTISTSORT" a sort name, "ORIGINALDATE"
+# the first release rather than this one, and every "TOTALTRACKS" or
+# "DISCTOTAL" a count rather than a number.
+_ALIASES: Final[dict[Tag, tuple[str, ...]]] = {
+    Tag.ALBUM_ARTIST: ("album artist", "album_artist"),
+    Tag.DATE: ("year",),
+    Tag.TRACK: ("track",),
+    Tag.DISC: ("disc",),
+}
 
 
 # Families whose picture storage is well enough specified to write.
@@ -266,10 +293,12 @@ def read(path: Path, tags: Iterable[Tag]) -> dict[Tag, str]:
     two mean the same thing to every caller -- no value -- and
     collapsing them keeps comparisons from having to handle both.
 
-    A field holding several values reads as the first one. Album Artist
-    is the exception and reads as all of them, so that a track carrying
-    two of them cannot compare equal to the one name its folder says it
-    should have, and is repaired instead of passed over.
+    A field holding several values reads as the first one. The fields
+    that must hold exactly one -- Album Artist, Date, Track, Disc -- read
+    as all of theirs instead, so a track carrying two cannot compare
+    equal to the single value it should have, and is repaired rather than
+    passed over. For those four, a Vorbis file is read together with the
+    aliases a ripper may have left beside the canonical key.
 
     Args:
         path: The audio file to read.
@@ -295,6 +324,10 @@ def write(path: Path, values: Mapping[Tag, str]) -> None:
     An empty value clears the field. ID3 cannot store an empty frame, so
     the frame is removed instead -- the same outcome, since a missing
     frame and an empty one both read back as empty.
+
+    Writing a Vorbis field also removes any alias of it the file carries,
+    whether the value is being set or cleared, so a settled file holds
+    one key per field.
 
     Args:
         path: The audio file to write.
@@ -495,11 +528,14 @@ def _read_one(audio, family: Family, tag: Tag) -> str:
     """Read a single tag from an already-open file.
 
     A field holding several values reads as the first one, which is the
-    shape every caller works in -- one tag, one string. Album Artist is
-    the exception: it names the one artist folder a track sits under, so
-    two values is a state to repair rather than a value to pick from, and
-    all of them are joined so the comparison cannot come back equal. The
-    write that follows collapses the field to a single value.
+    shape every caller works in -- one tag, one string. The fields that
+    must hold exactly one are the exception: for those, two values is a
+    state to repair rather than a value to pick from, so all of them are
+    joined and the comparison cannot come back equal. The write that
+    follows collapses the field to a single value.
+
+    A Vorbis field is read together with the aliases a ripper may have
+    left beside it, for the same reason and by the same route.
 
     Args:
         audio: An open mutagen file object.
@@ -520,9 +556,15 @@ def _read_one(audio, family: Family, tag: Tag) -> str:
         return _joined(text, tag) if text else ""
 
     values = audio.get(key)
-    if not values:
-        return ""
-    return _joined(values, tag) if isinstance(values, list) else str(values)
+    if family is not Family.VORBIS:
+        if not values:
+            return ""
+        return _joined(values, tag) if isinstance(values, list) else str(values)
+
+    found: list[object] = list(values or [])
+    for alias in _ALIASES.get(tag, ()):
+        found.extend(audio.get(alias) or [])
+    return _joined(found, tag) if found else ""
 
 
 def _joined(values: list[object], tag: Tag) -> str:
@@ -537,11 +579,12 @@ def _joined(values: list[object], tag: Tag) -> str:
         tag: The field they belong to.
 
     Returns:
-        Every value for Album Artist, the first alone for anything else.
+        Every value for a field that must hold one, the first alone for
+        anything else.
     """
-    if tag is not Tag.ALBUM_ARTIST:
+    if tag not in _SINGLE_VALUED:
         return str(values[0])
-    return _MULTIPLE.join(str(value) for value in values)
+    return MULTIPLE.join(str(value) for value in values)
 
 
 def _read_mp4_number(audio, key: str, width: int) -> str:
@@ -604,6 +647,14 @@ def _write_one(audio, family: Family, tag: Tag, value: str) -> None:
                 audio[key] = [value]
             elif key in audio:
                 del audio[key]
+            # After the canonical key either way: clearing a field has to
+            # take the alias with it, or a disc number the album does not
+            # need survives under "DISC" having never been under
+            # "DISCNUMBER" at all.
+            if family is Family.VORBIS:
+                for alias in _ALIASES.get(tag, ()):
+                    if alias in audio:
+                        del audio[alias]
 
 
 def _pictures(path: Path, family: Family) -> list[Picture]:
