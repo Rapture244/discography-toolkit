@@ -164,6 +164,14 @@ _KEYS: Final[dict[Tag, dict[Family, str]]] = {
 # every time. A disc number is never padded, and so is read back plain.
 _MP4_NUMERIC: Final[dict[Tag, int]] = {Tag.TRACK: 2, Tag.DISC: 1}
 
+# What several values of one field are joined with when read back.
+# Vorbis comments and ID3v2.4 both let a field hold more than one value,
+# and only Album Artist is wrong for doing so -- it names the one folder
+# a track sits under. Artist holds two names on a collaboration and is
+# never written here, so it keeps reading as the first alone, along with
+# every other tag.
+_MULTIPLE: Final[str] = "; "
+
 
 # Families whose picture storage is well enough specified to write.
 # APEv2 and ASF are deliberately absent.
@@ -257,6 +265,11 @@ def read(path: Path, tags: Iterable[Tag]) -> dict[Tag, str]:
     An absent tag comes back as an empty string rather than `None`. The
     two mean the same thing to every caller -- no value -- and
     collapsing them keeps comparisons from having to handle both.
+
+    A field holding several values reads as the first one. Album Artist
+    is the exception and reads as all of them, so that a track carrying
+    two of them cannot compare equal to the one name its folder says it
+    should have, and is repaired instead of passed over.
 
     Args:
         path: The audio file to read.
@@ -481,6 +494,13 @@ def _open_id3(path: Path, suffix: str):
 def _read_one(audio, family: Family, tag: Tag) -> str:
     """Read a single tag from an already-open file.
 
+    A field holding several values reads as the first one, which is the
+    shape every caller works in -- one tag, one string. Album Artist is
+    the exception: it names the one artist folder a track sits under, so
+    two values is a state to repair rather than a value to pick from, and
+    all of them are joined so the comparison cannot come back equal. The
+    write that follows collapses the field to a single value.
+
     Args:
         audio: An open mutagen file object.
         family: Its tagging mechanism.
@@ -497,12 +517,31 @@ def _read_one(audio, family: Family, tag: Tag) -> str:
     if family is Family.ID3:
         frame = audio.tags.get(key) if audio.tags is not None else None
         text = getattr(frame, "text", None)
-        return str(text[0]) if text else ""
+        return _joined(text, tag) if text else ""
 
     values = audio.get(key)
     if not values:
         return ""
-    return str(values[0] if isinstance(values, list) else values)
+    return _joined(values, tag) if isinstance(values, list) else str(values)
+
+
+def _joined(values: list[object], tag: Tag) -> str:
+    """Reduce a field's values to the one string a caller compares on.
+
+    Typed as `object` rather than `str`: these come out of mutagen, which
+    ships no type information, and nothing here needs them to be strings
+    -- each is passed through `str` on the way out.
+
+    Args:
+        values: Everything the field holds, never empty.
+        tag: The field they belong to.
+
+    Returns:
+        Every value for Album Artist, the first alone for anything else.
+    """
+    if tag is not Tag.ALBUM_ARTIST:
+        return str(values[0])
+    return _MULTIPLE.join(str(value) for value in values)
 
 
 def _read_mp4_number(audio, key: str, width: int) -> str:

@@ -832,6 +832,61 @@ def test_reading_an_unsupported_format_raises(tmp_path: Path) -> None:
         _ = read(cover, [Tag.ALBUM])
 
 
+def test_several_album_artists_read_as_all_of_them(make_track: Callable[[str], Path]) -> None:
+    """A collaboration tagged with both names must not read as correct.
+
+    Vorbis comments let one field hold several values, and a rip of a
+    joint album arrives with two ALBUMARTIST comments. Read as the first
+    alone, the value matched the artist folder exactly, every track came
+    back "already correct", and the second name sat there through every
+    run -- the pass reporting nothing to do while the tag stayed wrong.
+
+    Args:
+        make_track: Factory building a silent audio file.
+    """
+    track: Path = make_track(".flac")
+    audio = FLAC(track)
+    audio["albumartist"] = ["Apollo Brown", "Ty Farris"]
+    audio.save()
+
+    assert read(track, [Tag.ALBUM_ARTIST])[Tag.ALBUM_ARTIST] == "Apollo Brown; Ty Farris"
+
+
+def test_writing_an_album_artist_collapses_the_others(
+    make_track: Callable[[str], Path],
+) -> None:
+    """The repair the read above makes reachable: one field, one value.
+
+    Args:
+        make_track: Factory building a silent audio file.
+    """
+    track: Path = make_track(".flac")
+    audio = FLAC(track)
+    audio["albumartist"] = ["Apollo Brown", "Ty Farris"]
+    audio.save()
+
+    write(track, {Tag.ALBUM_ARTIST: "Apollo Brown"})
+
+    assert FLAC(track)["albumartist"] == ["Apollo Brown"]
+
+
+def test_several_artists_still_read_as_the_first(make_track: Callable[[str], Path]) -> None:
+    """Artist is not Album Artist: two performers there are correct.
+
+    Nothing in the toolkit writes Artist, so joining its values would put
+    a separator in front of every caller for a field none of them repair.
+
+    Args:
+        make_track: Factory building a silent audio file.
+    """
+    track: Path = make_track(".flac")
+    audio = FLAC(track)
+    audio["artist"] = ["Apollo Brown", "Ty Farris"]
+    audio.save()
+
+    assert read(track, [Tag.ARTIST])[Tag.ARTIST] == "Apollo Brown"
+
+
 # ==================================================================================== #
 #                                        CODEC                                         #
 # ==================================================================================== #
